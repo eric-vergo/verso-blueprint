@@ -1880,8 +1880,12 @@ to Lean declarations and back without scraping presentation markup:
   and, when the declaring module and source range are known,
   `data-lean-source="<path>:<startLine>:<startCol>-<endLine>:<endCol>"`.
 - The Lean code panel heading contains one jump link per present declaration,
-  `lean:decl/<Name>`; viewers may also accept
-  `lean:source/<path>:<line>:<col>`.
+  `lean:decl/<Name>`. Generated pages contain only this form: a declaration
+  name stays valid when the Lean file is edited after the Blueprint was built,
+  a source position does not. A viewer that wants to jump to a position reads
+  it from `data-lean-source`; `LeanSourceAnchor.sourceHref` builds the
+  matching `lean:source/<path>:<line>:<col>` link for custom generators and
+  viewers that accept that form.
 
 `<path>` is the declaring module's source path relative to its package source
 directory (`Mathlib/Order/Basic.lean` for `Mathlib.Order.Basic`). Lines are
