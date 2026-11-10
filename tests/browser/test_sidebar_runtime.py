@@ -92,3 +92,66 @@ class TestSidebarRuntime:
         page.evaluate("localStorage.removeItem('verso-theme')")
         page.reload()
         expect(page.locator(".bp_theme_switch")).to_have_attribute("aria-checked", "true")
+
+    def test_sections_nest_under_their_chapter(self, sidebar_server: str, page: Page):
+        errors = record_runtime_errors(page)
+        page.goto(sidebar_server + "/External-Declaration-Heading-Repro/Nested-External-Declaration-Panels/")
+        toc = page.locator("#toc")
+        chapter = toc.locator(".split-toc.book > table > tbody > tr.numbered.current")
+        expect(chapter).to_have_count(1)
+        # the chapter's sections follow it directly, the current one marked
+        nested = chapter.locator("xpath=following-sibling::tr[1]")
+        expect(nested).to_have_class("bp_sidebar_sections")
+        expect(nested.locator("tr.current a")).to_have_text("Nested External Declaration Panels")
+        # Verso's separate per-level lists are gone: the section is listed once
+        for split_toc in toc.locator(".split-toc:not(.book)").all():
+            expect(split_toc).to_be_hidden()
+        expect(toc.locator("a:visible", has_text="Nested External Declaration Panels")).to_have_count(1)
+        # the current entry is bold, without Verso's dotted underline
+        decoration = chapter.locator("td:not(.num)").evaluate("e => getComputedStyle(e).textDecorationLine")
+        assert decoration == "none"
+        assert_no_runtime_errors(errors)
+
+    def test_header_sits_at_the_top_of_the_sidebar(self, sidebar_server: str, page: Page):
+        page.set_viewport_size({"width": 1280, "height": 800})
+        page.goto(sidebar_server + "/Code-Panels/")
+        header = page.locator("body > header").bounding_box()
+        toc = page.locator("#toc").bounding_box()
+        assert header is not None and toc is not None
+        assert header["x"] == 0 and abs(header["width"] - toc["width"]) < 1
+        assert toc["y"] >= header["y"] + header["height"] - 1
+        # the page content starts at the top of the window, beside the sidebar
+        content = page.locator("main .content-wrapper").bounding_box()
+        assert content is not None and content["y"] < 40
+        expect(page.locator("body > header .header-title")).to_be_visible()
+
+    def test_page_controls_move_into_the_sidebar_foot(self, sidebar_server: str, page: Page):
+        page.goto(sidebar_server + "/Code-Panels/")
+        switcher = page.locator("#bp-style-switcher")
+        expect(switcher).to_have_count(1)
+        expect(page.locator(".bp_sidebar_foot #bp-style-switcher")).to_be_visible()
+        assert switcher.evaluate("e => getComputedStyle(e).position") == "static"
+
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_sidebar_text_contrast(self, sidebar_server: str, page: Page, scheme: str):
+        page.emulate_media(color_scheme=scheme)
+        page.goto(sidebar_server + "/Code-Panels/")
+        ratios = page.evaluate(
+            """() => {
+              const parse = (c) => { const p = c.match(/[\\d.]+/g).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+              const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+              const bg = parse(getComputedStyle(document.getElementById('toc')).backgroundColor);
+              const ratio = (el) => {
+                const fg = parse(getComputedStyle(el).color);
+                const seen = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
+                const [x, y] = [lum(seen), lum(bg)].sort((p, q) => q - p);
+                return (x + 0.05) / (y + 0.05);
+              };
+              return [...document.querySelectorAll('#toc a, #toc td.num, .bp_sidebar_foot label')]
+                .filter((el) => el.offsetParent !== null && el.textContent.trim())
+                .map((el) => [el.textContent.trim().slice(0, 30), ratio(el)]);
+            }"""
+        )
+        assert ratios
+        failing = [r for r in ratios if r[1] < 4.5]
+        assert not failing, failing
