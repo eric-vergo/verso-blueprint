@@ -130,6 +130,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintTeXCleanup,
     `VersoBlueprintTests.BlueprintTexMacros,
     `VersoBlueprintTests.BlueprintExternalMarkup,
+    `VersoBlueprintTests.BlueprintWorkQueue,
     `VersoBlueprintTests.ExternalDeclRender,
     `VersoBlueprintTests.RuntimeCache,
     `VersoBlueprintTests.SerializedExtension,
