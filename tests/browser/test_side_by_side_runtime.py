@@ -272,3 +272,54 @@ class TestSideBySideRuntime:
         assert result["tokens"]
         failing = [t for t in result["tokens"] if t[1] < 4.5]
         assert not failing, failing
+
+    def test_folded_proof_without_visible_chips_is_one_line_in_a_narrow_card(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        # A proof header whose relation chips are all empty (hidden) must not wrap an empty row under
+        # "Proof [show]" when the card is narrow (the empty slot used to keep a second line).
+        page.set_viewport_size({"width": 520, "height": 900})
+        checked = 0
+        for index in sorted(side_by_side_site_dir.rglob("index.html")):
+            if "bp_kind_proof_wrapper" not in index.read_text(encoding="utf-8"):
+                continue
+            page.goto(side_by_side_server + "/" + str(index.parent.relative_to(side_by_side_site_dir)).replace("\\", "/") + "/")
+            heights = page.evaluate(
+                """() => [...document.querySelectorAll('.bp_sbs_informal > details.bp_kind_proof_wrapper:not([open]) > summary')]
+                  .filter((s) => ![...s.querySelectorAll('.bp_extras *')].some((e) => e.getBoundingClientRect().width > 0))
+                  .map((s) => [s.getBoundingClientRect().height, s.querySelector('.bp_heading_title_row').getBoundingClientRect().height])"""
+            )
+            for summary, title in heights:
+                assert summary <= title + 2, (index, summary, title)
+                checked += 1
+        if checked == 0:
+            pytest.skip("fixture has no folded proof without visible chips")
+
+    def test_lean_hover_stays_inside_a_narrow_viewport(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        page.set_viewport_size({"width": 560, "height": 800})
+        page.goto(side_by_side_server + side_by_side_page_path(side_by_side_site_dir))
+        page.wait_for_load_state("networkidle")
+        token = page.locator(".bp_sbs_formal .hl.lean [data-verso-hover]").first
+        if token.count() == 0:
+            pytest.skip("fixture has no hover in the Lean column")
+        token.scroll_into_view_if_needed()
+        token.hover()
+        box = page.locator(".tippy-box[data-theme~='lean']").first
+        expect(box).to_be_visible()
+        # the box is bounded by the viewport (WebKit otherwise sizes it to its widest line)
+        max_width = box.evaluate("e => getComputedStyle(e).maxWidth")
+        assert max_width.endswith("px") and float(max_width[:-2]) < page.viewport_size["width"], max_width
+        # a long signature, with spaces and as one unbreakable name, wraps inside it
+        for text in ["theorem_with_a_long_name " + "(h : Nat → Nat → Nat) " * 12, "a_very_long_identifier_" * 20]:
+            page.evaluate(
+                """(t) => { const c = document.querySelector(".tippy-box[data-theme~='lean'] .hover-info > code");
+                           if (c) c.textContent = t; }""",
+                text,
+            )
+            page.wait_for_timeout(200)
+            width = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
+            assert width[0] <= width[1], width
+            right = box.evaluate("e => e.getBoundingClientRect().right")
+            assert right <= page.viewport_size["width"], right
