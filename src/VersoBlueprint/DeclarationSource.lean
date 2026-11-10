@@ -122,6 +122,9 @@ def prepare (root : System.FilePath) (modules : Array Name)
     cmd := ← lakeCommand
     args := #["build"] ++ targets
     cwd := root
+    -- SubVerso's extractor reads `.olean` files from the build directories, so
+    -- artifacts kept only in a Lake artifact cache must be restored there.
+    env := #[("LAKE_RESTORE_ARTIFACTS", some "true")]
   }
   if out.exitCode != 0 then
     let tail := String.intercalate "\n" ((out.stdout ++ out.stderr).splitOn "\n" |>.reverse.take 20 |>.reverse)
