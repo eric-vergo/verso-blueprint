@@ -53,9 +53,52 @@
     if (host) host.appendChild(legend.cloneNode(true));
   }
 
+  // Display formulas wider than the informal column are set smaller to fit,
+  // down to 70% of their size; wider ones still scroll inside the column.
+  const minMathScale = 0.7;
+
+  function fitDisplayMath(column) {
+    column.querySelectorAll(".katex-display > .katex").forEach(function (math) {
+      math.style.fontSize = "";
+      const available = math.parentElement.clientWidth;
+      const needed = math.scrollWidth;
+      if (available <= 0 || needed <= available) return;
+      const scale = Math.max(minMathScale, available / needed);
+      const size = parseFloat(window.getComputedStyle(math).fontSize);
+      math.style.fontSize = (size * scale).toFixed(2) + "px";
+    });
+  }
+
+  function installMathFitting() {
+    const columns = document.querySelectorAll(".bp_sbs_informal");
+    if (columns.length === 0) return;
+    const fitAll = function () {
+      columns.forEach(fitDisplayMath);
+    };
+    // Formulas are typeset by a later script; fit them once the page has loaded
+    // and whenever a column changes width.
+    if (document.readyState === "complete") fitAll();
+    else window.addEventListener("load", fitAll);
+    if (window.ResizeObserver) {
+      let lastWidths = new WeakMap();
+      const observer = new ResizeObserver(function (entries) {
+        entries.forEach(function (entry) {
+          const width = Math.round(entry.contentRect.width);
+          if (lastWidths.get(entry.target) === width) return;
+          lastWidths.set(entry.target, width);
+          fitDisplayMath(entry.target);
+        });
+      });
+      columns.forEach(function (column) {
+        observer.observe(column);
+      });
+    }
+  }
+
   function install() {
     attachProofs();
     installLegend();
+    installMathFitting();
   }
 
   if (document.readyState === "loading") {

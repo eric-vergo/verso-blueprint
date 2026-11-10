@@ -1448,7 +1448,11 @@ layout on:
   emphasis and the "Proof" caption); Verso's structure face for navigation and
   controls; a monospace face for code. The faces are CSS variables a project
   stylesheet can set: `--bp-sbs-text-font-family`, `--bp-sbs-code-font-family`
-  (and `--bp-sbs-text-size`).
+  (and `--bp-sbs-text-size`). Every page of the site uses the wide content
+  area, with running text kept to a readable measure (`--bp-sbs-measure`,
+  48rem); links in reading text use the theme's link colour.
+- Display formulas wider than the left column are set smaller to fit (down to
+  70%); wider ones scroll inside the column.
 
 Declaration sources come from SubVerso's per-module highlighted JSON. Before
 rendering, the generator runs `lake build +<Module>:highlighted` once for every

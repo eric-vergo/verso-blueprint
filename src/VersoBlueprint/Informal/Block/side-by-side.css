@@ -55,6 +55,18 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   font-style: normal;
 }
 
+/* Inline code in reading text matches the text's x-height. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper p, .bp_wrapper li) code:not(.block) {
+  font-size: 0.86em;
+}
+
+/* Links in reading text use the theme's link colour. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, .bp_wrapper p, .bp_wrapper li) a {
+  color: var(--bp-color-link, #1d4ed8);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
 .bp_sbs {
   container-type: inline-size;
   margin: 1.1rem 0 1.35rem;
