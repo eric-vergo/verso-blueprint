@@ -1,3 +1,7 @@
+.bp_work_queue {
+  max-width: 52rem;
+}
+
 .bp_work_queue_section + .bp_work_queue_section {
   margin-top: 1.6rem;
 }
@@ -35,6 +39,21 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 0.2rem 0.8rem;
+}
+
+.bp_work_queue_head > a {
+  color: var(--bp-color-link, #1d4ed8);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.bp_work_queue_head > a:hover {
+  text-decoration: underline;
+}
+
+.bp_work_queue_stage,
+.bp_work_queue_needs {
+  font-family: var(--verso-structure-font-family, sans-serif);
 }
 
 .bp_work_queue_stage {
