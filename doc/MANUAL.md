@@ -1639,6 +1639,23 @@ Maintainer-oriented diagnostics such as external declaration render failures are
 available through an explicit summary debug option so they do not appear in the
 default end-user view.
 
+### Work queue page
+
+`{blueprint_work_queue}` adds an unnumbered "Ready to Prove" page that lists
+what can be worked on next:
+
+```
+{blueprint_work_queue}
+```
+
+It reads the same finalized dependency-graph statuses as the dependency graph
+and `lake exe vbp query work-queue`: a node is listed when its statement is ready
+to formalize, or, for theorem-like nodes, when its proof is ready to formalize
+or its Lean code is incomplete. Ready nodes are listed first, then nodes with
+incomplete Lean code, each in document order. Each entry links to its node,
+says which stage is next, and lists under "needs:" the direct dependencies of
+that stage that are not formalized yet.
+
 ### Bibliography page
 
 `blueprint_bibliography` renders the bibliography entries

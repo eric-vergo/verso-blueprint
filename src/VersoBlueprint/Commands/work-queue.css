@@ -1,0 +1,57 @@
+.bp_work_queue_section + .bp_work_queue_section {
+  margin-top: 1.6rem;
+}
+
+.bp_work_queue_title {
+  font-size: 1.1rem;
+  margin: 0 0 0.6rem;
+}
+
+.bp_work_queue_list {
+  margin: 0;
+  padding-left: 1.6rem;
+}
+
+.bp_work_queue_item {
+  padding: 0.45rem 0.55rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--bp-color-border-soft);
+  border-left-width: 3px;
+  border-radius: var(--bp-radius-sm);
+  background: var(--bp-color-surface);
+}
+
+.bp_work_queue_ready {
+  border-left-color: var(--bp-color-accent-success);
+}
+
+.bp_work_queue_incomplete {
+  border-left-color: var(--bp-color-accent-warning);
+}
+
+.bp_work_queue_head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem 0.8rem;
+}
+
+.bp_work_queue_stage {
+  font-size: 0.8rem;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_work_queue_needs {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--bp-color-text-subtle);
+}
+
+.bp_work_queue_needs_key {
+  font-weight: 600;
+}
+
+.bp_work_queue_empty {
+  color: var(--bp-color-text-faint);
+}

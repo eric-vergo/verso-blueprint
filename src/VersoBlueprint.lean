@@ -31,6 +31,7 @@ import VersoBlueprint.Cite
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Summary
+import VersoBlueprint.Commands.WorkQueue
 import VersoBlueprint.Commands.Bibliography
 import VersoBlueprint.Informal.Block.Assets
 import VersoBlueprint.Informal.Block.Config
