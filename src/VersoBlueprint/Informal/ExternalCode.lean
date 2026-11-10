@@ -498,19 +498,26 @@ private def renderDeclarationSourceCard [Monad m]
   let (statement, proof?) := declarationSourceParts item.decl src
   let statementLines := DeclarationSource.lines statement
   let proofLines := (proof?.map DeclarationSource.lines).getD #[]
-  let parts := (statementLines ++ proofLines).map SubVerso.Highlighting.Highlighted.seq
+  let allLines := statementLines ++ proofLines
+  let parts := allLines.map SubVerso.Highlighting.Highlighted.seq
+  let indents := allLines.map DeclarationSource.lineIndent
   let rendered := renderHighlightedTemplate parts fun htmls =>
     open Verso.Output.Html in
-    -- One block per source line: wrapped lines get a hanging indent.
-    let code (lineHtmls : Array Output.Html) : Output.Html :=
-      {{<code class="hl lean block bp_decl_source_code">{{lineHtmls.map fun line =>
-          {{<span class="bp_code_line">{{line}}</span>}}}}</code>}}
+    -- One block per source line; the stylesheet gives wrapped lines a hanging
+    -- indent beyond the line's own indentation (`--bp-indent`).
+    let line (i : Nat) : Output.Html :=
+      let indent := indents[i]?.getD 0
+      let attrs := if indent == 0 then #[("class", "bp_code_line")]
+        else #[("class", "bp_code_line"), ("style", s!"--bp-indent: {indent}")]
+      .tag "span" attrs (htmls[i]?.getD .empty)
+    let code (start stop : Nat) : Output.Html :=
+      {{<code class="hl lean block bp_decl_source_code">{{(List.range' start (stop - start)).toArray.map line}}</code>}}
     let proofHtml : Output.Html :=
       if proofLines.isEmpty then .empty
       else
         {{<details class="bp_decl_source_proof"><summary>"Lean proof"</summary>{{
-          code (htmls.extract statementLines.size htmls.size)}}</details>}}
-    .seq #[code (htmls.extract 0 statementLines.size), proofHtml]
+          code statementLines.size htmls.size}}</details>}}
+    .seq #[code 0 statementLines.size, proofHtml]
   let html ← renderedHtmlWithPageHovers rendered
   let kindClass := if isTheoremLike item.decl then "bp_decl_source_theorem" else "bp_decl_source_definition"
   pure <| .tag "div" (#[("class", s!"bp_decl_source {kindClass}")] ++ item.anchorAttrs)

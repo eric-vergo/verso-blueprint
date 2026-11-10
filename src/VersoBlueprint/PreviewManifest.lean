@@ -2715,12 +2715,16 @@ def declarationSourceModules (state : TraverseState) : Array Name :=
 /-- Name of the `<meta>` element that selects the site's default Blueprint style. -/
 def defaultStyleMetaName : String := "verso-blueprint-default-style"
 
-/-- Make the side-by-side style (`sbs`) the site's default Blueprint style. -/
+/--
+Make the side-by-side style (`sbs`) the site's default Blueprint style, and ship
+the legend of its status glyphs.
+-/
 def withSideBySideDefaultStyle (config : RenderConfig) : RenderConfig :=
   let styleMeta : Output.Html :=
     .tag "meta" #[("name", defaultStyleMetaName), ("content", "sbs")] .empty
-  if config.toHtmlConfig.extraHead.any (·.asString == styleMeta.asString) then config
-  else { config with extraHead := config.toHtmlConfig.extraHead.push styleMeta }
+  let head := #[styleMeta, Informal.statusLegendTemplate].foldl
+    VersoBlueprint.Html.pushIfRenderedMissing config.toHtmlConfig.extraHead
+  { config with extraHead := head }
 
 /-- Emit only the document/layout pair admitted by the checked boundary. -/
 private def PreparedRendererState.emit (prepared : PreparedRendererState) : EmitM Unit := do

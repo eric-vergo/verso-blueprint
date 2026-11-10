@@ -842,23 +842,60 @@ def renderSideBySideNode (label : String) (informal formal : Verso.Output.Html) 
     </div>
   }}
 
-/-- Glyph, CSS modifier and description for a node's Lean status in the side-by-side layout. -/
-def statusGlyph (mark? : Option BlockStatusMark) : String × String × String :=
+/-- A status glyph of the side-by-side layout: its symbol, CSS modifier and meaning. -/
+structure StatusGlyphKind where
+  glyph : String
+  modifier : String
+  meaning : String
+
+namespace StatusGlyphKind
+def proved : StatusGlyphKind := ⟨"✓", "proved", "Proved in Lean"⟩
+def incomplete : StatusGlyphKind := ⟨"◐", "partial", "Stated in Lean, proof incomplete"⟩
+def problem : StatusGlyphKind :=
+  ⟨"⚠", "problem", "Lean statement has a gap, an axiom or an unverified type"⟩
+def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"⟩
+def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
+
+/-- Every status glyph, in legend order. -/
+def all : Array StatusGlyphKind := #[proved, incomplete, problem, missing, noLean]
+end StatusGlyphKind
+
+/-- The status glyph of a node and its tooltip (the glyph's meaning, then the detailed status). -/
+def statusGlyph (mark? : Option BlockStatusMark) : StatusGlyphKind × String :=
   match mark? with
-  | none => ("○", "none", "No Lean declaration attached")
+  | none => (.noLean, StatusGlyphKind.noLean.meaning)
   | some mark =>
     let status := mark.status
-    if status.isProved then ("✓", "proved", mark.title)
-    else if status.isMissing then ("✗", "missing", mark.title)
-    else if status.hasTypeGap || status.hasUnverifiedType then ("⚠", "problem", mark.title)
-    else ("◐", "partial", mark.title)
+    let kind :=
+      if status.isProved then StatusGlyphKind.proved
+      else if status.isMissing then .missing
+      else if status.hasTypeGap || status.hasUnverifiedType then .problem
+      else .incomplete
+    (kind, s!"{kind.meaning} ({mark.title})")
+
+private def statusGlyphSpan (kind : StatusGlyphKind) (attrs : Array (String × String)) :
+    Verso.Output.Html :=
+  .tag "span" (#[("class", s!"bp_status_glyph bp_status_glyph_{kind.modifier}")] ++ attrs)
+    (.text true kind.glyph)
 
 /-- The status glyph shown beside a node title in the side-by-side layout. -/
 def renderStatusGlyph (mark? : Option BlockStatusMark) : Verso.Output.Html :=
+  let (kind, title) := statusGlyph mark?
+  statusGlyphSpan kind #[("title", title), ("aria-label", title)]
+
+/-- Element id of the status glyph legend template (see `statusLegendTemplate`). -/
+def statusLegendId : String := "bp-status-legend"
+
+/--
+The legend of the status glyphs, as a `<template>` for the page head. The
+side-by-side page script shows it, folded, in the sidebar foot (or at the end of
+the page) on pages whose nodes carry glyphs.
+-/
+def statusLegendTemplate : Verso.Output.Html :=
   open Verso.Output.Html in
-  let (glyph, modifier, title) := statusGlyph mark?
-  {{<span class={{s!"bp_status_glyph bp_status_glyph_{modifier}"}} title={{title}}
-      aria-label={{title}}>{{.text true glyph}}</span>}}
+  let rows := StatusGlyphKind.all.map fun kind =>
+    {{<dt>{{statusGlyphSpan kind #[("aria-hidden", "true")]}}</dt><dd>{{.text true kind.meaning}}</dd>}}
+  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl></details></template>}}
 
 /-- Render a complete informal block model, including companion panels. -/
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=

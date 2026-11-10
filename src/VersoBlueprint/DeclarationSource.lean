@@ -239,6 +239,10 @@ def splitStatement? (ls : Array Highlighted) : Option (Array Highlighted × Arra
         return some (ls.extract 0 cut, rest)
   return none
 
+/-- The indentation of a source line: its number of leading spaces. -/
+def lineIndent (line : Array Highlighted) : Nat :=
+  ((Highlighted.seq line).toString.toList.takeWhile (· == ' ')).length
+
 /--
 Split presented code into source lines (without the line breaks), so that each
 line can be laid out on its own, e.g. with a hanging indent when it wraps.

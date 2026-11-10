@@ -6,6 +6,47 @@ html:has(.bp_sbs) {
   --verso-content-max-width: var(--bp-sbs-content-max-width, 92rem);
 }
 
+/* Typography of the side-by-side style, active on sites that make it their
+   default style unless the reader picks another style: one serif text face for
+   reading text (chapter prose, node headings, statements and proofs), the KaTeX
+   text face by default so that prose and formulas match; Verso's structure face
+   for navigation and controls; one monospace face for code. Italics are left to
+   emphasis and the "Proof" caption, so theorem statements are upright. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) {
+  --verso-text-font-family: var(--bp-sbs-text-font-family,
+    KaTeX_Main, "Latin Modern Roman", "CMU Serif", "Times New Roman", serif);
+  --verso-code-font-family: var(--bp-sbs-code-font-family,
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
+  --bp-sbs-text-size: 1.0625rem;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main {
+  font-family: var(--verso-structure-font-family);
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) {
+  font-family: var(--verso-text-font-family);
+  font-size: var(--bp-sbs-text-size);
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
+  font-size: inherit;
+  line-height: 1.5;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main :is(h1, h2, h3, h4) {
+  font-family: var(--verso-text-font-family);
+}
+
+/* With the text set in the KaTeX face, formulas use the text size. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main .katex {
+  font-size: 1.04em;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) .bp_wrapper.bp_style_plain .bp_content {
+  font-style: normal;
+}
+
 .bp_sbs {
   container-type: inline-size;
   margin: 1.1rem 0 1.35rem;
@@ -13,10 +54,11 @@ html:has(.bp_sbs) {
 
 .bp_sbs_grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  column-gap: 2rem;
-  align-items: start;
-  padding: 0.95rem 1.2rem 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 2.25rem;
+  /* The node title and the first line of Lean code share a baseline. */
+  align-items: first baseline;
+  padding: 1rem 1.25rem 1.05rem;
   border: 1px solid var(--bp-color-border-soft);
   border-radius: var(--bp-radius-lg);
   background: var(--bp-color-surface);
@@ -46,24 +88,24 @@ html:has(.bp_sbs) {
 }
 
 .bp_sbs_informal > .bp_wrapper + .bp_wrapper {
-  margin-top: 0.7rem;
+  margin-top: 0.6rem;
 }
 
+/* Heading: "Definition 4.1. ✓" at the left, the relation and Lean chips as
+   quiet secondary information at the right. */
 .bp_sbs_informal .bp_heading {
+  align-items: baseline;
   border-bottom: 0;
   padding-bottom: 0;
 }
 
 .bp_sbs_informal .bp_content {
-  margin-top: 0.45rem;
-  padding-left: 0.9rem;
+  margin-top: 0.35rem;
+  padding-left: 0;
   border-left: 0;
 }
 
-.bp_sbs_informal .bp_caption {
-  font-weight: 700;
-}
-
+.bp_sbs_informal .bp_caption,
 .bp_sbs_informal .bp_label {
   font-weight: 700;
 }
@@ -79,14 +121,43 @@ html:has(.bp_sbs) {
   text-align: left;
 }
 
-/* Relation chips and the Lean status chip stay compact at the right. */
 .bp_sbs_informal .bp_extras {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 0.2rem 0.9rem;
+  align-items: baseline;
+  gap: 0.15rem 0.75rem;
   width: auto;
   margin-left: auto;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.bp_sbs_informal .bp_extras .bp_relation_chip,
+.bp_sbs_informal .bp_extras .bp_code_link {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_sbs_informal .bp_extras button.bp_relation_chip {
+  cursor: pointer;
+}
+
+.bp_sbs_informal .bp_extras button.bp_relation_chip:hover,
+.bp_sbs_informal .bp_extras .bp_code_link:hover {
+  color: var(--bp-color-link, #1d4ed8);
+}
+
+.bp_sbs_informal .bp_extras .bp_code_status_symbol {
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+/* Counts of zero say nothing: hide them. */
+.bp_sbs_informal .bp_extras .bp_relation_chip_empty {
+  display: none;
 }
 
 /* Wide display math scrolls inside the column instead of overlapping the code. */
@@ -99,7 +170,9 @@ html:has(.bp_sbs) {
 .bp_status_glyph {
   display: inline-block;
   margin-left: 0.15rem;
+  font-family: var(--verso-structure-font-family, sans-serif);
   font-size: 0.95em;
+  font-weight: 400;
   line-height: 1;
   cursor: help;
 }
@@ -109,6 +182,56 @@ html:has(.bp_sbs) {
 .bp_status_glyph_problem { color: var(--bp-color-accent-warning); }
 .bp_status_glyph_missing { color: var(--bp-color-accent-danger); }
 .bp_status_glyph_none { color: var(--bp-color-text-faint); }
+
+/* Legend of the status glyphs (a <details> placed by the page script in the
+   sidebar foot, or at the end of the page without a sidebar). */
+.bp_status_legend {
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.8rem;
+}
+
+.bp_status_legend > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_status_legend > summary::-webkit-details-marker {
+  display: none;
+}
+
+.bp_status_legend > summary::after {
+  content: " ▸";
+}
+
+.bp_status_legend[open] > summary::after {
+  content: " ▾";
+}
+
+.bp_status_legend dl {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0.2rem 0.3rem;
+  margin: 0.4rem 0 0;
+}
+
+/* Glyphs keep their node colours on the page surface, wherever the legend sits. */
+.bp_status_legend dt {
+  margin: 0;
+  border-radius: 0.25rem;
+  background: var(--bp-color-surface);
+  text-align: center;
+  line-height: 1.35;
+}
+
+.bp_status_legend dd {
+  margin: 0;
+  line-height: 1.3;
+}
+
+main .bp_status_legend {
+  margin: 2rem 0 1rem;
+}
 
 /* Folded proofs read "Proof [show]". */
 .bp_sbs_informal details.bp_kind_proof_wrapper > summary {
@@ -127,7 +250,8 @@ html:has(.bp_sbs) {
 .bp_sbs_informal details.bp_kind_proof_wrapper .bp_heading_title_row::after {
   content: "[show]";
   margin-left: 0.45rem;
-  font-size: 0.78rem;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.75rem;
   font-weight: 400;
   font-style: normal;
   color: var(--bp-color-link, #1d4ed8);
@@ -137,7 +261,35 @@ html:has(.bp_sbs) {
   content: "[hide]";
 }
 
-/* Right column: one card per defining command. */
+/* Right column: one card per defining command. The code comes first, so its
+   first line sits on the node title's baseline; the module path and the
+   "Lean proof [show]" toggle follow as a caption row. */
+.bp_decl_source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.75rem;
+}
+
+.bp_decl_source > code.hl.lean.block {
+  flex: 1 1 100%;
+  order: 0;
+}
+
+.bp_decl_source > .bp_decl_source_proof {
+  flex: 1 1 auto;
+  order: 1;
+}
+
+.bp_decl_source > .bp_decl_source_proof[open] {
+  flex-basis: 100%;
+}
+
+.bp_decl_source > .bp_decl_source_meta {
+  order: 2;
+  margin-left: auto;
+}
+
 .bp_decl_source + .bp_decl_source,
 .bp_decl_source + .bp_code_hover_list,
 .bp_code_hover_list + .bp_decl_source {
@@ -150,7 +302,7 @@ html:has(.bp_sbs) {
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
-  margin-bottom: 0.15rem;
+  margin-top: 0.2rem;
   font-family: var(--verso-structure-font-family, sans-serif);
   font-size: 0.7rem;
   color: var(--bp-color-text-faint);
@@ -158,31 +310,40 @@ html:has(.bp_sbs) {
 
 .bp_decl_source_meta a {
   color: inherit;
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
+}
+
+.bp_decl_source_meta a.bp_decl_source_path::after {
+  content: " ↗";
 }
 
 .bp_decl_source_meta a:hover {
   color: var(--bp-color-link, #1d4ed8);
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 
 .bp_decl_source code.hl.lean.block {
   display: block;
   margin: 0;
   padding: 0;
-  overflow-x: auto;
+  overflow-x: visible;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: var(--verso-code-font-family);
   font-size: 0.8rem;
-  line-height: 1.55;
+  line-height: 1.6;
   background: transparent;
 }
 
+/* Each source line wraps with a hanging indent of four columns beyond its own
+   leading whitespace (--bp-indent, set per line). */
 .bp_decl_source code.hl.lean.block .bp_code_line {
   display: block;
-  min-height: 1.55em;
-  padding-left: 4ch;
-  text-indent: -4ch;
+  min-height: 1.6em;
+  padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
+  text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
 }
 
 .bp_decl_source_proof {
@@ -192,7 +353,7 @@ html:has(.bp_sbs) {
 .bp_decl_source_proof > summary {
   cursor: pointer;
   font-family: var(--verso-structure-font-family, sans-serif);
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   color: var(--bp-color-text-faint);
   list-style: none;
 }
@@ -241,6 +402,28 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_formal {
   margin-top: 0.6rem;
 }
 
+/* Print: one column per node. */
+@media print {
+  .bp_sbs_grid {
+    display: block;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .bp_sbs {
+    break-inside: avoid-page;
+  }
+
+  .bp_sbs_formal {
+    margin-top: 0.5rem;
+  }
+
+  .bp_status_legend {
+    display: none;
+  }
+}
+
 /* Token colours of the Lean column. Each colour is a variable so that themes
    (for example a dark theme) can replace the palette. */
 .bp_sbs_formal .hl.lean .keyword.token,
@@ -255,6 +438,7 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_formal {
 .bp_sbs_formal .hl.lean .var.token,
 .bp_sbs_formal .hl.lean .wildcard.token {
   color: var(--bp-code-var, #1a5fa8);
+  font-style: normal;
 }
 
 .bp_sbs_formal .hl.lean .sort.token {

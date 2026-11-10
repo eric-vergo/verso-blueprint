@@ -1432,10 +1432,27 @@ layout on:
 - The node title carries a status glyph: ✓ the Lean declarations are complete,
   ◐ the statement is formalized but a proof is incomplete, ⚠ the statement
   depends on `sorry`, an axiom, or unverified code, ✗ a declaration is missing,
-  ○ no Lean declaration is attached. The glyph's tooltip gives the details.
+  ○ no Lean declaration is attached. The glyph's tooltip gives its meaning and
+  the details. A folded "Status legend" lists the glyphs: in the sidebar foot
+  when the site has a sidebar, otherwise at the end of the page.
+- The relation and Lean chips of the title row (`uses N`, `used by N`,
+  `✓ L∃∀N`) are shown small and muted at the right of the title; counts of
+  zero are hidden.
+- In the Lean column the code comes first, its first line on the baseline of
+  the node title; the module path (a link to the source when the repository is
+  on GitHub) and the "Lean proof [show]" toggle form a caption row below it.
+  Long lines wrap with a hanging indent of four columns beyond their own
+  indentation, without horizontal scrolling.
 - `sbs` ("side by side") becomes the site's default style in the style
   switcher; choosing another style stacks the two columns. Nodes also stack
-  when their container is narrower than about 760 pixels.
+  when their container is narrower than about 760 pixels, and when printing.
+- Typography of the `sbs` style: one serif text face for reading text (chapter
+  prose, node headings, statements and proofs), by default the KaTeX text face
+  so that text and formulas match, with upright statements (italics are left to
+  emphasis and the "Proof" caption); Verso's structure face for navigation and
+  controls; a monospace face for code. The faces are CSS variables a project
+  stylesheet can set: `--bp-sbs-text-font-family`, `--bp-sbs-code-font-family`
+  (and `--bp-sbs-text-size`).
 
 Declaration sources come from SubVerso's per-module highlighted JSON. Before
 rendering, the generator runs `lake build +<Module>:highlighted` once for every
