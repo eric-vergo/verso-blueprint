@@ -182,11 +182,23 @@ class TestSideBySideRuntime:
     ):
         page.set_viewport_size({"width": 1100, "height": 900})
         page.goto(side_by_side_server + side_by_side_page_path(side_by_side_site_dir))
+        page.wait_for_load_state("networkidle")
+        page.evaluate("document.fonts.ready")
+        # nothing in a declaration card scrolls sideways or sticks out of its column
         overflowing = page.evaluate(
-            """() => [...document.querySelectorAll('.bp_sbs_formal, .bp_decl_source code')]
-                .filter((e) => e.scrollWidth > e.clientWidth + 1).length"""
+            """() => [...document.querySelectorAll('.bp_sbs_formal')].flatMap((column) => {
+                const edge = column.getBoundingClientRect().right + 1;
+                return [...column.querySelectorAll('.bp_decl_source, .bp_decl_source *')].filter((e) => {
+                  const style = getComputedStyle(e);
+                  const scrolls = /auto|scroll/.test(style.overflowX) && e.scrollWidth > e.clientWidth + 1;
+                  const box = e.getBoundingClientRect();
+                  // trailing spaces of a wrapped line may hang past the edge, unseen
+                  const visible = box.width > 0 && e.textContent.trim() !== '';
+                  return scrolls || (visible && box.right > edge);
+                }).map((e) => e.className);
+              })"""
         )
-        assert overflowing == 0
+        assert overflowing == [], overflowing
 
     def test_status_legend_lists_every_glyph(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
