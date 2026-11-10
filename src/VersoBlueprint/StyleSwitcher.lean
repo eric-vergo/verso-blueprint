@@ -187,9 +187,26 @@ private def jsTemplate : String := r##"(function () {
   const enableProofHider = __BP_ENABLE_PROOF_HIDER__;
   const enableHashReveal = __BP_ENABLE_HASH_REVEAL__;
 
+  const styleLabels = {
+    blueprint: "blueprint",
+    modern: "modern",
+    bold: "bold",
+    sbs: "side by side"
+  };
+  // A site built with the side-by-side layout announces it as its default
+  // style. Read lazily: this script may run before the <meta> is parsed.
+  function defaultStyle() {
+    const meta = document.querySelector('meta[name="verso-blueprint-default-style"]');
+    return meta && styleLabels[meta.content] ? meta.content : "blueprint";
+  }
+
+  function availableStyles() {
+    return ["blueprint", "modern", "bold"].concat(defaultStyle() === "sbs" ? ["sbs"] : []);
+  }
+
   function normalizeStyle(style) {
-    if (style === "blueprint" || style === "modern" || style === "bold") return style;
-    return "blueprint";
+    if (availableStyles().indexOf(style) >= 0) return style;
+    return defaultStyle();
   }
 
   function applyStyle(style) {
@@ -200,7 +217,7 @@ private def jsTemplate : String := r##"(function () {
     try {
       return normalizeStyle(localStorage.getItem(styleStorageKey));
     } catch (_err) {
-      return "blueprint";
+      return defaultStyle();
     }
   }
 
@@ -230,7 +247,7 @@ private def jsTemplate : String := r##"(function () {
       options.forEach(function (value) {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = value;
+        option.textContent = styleLabels[value] || value;
         select.appendChild(option);
       });
 
@@ -240,11 +257,7 @@ private def jsTemplate : String := r##"(function () {
       return select;
     }
 
-    const styleSelect = appendControl("Style", "bp-style-select", [
-      "blueprint",
-      "modern",
-      "bold"
-    ]);
+    const styleSelect = appendControl("Style", "bp-style-select", availableStyles());
 
     const currentStyle = getSavedStyle();
     styleSelect.value = currentStyle;

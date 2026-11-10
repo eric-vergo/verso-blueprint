@@ -4,7 +4,10 @@ open Lake DSL
 -- Pin the matching Lean 4.35 stable dependency stack.
 require verso from git "https://github.com/leanprover/verso"@"v4.35.0"
 require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.35.0"
-require subverso from git "https://github.com/leanprover/subverso"@"verso-v4.35.0"
+-- Side-by-side nodes need `SubVerso.Module.findDecl?` (eric-vergo/subverso
+-- `feat/declaration-source`, proposed upstream). Return to the upstream tag once
+-- it is released there.
+require subverso from git "https://github.com/eric-vergo/subverso"@"feat/declaration-source"
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
 
@@ -109,6 +112,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintPreviewSchema,
     `VersoBlueprintTests.BlueprintPreviewSource,
     `VersoBlueprintTests.BlueprintPreviewWiring,
+    `VersoBlueprintTests.BlueprintSideBySide,
     `VersoBlueprintTests.BlueprintSource,
     `VersoBlueprintTests.SorryImport.Provider,
     `VersoBlueprintTests.SorryImport.Consumer,

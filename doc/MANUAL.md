@@ -1397,6 +1397,48 @@ label-only fallback HTML.
 When labeled inline Rust code is attached to a node, the rendered page also
 shows an associated Rust code panel below the statement body.
 
+### Side-by-side layout
+
+A generator can render every statement that has `(lean := ...)` references as a
+two-column node: the statement, its status glyph and its proof on the left, and
+the highlighted Lean source of the referenced declarations on the right:
+
+```lean
+def main (args : List String) : IO UInt32 :=
+  Informal.PreviewManifest.blueprintMainWithPreviewData
+    (%doc Contents) args
+    (extensionImpls := by exact extension_impls%)
+    (sideBySide := true)
+```
+
+The generator flag `--side-by-side` does the same for one build. With the
+layout on:
+
+- The Lean column shows the source of each declaration's defining command,
+  with the same hover information as other highlighted Lean code. Definitions,
+  structures and instances are shown whole; theorem-like declarations show their
+  statement up to `:=` (and a following `by`), with the proof folded under
+  "Lean proof [show]". A command that defines several of the node's
+  declarations (a `mutual` block, a structure and its fields) is shown once.
+  Declarations whose source is not available (declarations from dependencies
+  under `.lake/packages`, or modules that could not be highlighted) keep the
+  signature-and-docstring row of the Lean code panel.
+- Proofs are folded ("Proof [show]") and placed in the left column of their
+  statement's node when they directly follow it on the page.
+- The node title carries a status glyph: ✓ the Lean declarations are complete,
+  ◐ the statement is formalized but a proof is incomplete, ⚠ the statement
+  depends on `sorry`, an axiom, or unverified code, ✗ a declaration is missing,
+  ○ no Lean declaration is attached. The glyph's tooltip gives the details.
+- `sbs` ("side by side") becomes the site's default style in the style
+  switcher; choosing another style stacks the two columns. Nodes also stack
+  when their container is narrower than about 760 pixels.
+
+Declaration sources come from SubVerso's per-module highlighted JSON. Before
+rendering, the generator runs `lake build +<Module>:highlighted` once for every
+workspace module that declares a referenced declaration; Lake caches the result
+per module, so only changed modules are highlighted again. The first build of a
+large project can take a while: highlighting re-elaborates each such module.
+
 ### Dependency graph
 
 `blueprint_graph` renders a dependency-oriented view of the current Blueprint

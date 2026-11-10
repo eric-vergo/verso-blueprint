@@ -11,6 +11,7 @@ import Std.Data.HashSet
 import VersoManual
 import VersoManual.HighlightedCode
 import VersoBlueprint.Cite
+import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Informal.Block
 import VersoBlueprint.Informal.Uses
 import VersoBlueprint.Informal.Block.Store
@@ -2697,6 +2698,29 @@ def handleCliFlags
     else
       pure (none, options, externalMarkupConfig)
 
+/-- The workspace modules whose highlighted source the side-by-side layout needs. -/
+def declarationSourceModules (state : TraverseState) : Array Name :=
+  (Informal.TraversalIndex.LeanCodePreviews.entries state).foldl (init := #[]) fun acc decoded =>
+    match decoded with
+    | .ok stored =>
+      match stored.data.source with
+      | .externalDecl decl =>
+        match Informal.DeclarationSource.wantsSource decl with
+        | some moduleName => if acc.contains moduleName then acc else acc.push moduleName
+        | none => acc
+      | _ => acc
+    | .error _ => acc
+
+/-- Name of the `<meta>` element that selects the site's default Blueprint style. -/
+def defaultStyleMetaName : String := "verso-blueprint-default-style"
+
+/-- Make the side-by-side style (`sbs`) the site's default Blueprint style. -/
+def withSideBySideDefaultStyle (config : RenderConfig) : RenderConfig :=
+  let styleMeta : Output.Html :=
+    .tag "meta" #[("name", defaultStyleMetaName), ("content", "sbs")] .empty
+  if config.toHtmlConfig.extraHead.any (·.asString == styleMeta.asString) then config
+  else { config with extraHead := config.toHtmlConfig.extraHead.push styleMeta }
+
 /-- Emit only the document/layout pair admitted by the checked boundary. -/
 private def PreparedRendererState.emit (prepared : PreparedRendererState) : EmitM Unit := do
   match prepared.mode with
@@ -2706,6 +2730,7 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
 private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
+    (sideBySide : Bool)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config)
     (how : EmitHtml)
     (mode : Mode)
@@ -2740,8 +2765,17 @@ private def emitBlueprintHtml
   let pageImpls := match prepared.previewFiles? with
     | none => impls
     | some files => files.withPageExtensions impls
-  withReader (fun _ => pageImpls) <|
-    withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
+  if sideBySide then
+    let modules := declarationSourceModules prepared.state
+    withTimedBuildProgress cfg.verbose s!"loading highlighted source of {modules.size} Lean modules" <|
+      Informal.DeclarationSource.prepare (← IO.currentDir) modules
+        (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
+  Informal.DeclarationSource.setEnabled sideBySide
+  try
+    withReader (fun _ => pageImpls) <|
+      withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
+  finally
+    Informal.DeclarationSource.setEnabled false
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
   for step in extraSteps do
@@ -2754,12 +2788,16 @@ private def blueprintMainCore (text : Part Manual)
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
     (previewConfig? : Option Informal.ExternalMarkupRender.Config := none)
-    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 :=
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
     let extensionImpls ← read
     let (reproducibility, options) := parseReproducibilityOptions reproducibility options
+    let (sideBySideFlag, options) := parseSideBySideFlag options
+    let sideBySide := sideBySide || sideBySideFlag
+    let config := if sideBySide then withSideBySideDefaultStyle config else config
     let cfg ← parseRenderConfigOptions (withBuildMetadataAssets config) options
     let cfg := if pdfOptions.enabled then { cfg with emitTeX := true } else cfg
     let buildMetadata ← readBuildMetadata reproducibility
@@ -2771,8 +2809,8 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps reproducibility previewConfig? cfg.emitHtmlSingle .single cfg text
-      emitBlueprintHtml extraSteps reproducibility previewConfig? cfg.emitHtmlMulti .multi cfg text
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg text
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg text
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -2789,9 +2827,10 @@ def blueprintMain (text : Part Manual)
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
     (model : RenderModel := by exact blueprint_render_model%)
-    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 :=
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false) : IO UInt32 :=
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
-    (reproducibility := reproducibility)
+    (reproducibility := reproducibility) (sideBySide := sideBySide)
 
 def blueprintMainWithPreviewData
     (text : Part Manual)
@@ -2800,7 +2839,8 @@ def blueprintMainWithPreviewData
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (model : RenderModel := by exact blueprint_render_model%)
-    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 := do
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false) : IO UInt32 := do
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (dumped?, options, externalMarkupConfig) ← handleCliFlags text options extensionImpls config
@@ -2815,5 +2855,6 @@ def blueprintMainWithPreviewData
   blueprintMainCore text (extensionImpls := extensionImpls) (options := options) (config := config)
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
     (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
+    (sideBySide := sideBySide)
 
 end Informal.PreviewManifest

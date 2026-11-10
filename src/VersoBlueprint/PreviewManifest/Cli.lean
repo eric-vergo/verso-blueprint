@@ -174,6 +174,12 @@ def parseReproducibilityOptions (opts : ReproducibilityOptions) (args : List Str
     else if arg == relativeSourcePathsFlag then ({ opts with relativeSourcePaths := true }, rest)
     else (opts, arg :: rest)
 
+def sideBySideFlag : String := "--side-by-side"
+
+/-- Extract `--side-by-side`, returning whether it was given and the remaining arguments. -/
+def parseSideBySideFlag (args : List String) : Bool × List String :=
+  (args.contains sideBySideFlag, args.filter (· != sideBySideFlag))
+
 def dumpSchemaFlag : String := "--dump-schema"
 def dumpManifestFlag : String := "--dump-manifest"
 def dumpHtmlCacheFlag : String := "--dump-html-cache"
@@ -192,6 +198,9 @@ def helpText : String := String.intercalate "\n" [
   s!"  {omitBuildTimeFlag}   Omit the build timestamp from the title-page build metadata.",
   s!"  {omitGitMetadataFlag}  Omit commits and subjects read from Git working trees.",
   s!"  {relativeSourcePathsFlag}  Emit manifest source paths relative to the project root.",
+  "",
+  "Blueprint layout options:",
+  s!"  {sideBySideFlag}      Render nodes in two columns with the Lean source of their declarations.",
   "",
   "Blueprint PDF options:",
   s!"  {pdfFlag}               Emit TeX and build pdf/main.pdf with lualatex.",
