@@ -2,7 +2,8 @@
    highlighted Lean source of the node's declarations on the right. The grid is
    the default whenever a page contains side-by-side nodes; another explicit
    style from the style switcher stacks the columns. */
-html:has(.bp_sbs) {
+html:has(.bp_sbs),
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) {
   --verso-content-max-width: var(--bp-sbs-content-max-width, 92rem);
 }
 
@@ -27,6 +28,13 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
 html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) {
   font-family: var(--verso-text-font-family);
   font-size: var(--bp-sbs-text-size);
+}
+
+/* Every page of a side-by-side site uses the wide content area (so the page
+   navigation stays in place from page to page); running text keeps a readable
+   measure. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol) {
+  max-width: var(--bp-sbs-measure, 48rem);
 }
 
 html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
@@ -54,7 +62,7 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
 
 .bp_sbs_grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
   column-gap: 2.25rem;
   /* The node title and the first line of Lean code share a baseline. */
   align-items: first baseline;
@@ -332,7 +340,7 @@ main .bp_status_legend {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--verso-code-font-family);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   line-height: 1.6;
   background: transparent;
 }
