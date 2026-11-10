@@ -42,6 +42,28 @@
   color: var(--bp-color-text-faint);
 }
 
+/* The node's statement, shortened to about three lines with a fade. */
+.bp_work_queue_statement {
+  max-height: 4.6em;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--bp-color-text-subtle);
+  /* Opaque for the first three lines; only a cut-off fourth line fades. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 3.1em, transparent 4.6em);
+  mask-image: linear-gradient(to bottom, #000 3.1em, transparent 4.6em);
+}
+
+.bp_work_queue_statement p {
+  margin: 0 0 0.3rem;
+  line-height: inherit;
+}
+
+.bp_work_queue_statement .katex-display {
+  margin: 0.2rem 0;
+}
+
 .bp_work_queue_needs {
   margin-top: 0.2rem;
   font-size: 0.85rem;

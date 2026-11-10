@@ -1765,8 +1765,9 @@ and `lake exe vbp query work-queue`: a node is listed when its statement is read
 to formalize, or, for theorem-like nodes, when its proof is ready to formalize
 or its Lean code is incomplete. Ready nodes are listed first, then nodes with
 incomplete Lean code, each in document order. Each entry links to its node,
-says which stage is next, and lists under "needs:" the direct dependencies of
-that stage that are not formalized yet.
+says which stage is next, shows the beginning of the node's statement (about
+three lines), and lists under "needs:" the direct dependencies of that stage
+that are not formalized yet.
 
 ### Bibliography page
 
