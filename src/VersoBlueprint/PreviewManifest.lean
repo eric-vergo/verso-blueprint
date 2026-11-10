@@ -2731,6 +2731,7 @@ def blueprintMain (text : Part Manual)
     (pdfOptions : PdfOptions := {})
     (model : RenderModel := by exact blueprint_render_model%)
     (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 :=
+  let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
     | none => config
@@ -2746,6 +2747,7 @@ def blueprintMainWithPreviewData
     (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
+  let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
     | none => config
