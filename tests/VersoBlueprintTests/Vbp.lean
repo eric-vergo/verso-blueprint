@@ -584,6 +584,7 @@ private def graphNodePreviewKeys
   show Bool from
     let text := VersoBlueprint.Vbp.Main.buildHelpText
     text.contains "lake exe vbp build [--output <dir>] [--pdf] [--verbose]" &&
+      text.contains "--reproducible" &&
       text.contains "--verbose" &&
       text.contains "Show Blueprint generation phase progress" &&
       text.contains "--port <n>"
@@ -1551,6 +1552,14 @@ private def queryReadModeExamples : List (String × List String × Bool) := [
           opts.pdfEngine? == some "xelatex" &&
           opts.pdfRuns? == some 3 &&
           opts.verbose
+    | .error _ => false
+
+/-- info: true -/
+#guard_msgs in
+#eval
+  show Bool from
+    match VersoBlueprint.Vbp.Main.parseBuildOptions ["--reproducible"] {} with
+    | .ok opts => opts.reproducible && !opts.verbose
     | .error _ => false
 
 /-- info: true -/

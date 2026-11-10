@@ -173,9 +173,11 @@ structure PackageMetadata where
 deriving Inhabited, Repr
 
 structure BuildMetadata where
-  compiledAt : String
-  commit : String
-  subject : String
+  /-- Build timestamp; `none` when omitted for reproducible output. -/
+  compiledAt : Option String
+  /-- Project commit; `none` when omitted for reproducible output. -/
+  commit : Option String
+  subject : Option String
   projectRepositoryUrl : Option String := none
   projectCommitUrl : Option String := none
   leanToolchain : String
@@ -390,7 +392,9 @@ private def versionFromManifestPackage? (pkg : Json) : Option String :=
       | none => some rev
   | none => none
 
-private def packageMetadataFromPathPackage? (pkg : Json) : IO (Option PackageMetadata) := do
+private def packageMetadataFromPathPackage? (omitGit : Bool) (pkg : Json) :
+    IO (Option PackageMetadata) := do
+  if omitGit then return none
   let some dir := jsonStringField? pkg "dir"
     | return none
   let cwd ← IO.currentDir
@@ -410,14 +414,16 @@ private def packageMetadataFromGitPackage? (pkg : Json) : Option PackageMetadata
   let commitUrl := Git.commitUrl? repositoryUrl (jsonStringField? pkg "rev")
   some { version, repositoryUrl, commitUrl }
 
-private def packageMetadata? (manifest : Json) (names : Array String) : IO (Option PackageMetadata) := do
+private def packageMetadata? (omitGit : Bool) (manifest : Json) (names : Array String) :
+    IO (Option PackageMetadata) := do
   let some pkg := manifestPackageByName? manifest names
     | return none
   match packageMetadataFromGitPackage? pkg with
   | some metadata => pure (some metadata)
-  | none => packageMetadataFromPathPackage? pkg
+  | none => packageMetadataFromPathPackage? omitGit pkg
 
-private def gitPackageMetadataAt (dir : System.FilePath) : IO PackageMetadata := do
+private def gitPackageMetadataAt (omitGit : Bool) (dir : System.FilePath) : IO PackageMetadata := do
+  if omitGit then return { version := unknownMetadataValue }
   let version ← Git.shortCommitAt? dir
   let repositoryUrl ← Git.repositoryUrlAt? dir
   let commitUrl := Git.commitUrl? repositoryUrl (← Git.fullCommitAt? dir)
@@ -427,17 +433,18 @@ private def gitPackageMetadataAt (dir : System.FilePath) : IO PackageMetadata :=
     commitUrl
   }
 
-private def readBlueprintPackage (manifest? : Option Json) : IO PackageMetadata := do
+private def readBlueprintPackage (omitGit : Bool) (manifest? : Option Json) : IO PackageMetadata := do
   match manifest? with
   | some manifest =>
-      match ← packageMetadata? manifest #["VersoBlueprint", "verso-blueprint"] with
+      match ← packageMetadata? omitGit manifest #["VersoBlueprint", "verso-blueprint"] with
       | some metadata => pure metadata
-      | none => gitPackageMetadataAt (← IO.currentDir)
-  | none => gitPackageMetadataAt (← IO.currentDir)
+      | none => gitPackageMetadataAt omitGit (← IO.currentDir)
+  | none => gitPackageMetadataAt omitGit (← IO.currentDir)
 
-private def readMathlibPackage? (manifest? : Option Json) : IO (Option PackageMetadata) := do
+private def readMathlibPackage? (omitGit : Bool) (manifest? : Option Json) :
+    IO (Option PackageMetadata) := do
   match manifest? with
-  | some manifest => packageMetadata? manifest #["mathlib", "Mathlib"]
+  | some manifest => packageMetadata? omitGit manifest #["mathlib", "Mathlib"]
   | none => pure none
 
 private def tomlQuotedValue? (line key : String) : Option String :=
@@ -481,22 +488,36 @@ private def readUpstreamBlueprint? : IO (Option GitCommitMetadata) := do
   | _, _ => pure ()
   gitCommitMetadataAt? upstreamDir
 
-def readBuildMetadata : IO BuildMetadata := do
+/--
+Read the build metadata shown on the title page. Reproducibility options drop the
+facts that differ between two builds of an unchanged project.
+-/
+def readBuildMetadata (reproducibility : ReproducibilityOptions := {}) : IO BuildMetadata := do
   let cwd ← IO.currentDir
+  let omitGit := reproducibility.omitGitMetadata
   let manifest? ← readLakeManifestJson?
-  let compiledAt ← Process.runTrimmedCommand? "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
-  let commit ← Git.shortCommitAt? cwd
-  let subject ← Git.subjectAt? cwd
+  let compiledAt ←
+    if reproducibility.omitBuildTime then pure none
+    else
+      some <$> (Option.getD · unknownMetadataValue) <$>
+        Process.runTrimmedCommand? "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
+  let (commit, subject, projectCommitUrl) ←
+    if omitGit then pure (none, none, none)
+    else do
+      let commit ← Git.shortCommitAt? cwd
+      let subject ← Git.subjectAt? cwd
+      let repositoryUrl ← Git.repositoryUrlAt? cwd
+      pure (some (commit.getD unknownMetadataValue), some (subject.getD unknownMetadataValue),
+        Git.commitUrl? repositoryUrl (← Git.fullCommitAt? cwd))
   let projectRepositoryUrl ← Git.repositoryUrlAt? cwd
-  let projectCommitUrl := Git.commitUrl? projectRepositoryUrl (← Git.fullCommitAt? cwd)
   let leanToolchain ← readLeanToolchain
-  let blueprintPackage ← readBlueprintPackage manifest?
-  let mathlibPackage? ← readMathlibPackage? manifest?
-  let upstreamBlueprint ← readUpstreamBlueprint?
+  let blueprintPackage ← readBlueprintPackage omitGit manifest?
+  let mathlibPackage? ← readMathlibPackage? omitGit manifest?
+  let upstreamBlueprint ← if omitGit then pure none else readUpstreamBlueprint?
   pure {
-    compiledAt := compiledAt.getD unknownMetadataValue
-    commit := commit.getD unknownMetadataValue
-    subject := subject.getD unknownMetadataValue
+    compiledAt
+    commit
+    subject
     projectRepositoryUrl
     projectCommitUrl
     leanToolchain
@@ -529,15 +550,24 @@ def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
   open Verso.Output.Html in
   {{
     <div class="bp_build_metadata" aria-label="Build metadata">
-      <span class="bp_build_metadata_item">
-        <span class="bp_build_metadata_label">"Compiled"</span>
-        <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.compiledAt}}</span>
-      </span>
-      <span class="bp_build_metadata_item">
-        {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
-        {{buildMetadataCodeHtml metadata.commit metadata.projectCommitUrl}}
-        <span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text metadata.subject}}</span>
-      </span>
+      {{if let some compiledAt := metadata.compiledAt then
+        {{<span class="bp_build_metadata_item">
+            <span class="bp_build_metadata_label">"Compiled"</span>
+            <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text compiledAt}}</span>
+          </span>}}
+        else .empty}}
+      {{if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
+        {{<span class="bp_build_metadata_item">
+            {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
+            {{match metadata.commit with
+              | some commit => buildMetadataCodeHtml commit metadata.projectCommitUrl
+              | none => .empty}}
+            {{match metadata.subject with
+              | some subject =>
+                {{<span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text subject}}</span>}}
+              | none => .empty}}
+          </span>}}
+        else .empty}}
       <span class="bp_build_metadata_item">
         <span class="bp_build_metadata_label">"Lean"</span>
         <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.leanToolchain}}</span>
@@ -2420,6 +2450,26 @@ private def validateSourceRefs
         unless documents.any (fun doc => doc.id == sourceRef.document) do
           logError s!"Blueprint manifest: source ref for facet {key} references unknown source document '{sourceRef.document}'"
 
+/-- Make an absolute path relative to `root` when it lies under it. -/
+def relativeToRoot (root path : String) : String :=
+  let sep := System.FilePath.pathSeparator.toString
+  let rootPrefix := if root.endsWith sep then root else root ++ sep
+  if path.startsWith rootPrefix then (path.drop rootPrefix.length).toString else path
+
+/-- Rewrite the manifest's source paths under `root` relative to it. -/
+def File.relativizeSourcePaths (file : File) (root : String) : File :=
+  let relativize (result : Informal.Data.SourceLocationResult) : Informal.Data.SourceLocationResult :=
+    { result with location := result.location.map fun loc => { loc with path := relativeToRoot root loc.path } }
+  { file with previews := file.previews.map fun entry =>
+      { entry with sourceLocation := relativize entry.sourceLocation } }
+
+/-- The root that manifest source paths are made relative to, when requested. -/
+def sourcePathRoot? (reproducibility : ReproducibilityOptions) : IO (Option String) := do
+  if reproducibility.relativeSourcePaths then
+    return some (← IO.FS.realPath (← IO.currentDir)).toString
+  else
+    return none
+
 /--
 Build the semantic Blueprint manifest and rendered-fragment cache from a
 completed Manual traversal state.
@@ -2434,7 +2484,8 @@ def buildPreviewDataFiles
     (logError : String → IO Unit)
     (preparedState : PreparedPreviewState)
     (externalMarkupConfig : Informal.ExternalMarkupRender.Config := {})
-    (verbose : Bool := false) : IO Files := do
+    (verbose : Bool := false)
+    (sourcePathRoot? : Option String := none) : IO Files := do
   let state := preparedState.state
   let impls := Inline.withPreviewRendering impls PreviewResources.deferred
     |> (Block.withPreviewRendering · PreviewResources.deferred)
@@ -2499,7 +2550,11 @@ def buildPreviewDataFiles
     entries := resolvedEntries
     hoverDocs := hoverDocs.qsort (fun a b => a.id < b.id)
   }
-  pure <| Files.mk (manifest.finalizePreviewReferences index) htmlCache
+  let manifest := manifest.finalizePreviewReferences index
+  let manifest := match sourcePathRoot? with
+    | some root => manifest.relativizeSourcePaths root
+    | none => manifest
+  pure <| Files.mk manifest htmlCache
 
 private def dumpPreviewDataJson
     (select : Files → Json)
@@ -2514,6 +2569,7 @@ private def dumpPreviewDataJson
     | .error err =>
         IO.eprintln err
         return 2
+  let (reproducibility, options) := parseReproducibilityOptions {} options
   let errorCount : IO.Ref Nat ← IO.mkRef 0
   let logError msg := do
     errorCount.modify (· + 1)
@@ -2527,7 +2583,7 @@ private def dumpPreviewDataJson
   let preparedState := PreparedPreviewState.prepare document.state
   let traverseState := preparedState.state
   let files ← buildPreviewDataFiles extensionImpls logError preparedState externalMarkupConfig
-    (verbose := cfg.verbose)
+    (verbose := cfg.verbose) (sourcePathRoot? := ← sourcePathRoot? reproducibility)
   let logger := callbackLogger logError
   reportPreviewMetadataLossWarnings logger traverseState files.manifest
   IO.println <| jsonPretty <| select files
@@ -2649,6 +2705,7 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
 
 private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
+    (reproducibility : ReproducibilityOptions)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config)
     (how : EmitHtml)
     (mode : Mode)
@@ -2675,6 +2732,7 @@ private def emitBlueprintHtml
       let logger ← readThe (Verso.Logger IO)
       let files ← buildPreviewDataFiles (← read) logger.reportError
         prepared.previewState previewConfig (verbose := cfg.verbose)
+        (sourcePathRoot? := ← sourcePathRoot? reproducibility)
       pure { prepared with previewFiles? := some files }
   withTimedBuildProgress cfg.verbose s!"writing {modeDescription} xrefs" <|
     emitXrefsJson (outDirForMode prepared.config.toConfig prepared.mode) prepared.state
@@ -2695,14 +2753,16 @@ private def blueprintMainCore (text : Part Manual)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
-    (previewConfig? : Option Informal.ExternalMarkupRender.Config := none) : IO UInt32 :=
+    (previewConfig? : Option Informal.ExternalMarkupRender.Config := none)
+    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
     let extensionImpls ← read
+    let (reproducibility, options) := parseReproducibilityOptions reproducibility options
     let cfg ← parseRenderConfigOptions (withBuildMetadataAssets config) options
     let cfg := if pdfOptions.enabled then { cfg with emitTeX := true } else cfg
-    let buildMetadata ← readBuildMetadata
+    let buildMetadata ← readBuildMetadata reproducibility
     let extraSteps := emitBuildMetadata buildMetadata :: extraSteps
 
     let action : ReaderT ExtensionImpls (BuildLogT IO) Unit := do
@@ -2711,8 +2771,8 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps previewConfig? cfg.emitHtmlSingle .single cfg text
-      emitBlueprintHtml extraSteps previewConfig? cfg.emitHtmlMulti .multi cfg text
+      emitBlueprintHtml extraSteps reproducibility previewConfig? cfg.emitHtmlSingle .single cfg text
+      emitBlueprintHtml extraSteps reproducibility previewConfig? cfg.emitHtmlMulti .multi cfg text
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -2728,8 +2788,10 @@ def blueprintMain (text : Part Manual)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 :=
+    (model : RenderModel := by exact blueprint_render_model%)
+    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 :=
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
+    (reproducibility := reproducibility)
 
 def blueprintMainWithPreviewData
     (text : Part Manual)
@@ -2737,7 +2799,8 @@ def blueprintMainWithPreviewData
     (extensionImpls : ExtensionImpls)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 := do
+    (model : RenderModel := by exact blueprint_render_model%)
+    (reproducibility : ReproducibilityOptions := {}) : IO UInt32 := do
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (dumped?, options, externalMarkupConfig) ← handleCliFlags text options extensionImpls config
@@ -2751,6 +2814,6 @@ def blueprintMainWithPreviewData
         return 2
   blueprintMainCore text (extensionImpls := extensionImpls) (options := options) (config := config)
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
-    (previewConfig? := some externalMarkupConfig)
+    (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
 
 end Informal.PreviewManifest
