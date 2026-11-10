@@ -1964,6 +1964,35 @@ font packages; on Ubuntu CI, install `python3-pygments`, `texlive-luatex`,
 `--with-tex`; `--with-tex` alone still only writes the TeX tree under
 `_out/site/tex/`.
 
+### Reproducible output
+
+By default the title page shows when and from which commits the site was built,
+and the generated preview manifest records absolute source paths. For output
+that depends only on the project's content, for example to check whether a
+site is up to date by comparing it with a previous build, pass:
+
+```bash
+lake exe vbp build --reproducible
+```
+
+Two such builds of an unchanged project are byte-identical. `--reproducible`
+enables three generator options, which a generator also accepts one by one:
+
+- `--omit-build-time` drops the "Compiled" timestamp from the build metadata;
+- `--omit-git-metadata` drops facts read from Git working trees (the project's
+  and the upstream formalization's commit and subject, and versions of path
+  dependencies); versions pinned in `lake-manifest.json` and repository links
+  stay;
+- `--relative-source-paths` writes `sourceLocation.location.path` in
+  `blueprint-manifest.json` relative to the project root (the generator's
+  working directory) when the file lies under it.
+
+Generators can also fix these options in code by passing
+`(reproducibility := Informal.PreviewManifest.ReproducibilityOptions.all)` (or
+individual fields) to `blueprintMainWithPreviewData`; command-line flags add to
+that setting. GitHub source links in Lean code panels still name the project's
+current commit, so they change when the project is committed, not between builds.
+
 ### HTML and PDF Feature Support
 
 PDF generation is a static TeX/PDF output path. It is useful for reading,

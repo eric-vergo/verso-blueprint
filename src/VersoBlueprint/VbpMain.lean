@@ -14,7 +14,7 @@ open System
 namespace VersoBlueprint.Vbp.Main
 
 private def buildUsageLine : String :=
-  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--serve] [--port <n>]"
+  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--serve] [--port <n>]"
 
 private def mainCommandLines : List String := [
   "lake exe vbp discover",
@@ -37,6 +37,7 @@ private def buildOptionLines : List String := [
   "--pdf               Build _out/site/pdf/main.pdf from the generated TeX",
   "--pdf-engine <cmd>  Use <cmd> for PDF compilation",
   "--pdf-runs <n>      Run the PDF engine <n> times",
+  "--reproducible      Omit build time and Git metadata, emit relative source paths",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
   "--port <n>          Serve on a fixed TCP port; requires --serve"
@@ -261,6 +262,7 @@ structure BuildOptions where
   pdfEngine? : Option String := none
   pdfRuns? : Option Nat := none
   verbose : Bool := false
+  reproducible : Bool := false
   serve : Bool := false
   port? : Option Nat := none
 
@@ -310,6 +312,7 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
       else
         match arg, args with
         | "--verbose", args => parseBuildOptionsCore args { opts with verbose := true }
+        | "--reproducible", args => parseBuildOptionsCore args { opts with reproducible := true }
         | "--serve", args => parseBuildOptionsCore args { opts with serve := true }
         | "--port", raw :: args =>
             match parseTcpPort raw with
@@ -387,6 +390,7 @@ private def generateSite (opts : BuildOptions) : IO UInt32 := do
       pure 1
   | .ok context =>
       let args := generatorLeanArgs context.generatorFile opts.output opts.verbose ++ pdfGeneratorArgs opts
+      let args := if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
       runGenerator context args
 
 private def serveScript : String := String.intercalate "\n" [

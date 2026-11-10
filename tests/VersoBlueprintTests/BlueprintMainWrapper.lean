@@ -22,6 +22,14 @@ This tiny document exercises PDF engine invocation.
 This tiny document exercises highlighted-code startup asset normalization.
 :::::::
 
+open Informal in
+#docs (Manual) reproducibleDoc "Reproducible" :=
+:::::::
+:::definition "def:reproducible.add" (lean := "Nat.add")
+Addition.
+:::
+:::::::
+
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -76,9 +84,9 @@ This tiny document exercises highlighted-code startup asset normalization.
 #guard_msgs in
 #eval
   let metadata : Informal.PreviewManifest.BuildMetadata := {
-    compiledAt := "2026-05-05T00:00:00Z"
-    commit := "abc123"
-    subject := "escape <tag> & message"
+    compiledAt := some "2026-05-05T00:00:00Z"
+    commit := some "abc123"
+    subject := some "escape <tag> & message"
     projectRepositoryUrl := some "https://github.com/example/project"
     projectCommitUrl := some "https://github.com/example/project/commit/abc123full"
     leanToolchain := "leanprover/lean4:v4.30.0"
@@ -117,6 +125,37 @@ This tiny document exercises highlighted-code startup asset normalization.
         appearsBefore out "<h1>Example</h1>" "class=\"bp_build_metadata\"" &&
         appearsBefore out "class=\"bp_build_metadata\"" "class=\"authors\""
   | none => false
+
+-- Reproducible metadata omits the build time and Git facts but keeps pinned versions.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let metadata : Informal.PreviewManifest.BuildMetadata := {
+    compiledAt := none
+    commit := none
+    subject := none
+    projectRepositoryUrl := some "https://github.com/example/project"
+    leanToolchain := "leanprover/lean4:v4.35.0"
+    blueprintVersion := "v4.35.0@def456"
+  }
+  let out := Informal.PreviewManifest.buildMetadataHtmlString metadata
+  !hasSubstr out "Compiled" &&
+    !hasSubstr out "bp_build_metadata_subject" &&
+    hasSubstr out "https://github.com/example/project" &&
+    hasSubstr out "v4.35.0@def456"
+
+/-- info: true -/
+#guard_msgs in
+#eval
+  open Informal.PreviewManifest in
+  let (opts, rest) := parseReproducibilityOptions {} ["--output", "o", "--reproducible", "--verbose"]
+  let (single, _) := parseReproducibilityOptions {} ["--omit-build-time"]
+  opts == ReproducibilityOptions.all && rest == ["--output", "o", "--verbose"] &&
+    single == ({ omitBuildTime := true } : ReproducibilityOptions) &&
+    relativeToRoot "/root/proj" "/root/proj/A/B.lean" == "A/B.lean" &&
+    relativeToRoot "/root/proj/" "/root/proj/A/B.lean" == "A/B.lean" &&
+    relativeToRoot "/root/proj" "/root/projX/A.lean" == "/root/projX/A.lean" &&
+    relativeToRoot "/root/proj" "/elsewhere/A.lean" == "/elsewhere/A.lean"
 
 private partial def freshBlueprintMainWrapperRoot (testName : String) : IO System.FilePath := do
   let suffix ← IO.rand 0 1000000000000
@@ -166,6 +205,44 @@ const defaultTippyProps = {
       code == 0 &&
         hasSubstr html "const str = d.textContent || \"\";" &&
         !hasSubstr html "const str = d.innerText;"
+
+private partial def filesUnder (root : System.FilePath) : IO (Array System.FilePath) := do
+  let mut out := #[]
+  for entry in ← root.readDir do
+    if ← entry.path.isDir then
+      out := out ++ (← filesUnder entry.path)
+    else
+      out := out.push entry.path
+  return out.qsort (·.toString < ·.toString)
+
+-- Two `--reproducible` builds of the same document are byte-identical, with relative source paths.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let root ← freshBlueprintMainWrapperRoot "verso-blueprint-reproducible-test"
+    let build (dir : String) : IO UInt32 :=
+      Informal.PreviewManifest.blueprintMainWithPreviewData
+        reproducibleDoc.toPart
+        (options := ["--output", (root / dir).toString, "--without-html-single", "--reproducible"])
+        (extensionImpls := by exact extension_impls%)
+    let code1 ← build "a"
+    let code2 ← build "b"
+    let filesA ← filesUnder (root / "a")
+    let filesB ← filesUnder (root / "b")
+    let relA := filesA.map fun p => (p.toString.drop (root / "a").toString.length).toString
+    let relB := filesB.map fun p => (p.toString.drop (root / "b").toString.length).toString
+    let mut identical := relA == relB && !filesA.isEmpty
+    for (a, b) in filesA.zip filesB do
+      if (← IO.FS.readBinFile a) != (← IO.FS.readBinFile b) then
+        identical := false
+    let cwd := (← IO.FS.realPath (← IO.currentDir)).toString
+    let manifest ← IO.FS.readFile (root / "a" / "html-multi" / "-verso-data" / "blueprint-manifest.json")
+    let index ← IO.FS.readFile (root / "a" / "html-multi" / "index.html")
+    pure <| code1 == 0 && code2 == 0 && identical &&
+      hasSubstr manifest "\"path\":\"tests/VersoBlueprintTests/BlueprintMainWrapper.lean\"" &&
+      !hasSubstr manifest s!"\"path\":\"{cwd}/" &&
+      hasSubstr index "class=\"bp_build_metadata\"" && !hasSubstr index "Compiled"
 
 private def fakePdfEngineScript : String := r#"#!/bin/sh
 set -eu

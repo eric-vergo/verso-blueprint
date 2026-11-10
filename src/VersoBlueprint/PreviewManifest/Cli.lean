@@ -129,6 +129,51 @@ private partial def parsePdfOptionsCore :
 def parsePdfOptions (args : List String) : Except String (PdfOptions × List String) :=
   parsePdfOptionsCore args {} []
 
+def reproducibleFlag : String := "--reproducible"
+def omitBuildTimeFlag : String := "--omit-build-time"
+def omitGitMetadataFlag : String := "--omit-git-metadata"
+def relativeSourcePathsFlag : String := "--relative-source-paths"
+
+/--
+Options that remove build-environment facts from the generated site, so that two
+builds of an unchanged project produce byte-identical output.
+-/
+structure ReproducibilityOptions where
+  /-- Omit the build timestamp ("Compiled") from the title-page build metadata. -/
+  omitBuildTime : Bool := false
+  /--
+  Omit facts read from Git working trees: the project's and the upstream
+  formalization's commit and subject, and versions of path dependencies.
+  Versions pinned in `lake-manifest.json` are kept.
+  -/
+  omitGitMetadata : Bool := false
+  /--
+  Emit source paths in the generated preview manifest relative to the project
+  root (the generator's working directory) instead of as absolute paths.
+  -/
+  relativeSourcePaths : Bool := false
+deriving Inhabited, Repr, BEq
+
+/-- All reproducibility options enabled. -/
+def ReproducibilityOptions.all : ReproducibilityOptions :=
+  { omitBuildTime := true, omitGitMetadata := true, relativeSourcePaths := true }
+
+/-- Combine two option sets (an option is on when either enables it). -/
+def ReproducibilityOptions.merge (a b : ReproducibilityOptions) : ReproducibilityOptions :=
+  { omitBuildTime := a.omitBuildTime || b.omitBuildTime
+    omitGitMetadata := a.omitGitMetadata || b.omitGitMetadata
+    relativeSourcePaths := a.relativeSourcePaths || b.relativeSourcePaths }
+
+/-- Extract the reproducibility flags, returning the remaining arguments. -/
+def parseReproducibilityOptions (opts : ReproducibilityOptions) (args : List String) :
+    ReproducibilityOptions × List String :=
+  args.foldr (init := (opts, [])) fun arg (opts, rest) =>
+    if arg == reproducibleFlag then (opts.merge .all, rest)
+    else if arg == omitBuildTimeFlag then ({ opts with omitBuildTime := true }, rest)
+    else if arg == omitGitMetadataFlag then ({ opts with omitGitMetadata := true }, rest)
+    else if arg == relativeSourcePathsFlag then ({ opts with relativeSourcePaths := true }, rest)
+    else (opts, arg :: rest)
+
 def dumpSchemaFlag : String := "--dump-schema"
 def dumpManifestFlag : String := "--dump-manifest"
 def dumpHtmlCacheFlag : String := "--dump-html-cache"
@@ -141,6 +186,12 @@ def helpText : String := String.intercalate "\n" [
   s!"  {dumpHtmlCacheFlag}  Print the generated rendered-fragment cache JSON and exit.",
   s!"  {externalMarkupRenderFlag} <mode>  Render source-backed external fragments in the cache ({Informal.ExternalMarkupRender.Mode.cliValues}; default markdown, rendered by MD4Lean with source fallback).",
   s!"  {helpFlag}              Show this help text and exit.",
+  "",
+  "Blueprint reproducibility options:",
+  s!"  {reproducibleFlag}      All of the following: two builds of an unchanged project are byte-identical.",
+  s!"  {omitBuildTimeFlag}   Omit the build timestamp from the title-page build metadata.",
+  s!"  {omitGitMetadataFlag}  Omit commits and subjects read from Git working trees.",
+  s!"  {relativeSourcePathsFlag}  Emit manifest source paths relative to the project root.",
   "",
   "Blueprint PDF options:",
   s!"  {pdfFlag}               Emit TeX and build pdf/main.pdf with lualatex.",
