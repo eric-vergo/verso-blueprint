@@ -147,7 +147,7 @@ class TestSidebarRuntime:
                 const [x, y] = [lum(seen), lum(bg)].sort((p, q) => q - p);
                 return (x + 0.05) / (y + 0.05);
               };
-              return [...document.querySelectorAll('#toc a, #toc td.num, .bp_sidebar_foot label')]
+              return [...document.querySelectorAll('#toc a, #toc td.num, .bp_sidebar_foot label, .bp_sidebar_foot summary')]
                 .filter((el) => el.offsetParent !== null && el.textContent.trim())
                 .map((el) => [el.textContent.trim().slice(0, 30), ratio(el)]);
             }"""
@@ -155,3 +155,30 @@ class TestSidebarRuntime:
         assert ratios
         failing = [r for r in ratios if r[1] < 4.5]
         assert not failing, failing
+
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_adopted_folded_control_keeps_contrast(self, sidebar_server: str, page: Page, scheme: str):
+        # A page control adopted into the foot (like the status legend) whose own CSS gives its
+        # summary the faint text colour of a light page must still read on the sidebar.
+        page.emulate_media(color_scheme=scheme)
+        page.goto(sidebar_server + "/Code-Panels/")
+        ratio = page.evaluate(
+            """() => {
+              const style = document.createElement('style');
+              style.textContent = '.bp_probe_control > summary { color: #94a3b8; }';
+              document.head.appendChild(style);
+              const host = document.querySelector('.bp_sidebar_foot_extra');
+              const control = document.createElement('details');
+              control.className = 'bp_probe_control';
+              control.innerHTML = '<summary>Status legend</summary><p>x</p>';
+              host.appendChild(control);
+              const parse = (c) => { const p = c.match(/[\\d.]+/g).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+              const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+              const bg = parse(getComputedStyle(document.getElementById('toc')).backgroundColor);
+              const fg = parse(getComputedStyle(control.querySelector('summary')).color);
+              const seen = { r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a) };
+              const [x, y] = [lum(seen), lum(bg)].sort((p, q) => q - p);
+              return (x + 0.05) / (y + 0.05);
+            }"""
+        )
+        assert ratio >= 4.5, ratio
