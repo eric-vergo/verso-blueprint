@@ -201,6 +201,7 @@ def helpText : String := String.intercalate "\n" [
   "",
   "Blueprint layout options:",
   s!"  {sideBySideFlag}      Render nodes in two columns with the Lean source of their declarations.",
+  "  --sidebar           Turn the table of contents into a navigation sidebar with a theme switch.",
   "",
   "Blueprint PDF options:",
   s!"  {pdfFlag}               Emit TeX and build pdf/main.pdf with lualatex.",

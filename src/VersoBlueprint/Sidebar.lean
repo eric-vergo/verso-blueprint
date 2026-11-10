@@ -41,6 +41,14 @@ deriving Inhabited, Repr, BEq
 
 def metaName : String := "verso-blueprint-sidebar"
 
+/-- Generator flag that enables the sidebar with the default configuration. -/
+def flag : String := "--sidebar"
+
+/-- Extract `--sidebar`: it enables the default sidebar unless one is configured already. -/
+def parseFlag (sidebar? : Option Config) (args : List String) : Option Config × List String :=
+  let sidebar? := if args.contains flag then sidebar?.getD {} |> some else sidebar?
+  (sidebar?, args.filter (· != flag))
+
 def configElementId : String := "verso-blueprint-sidebar-config"
 
 def css : String := include_str "Sidebar/sidebar.css"

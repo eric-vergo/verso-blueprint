@@ -1465,6 +1465,9 @@ override under `html[data-theme="dark"]`.
     })
 ```
 
+The generator flag `--sidebar` enables the sidebar with the default
+configuration (no external links) for one build.
+
 The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
 chapters with the current one in bold, a separator, the unnumbered pages
 (dependency graph, summary, bibliography, ...), the configured external links
