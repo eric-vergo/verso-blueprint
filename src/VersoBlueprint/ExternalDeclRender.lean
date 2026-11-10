@@ -255,6 +255,17 @@ private def highlightedToHtml (h : SubVerso.Highlighting.Highlighted) :
     ExternalDeclHighlightRender ExternalDeclHtml :=
   runHighlightedHtml (h.toHtml (g := Verso.Genre.Manual))
 
+/--
+Render several pieces of highlighted code into one compact template that shares
+one hover table, then assemble them into HTML. Callers turn the template into
+page HTML the same way as external declaration snippets.
+-/
+def renderHighlightedTemplate (parts : Array SubVerso.Highlighting.Highlighted)
+    (assemble : Array ExternalDeclHtml → ExternalDeclHtml) : ExternalDeclRenderedHtml :=
+  renderWithHoverPayloads do
+    let htmls ← parts.mapM highlightedToHtml
+    pure (assemble htmls)
+
 private def renderExternalDeclSignatureVariant
     (keywordText : String) (signature : SubVerso.Highlighting.Highlighted) :
     ExternalDeclHighlightRender ExternalDeclHtml :=

@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import VersoManual
+import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.Block.Model
 import VersoBlueprint.Informal.MetadataView
 
@@ -96,7 +97,7 @@ private def blockKindRenderStyle (data : BlockData) : BlockKindRenderStyle :=
 
 /-- Render the caption/label row shared by informal block shells. -/
 def renderBlockTitleRow (style : BlockKindRenderStyle)
-    (labelText numberText captionText : String) :
+    (labelText numberText captionText : String) (titleSuffix : Verso.Output.Html := .empty) :
     Verso.Output.Html :=
   open Verso.Output.Html in
   let titleRowClass :=
@@ -110,6 +111,7 @@ def renderBlockTitleRow (style : BlockKindRenderStyle)
     <div class={{titleRowClass}}>
       <span class={{captionClass}} title={{labelText}}> {{.text true captionText}} </span>
       {{ if style.showLabel then {{<span class={{labelClass}}> {{.text true numberText}} </span>}} else .empty }}
+      {{titleSuffix}}
     </div>
   }}
 
@@ -653,6 +655,8 @@ structure InformalBlockRenderContext where
   headerExtras : HeaderExtras := {}
   sourceRefs : Array Source.Ref := #[]
   folded : Bool := false
+  /-- Rendered after the number in the title row, e.g. a status glyph. -/
+  titleSuffix : Verso.Output.Html := .empty
 
 /--
 Build shell context for a concrete informal block.
@@ -671,7 +675,8 @@ def InformalBlockRenderContext.forBlock
     (titleRowAttrs? : Option (Array (String × String)) := none)
     (headerExtras : HeaderExtras := {})
     (sourceRefs : Array Source.Ref := #[])
-    (folded : Bool := false) :
+    (folded : Bool := false)
+    (titleSuffix : Verso.Output.Html := .empty) :
     InformalBlockRenderContext :=
   let captionText? :=
     match data.isProof with
@@ -692,6 +697,7 @@ def InformalBlockRenderContext.forBlock
     headerExtras
     sourceRefs
     folded
+    titleSuffix
   }
 
 /--
@@ -708,6 +714,11 @@ structure InformalBlockRenderModel where
   context : InformalBlockRenderContext
   content : Array Verso.Output.Html := #[]
   companionPanels : Array Verso.Output.Html := #[]
+  /--
+  Lean column of the side-by-side layout. When present, the block is rendered
+  as the left column of a two-column node and this as the right column.
+  -/
+  formalColumn? : Option Verso.Output.Html := none
   wrapperClass? : Option String := none
   showHeader : Bool := true
 
@@ -729,9 +740,11 @@ structure InformalBlockShell where
   metadataPanel : Verso.Output.Html := .empty
   folded : Bool := false
   showHeader : Bool := true
+  titleSuffix : Verso.Output.Html := .empty
 
 private def renderShellTitleRow (shell : InformalBlockShell) : Verso.Output.Html :=
   let titleRow := renderBlockTitleRow shell.style shell.labelText shell.numberText shell.captionText
+    shell.titleSuffix
   match shell.titleRowAttrs? with
   | some attrs => .tag "a" attrs titleRow
   | none => titleRow
@@ -804,6 +817,7 @@ def renderInformalBlockHtml (data : BlockData) (ctx : InformalBlockRenderContext
       metadataPanel
       folded := ctx.folded
       showHeader
+      titleSuffix := ctx.titleSuffix
     }
     (.seq content)
 
@@ -811,10 +825,49 @@ def renderInformalBlockHtml (data : BlockData) (ctx : InformalBlockRenderContext
 def htmlClassAttrs (className : String) : Array (String × String) :=
   if className.isEmpty then #[] else #[("class", className)]
 
+/--
+Two-column node of the side-by-side layout: the informal block on the left, the
+Lean column on the right. Proofs of the node that follow it on the page are moved
+into the left column by the page script.
+-/
+def renderSideBySideNode (label : String) (informal formal : Verso.Output.Html) :
+    Verso.Output.Html :=
+  open Verso.Output.Html in
+  {{
+    <div class="bp_sbs" data-bp-node={{label}}>
+      <div class="bp_sbs_grid">
+        <div class="bp_sbs_informal">{{informal}}</div>
+        <div class="bp_sbs_formal">{{formal}}</div>
+      </div>
+    </div>
+  }}
+
+/-- Glyph, CSS modifier and description for a node's Lean status in the side-by-side layout. -/
+def statusGlyph (mark? : Option BlockStatusMark) : String × String × String :=
+  match mark? with
+  | none => ("○", "none", "No Lean declaration attached")
+  | some mark =>
+    let status := mark.status
+    if status.isProved then ("✓", "proved", mark.title)
+    else if status.isMissing then ("✗", "missing", mark.title)
+    else if status.hasTypeGap || status.hasUnverifiedType then ("⚠", "problem", mark.title)
+    else ("◐", "partial", mark.title)
+
+/-- The status glyph shown beside a node title in the side-by-side layout. -/
+def renderStatusGlyph (mark? : Option BlockStatusMark) : Verso.Output.Html :=
+  open Verso.Output.Html in
+  let (glyph, modifier, title) := statusGlyph mark?
+  {{<span class={{s!"bp_status_glyph bp_status_glyph_{modifier}"}} title={{title}}
+      aria-label={{title}}>{{.text true glyph}}</span>}}
+
 /-- Render a complete informal block model, including companion panels. -/
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=
   let blockHtml := renderInformalBlockHtml model.data model.context model.content
     (showHeader := model.showHeader)
+  let blockHtml :=
+    match model.formalColumn? with
+    | some formal => renderSideBySideNode model.data.label.toString blockHtml formal
+    | none => blockHtml
   let html := Verso.Output.Html.seq (#[blockHtml] ++ model.companionPanels)
   match model.wrapperClass? with
   | some className => Verso.Output.Html.tag "div" (htmlClassAttrs className) html

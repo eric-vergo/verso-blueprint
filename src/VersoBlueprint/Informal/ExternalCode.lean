@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Verso
 import VersoManual
+import VersoBlueprint.DeclarationSource
 import VersoBlueprint.DirectiveArgParsing
 import VersoBlueprint.ExternalRefSnapshot
 import VersoBlueprint.Informal.Block.Common
@@ -456,6 +457,93 @@ def renderPanelWithPageHovers [Monad m] (panelHeader : CodePanelHeader)
       (renderExternalDeclList rows)
       (headingExtra := renderLeanJumpLinks externalDecls)
       (folded := folded)
+
+/-- Whether a declaration's source is shown as statement plus folded proof. -/
+private def isTheoremLike (decl : Data.ExternalRef) : Bool :=
+  decl.kind != .definition
+
+/-- Statement and optional proof of a declaration's highlighted command. -/
+private def declarationSourceParts (decl : Data.ExternalRef) (src : SubVerso.Module.DeclSource) :
+    Array SubVerso.Highlighting.Highlighted × Option (Array SubVerso.Highlighting.Highlighted) :=
+  let code := DeclarationSource.presentation src.code
+  let split? := if isTheoremLike decl then DeclarationSource.splitStatement? code else none
+  match split? with
+  | some (statement, proof) => (statement, some proof)
+  | none => (code, none)
+
+private def declarationSourceMeta (decl : Data.ExternalRef) : Output.Html :=
+  open Verso.Output.Html in
+  let pathText? := decl.provenance.moduleName?.map LeanSourceAnchor.modulePath
+  let pathNode : Output.Html :=
+    match pathText?, decl.sourceHref? with
+    | some path, some href =>
+      {{<a class="bp_decl_source_path" href={{href}} title="View the source">{{.text true path}}</a>}}
+    | some path, none => {{<span class="bp_decl_source_path">{{.text true path}}</span>}}
+    | none, _ => .empty
+  let name := LeanSourceAnchor.declText decl.canonical
+  {{
+    <div class="bp_decl_source_meta">
+      {{pathNode}}
+      <span class="bp_lean_jumps">
+        <a class="bp_lean_jump" href={{LeanSourceAnchor.declHref decl.canonical}}
+          data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>"open in editor"</a>
+      </span>
+    </div>
+  }}
+
+/-- One card of the side-by-side Lean column: the defining command's highlighted source. -/
+private def renderDeclarationSourceCard [Monad m]
+    (item : LinkedExternalDecl) (src : SubVerso.Module.DeclSource) :
+    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+  let (statement, proof?) := declarationSourceParts item.decl src
+  let statementLines := DeclarationSource.lines statement
+  let proofLines := (proof?.map DeclarationSource.lines).getD #[]
+  let parts := (statementLines ++ proofLines).map SubVerso.Highlighting.Highlighted.seq
+  let rendered := renderHighlightedTemplate parts fun htmls =>
+    open Verso.Output.Html in
+    -- One block per source line: wrapped lines get a hanging indent.
+    let code (lineHtmls : Array Output.Html) : Output.Html :=
+      {{<code class="hl lean block bp_decl_source_code">{{lineHtmls.map fun line =>
+          {{<span class="bp_code_line">{{line}}</span>}}}}</code>}}
+    let proofHtml : Output.Html :=
+      if proofLines.isEmpty then .empty
+      else
+        {{<details class="bp_decl_source_proof"><summary>"Lean proof"</summary>{{
+          code (htmls.extract statementLines.size htmls.size)}}</details>}}
+    .seq #[code (htmls.extract 0 statementLines.size), proofHtml]
+  let html ← renderedHtmlWithPageHovers rendered
+  let kindClass := if isTheoremLike item.decl then "bp_decl_source_theorem" else "bp_decl_source_definition"
+  pure <| .tag "div" (#[("class", s!"bp_decl_source {kindClass}")] ++ item.anchorAttrs)
+    (.seq #[declarationSourceMeta item.decl, .text false html])
+
+/--
+Render the Lean column of a side-by-side node.
+
+Each declaration whose highlighted source is available (see
+`Informal.DeclarationSource`) gets one card with the source of its defining
+command: the whole command for definitions, the statement followed by a folded
+proof for theorem-like declarations. A command that defines several of the
+node's declarations is shown once. Declarations without available source keep
+the signature-and-docstring row of the Lean code panel.
+-/
+def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
+    (externalDecls : Array Data.ExternalRef) (getDeclHref : Name → Option String)
+    (getDeclAnchorAttrs : Data.ExternalRef → Array (String × String) := fun _ => #[]) :
+    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+  let mut seen : Array (Name × Nat) := #[]
+  let mut parts : Array Output.Html := #[]
+  for decl in externalDecls do
+    let item := linkedExternalDecl getDeclHref getDeclAnchorAttrs decl
+    match ← (DeclarationSource.find? decl : IO _) with
+    | some src =>
+      let key := (decl.provenance.moduleName?.getD .anonymous, src.index)
+      unless seen.contains key do
+        seen := seen.push key
+        parts := parts.push (← renderDeclarationSourceCard item src)
+    | none =>
+      let rows ← renderExternalDeclRowsWith externalDeclRenderedWithPageHovers #[item]
+      parts := parts.push (renderExternalDeclList rows)
+  pure (.seq parts)
 
 end ExternalCode
 end Informal

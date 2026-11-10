@@ -129,6 +129,12 @@ private partial def parsePdfOptionsCore :
 def parsePdfOptions (args : List String) : Except String (PdfOptions × List String) :=
   parsePdfOptionsCore args {} []
 
+def sideBySideFlag : String := "--side-by-side"
+
+/-- Extract `--side-by-side`, returning whether it was given and the remaining arguments. -/
+def parseSideBySideFlag (args : List String) : Bool × List String :=
+  (args.contains sideBySideFlag, args.filter (· != sideBySideFlag))
+
 def dumpSchemaFlag : String := "--dump-schema"
 def dumpManifestFlag : String := "--dump-manifest"
 def dumpHtmlCacheFlag : String := "--dump-html-cache"
@@ -141,6 +147,9 @@ def helpText : String := String.intercalate "\n" [
   s!"  {dumpHtmlCacheFlag}  Print the generated rendered-fragment cache JSON and exit.",
   s!"  {externalMarkupRenderFlag} <mode>  Render source-backed external fragments in the cache ({Informal.ExternalMarkupRender.Mode.cliValues}; default markdown, rendered by MD4Lean with source fallback).",
   s!"  {helpFlag}              Show this help text and exit.",
+  "",
+  "Blueprint layout options:",
+  s!"  {sideBySideFlag}      Render nodes in two columns with the Lean source of their declarations.",
   "",
   "Blueprint PDF options:",
   s!"  {pdfFlag}               Emit TeX and build pdf/main.pdf with lualatex.",
