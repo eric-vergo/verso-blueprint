@@ -81,7 +81,21 @@ private def theoremCode : Highlighted :=
 #eval
   let ls := DeclarationSource.lines (DeclarationSource.presentation theoremCode)
   ls.map leavesText == #["theorem foo (h : x := 1) : True := by", "  trivial"] &&
-    (DeclarationSource.lines #[txt "a\n\nb"]).map leavesText == #["a", "", "b"]
+    (DeclarationSource.lines #[txt "a\n\nb"]).map leavesText == #["a", "", "b"] &&
+    -- the indentation that wrapped lines hang from
+    ls.map DeclarationSource.lineIndent == #[0, 2]
+
+-- The site default style ships the legend of every status glyph, once.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let cfg := PreviewManifest.withSideBySideDefaultStyle (PreviewManifest.withSideBySideDefaultStyle {})
+  let head := String.join (cfg.toHtmlConfig.extraHead.map (·.asString)).toList
+  countSubstr head "<template id=\"bp-status-legend\">" == 1 &&
+    countSubstr head "name=\"verso-blueprint-default-style\"" == 1 &&
+    Informal.StatusGlyphKind.all.all fun kind =>
+      hasSubstr head kind.glyph && hasSubstr head kind.meaning &&
+        hasSubstr head s!"bp_status_glyph_{kind.modifier}"
 
 /-- info: true -/
 #guard_msgs in
@@ -148,12 +162,15 @@ private def fakeModule : SubVerso.Module.Module := {
       hasSubstr out ">sbsTheorem<" &&
       hasSubstr out "class=\"bp_code_line\"" &&
       hasSubstr out ">trivial<" &&
+      -- the indented proof line carries its indentation for the hanging indent
+      hasSubstr out "style=\"--bp-indent: 2\"" &&
       appearsBefore out ">sbsTheorem<" "class=\"bp_decl_source_proof\"" &&
       -- `Nat.add` has no workspace source: it keeps its signature row
       hasSubstr out "data-lean-decl=\"Nat.add\"" &&
       hasSubstr out "bp_external_decl_item" &&
-      -- the status glyph and the folded proof
+      -- the status glyph, whose tooltip starts with its meaning, and the folded proof
       hasSubstr out "class=\"bp_status_glyph" &&
+      Informal.StatusGlyphKind.all.any (fun kind => hasSubstr out s!"title=\"{kind.meaning}") &&
       hasSubstr out "<details class=\"bp_wrapper bp_kind_proof_wrapper" &&
       -- no separate Lean code panel for the statement
       !hasSubstr out "Lean code for Theorem" &&
