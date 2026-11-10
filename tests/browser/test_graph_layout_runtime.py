@@ -1188,3 +1188,52 @@ class TestGraphLayoutRuntime:
             }""",
             arg=desired_height,
         )
+
+    def test_narrow_graph_starts_readable_and_nodes_take_clicks(self, server: str, page: Page):
+        # In a narrow window the fitted graph shrinks below a readable size; it then starts at the
+        # minimum readable scale with its roots in view, and a click whose pointer moves a few pixels
+        # (a trackpad click) still reaches the node instead of becoming a pan.
+        page.set_viewport_size({"width": 360, "height": 640})
+        goto_graph_page(page, f"{server}/Dependency-Graph/")
+        wait_for_rendered_variant(page, "full")
+        page.wait_for_timeout(300)
+        metrics = page.evaluate(
+            """() => {
+                const svg = document.querySelector(".bp_graph_canvas svg");
+                const graph = svg.querySelector("g.graph") || svg.querySelector("g");
+                const scale = svg.getScreenCTM().a * window.d3.zoomTransform(svg).k;
+                const canvas = document.querySelector(".bp_graph_canvas").getBoundingClientRect();
+                const visible = [...graph.querySelectorAll("g.node")].filter((n) => {
+                    const r = n.getBoundingClientRect();
+                    return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom;
+                }).length;
+                const vb = svg.viewBox.baseVal;
+                const fit = Math.min(canvas.width / vb.width, canvas.height / vb.height);
+                return { scale, fit, visible, canvasHeight: canvas.height, viewport: window.innerHeight };
+            }"""
+        )
+        assert metrics["scale"] >= 0.5 - 0.01, metrics
+        assert metrics["visible"] > 0, metrics
+        assert metrics["canvasHeight"] >= 0.6 * metrics["viewport"] - 2, metrics
+        assert_graph_has_zoom_handlers(page)
+        target = None
+        for candidate in page.locator(".bp_graph_canvas svg g.node[tabindex='0']").all():
+            box = candidate.bounding_box()
+            canvas = page.locator(".bp_graph_canvas").first.bounding_box()
+            if box and canvas and box["x"] > canvas["x"] and box["x"] + box["width"] < canvas["x"] + canvas["width"] \
+                    and box["y"] > canvas["y"] and box["y"] + box["height"] < canvas["y"] + canvas["height"]:
+                target = box
+                break
+        assert target is not None, "no node fully inside the canvas"
+        x = target["x"] + target["width"] / 2
+        y = target["y"] + target["height"] / 2
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 3, y + 2, steps=2)
+        page.mouse.up()
+        page.wait_for_function(
+            """() => {
+                const panel = document.querySelector(".bp_graph_preview");
+                return !!panel && !panel.hidden;
+            }"""
+        )

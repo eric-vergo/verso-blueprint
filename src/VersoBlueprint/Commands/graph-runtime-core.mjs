@@ -161,10 +161,16 @@
     const flowBottom = readGraphCanvasFlowBottom(graphRoot, layoutMode);
     const trailingHeight = Math.max(0, flowBottom - rect.bottom);
     const rawAvailableHeight = Math.floor(viewportHeight - rect.top - bottomGap - trailingHeight);
+    // In a short window (or below a tall header) the room left under the controls
+    // can be a sliver; the canvas then takes at least 60% of the viewport, so the
+    // graph is read in a pane of useful height (the page scrolls a little instead).
+    const readableHeight = Math.max(280, Math.floor(viewportHeight * 0.6));
     const availableHeight =
       layoutMode === "block" && rawAvailableHeight < 280
         ? viewportMaxHeight
-        : Math.max(1, rawAvailableHeight);
+        : rawAvailableHeight < readableHeight
+          ? readableHeight
+          : Math.max(1, rawAvailableHeight);
     const autoHeight = Math.min(viewportMaxHeight, availableHeight);
     const minHeight = Math.min(autoHeight, 280);
     const currentHeight = parsePixelSize(graphRoot.style.height);
@@ -283,6 +289,78 @@
     return true;
   }
 
+  // Smallest on-screen scale (CSS pixels per Graphviz point) the first view of a
+  // graph uses. Fitting a large graph into a narrow pane can shrink nodes to a few
+  // pixels; below this scale the graph starts readable instead, showing its roots.
+  export const minReadableGraphScale = 0.5;
+
+  // The rank that holds the graph's roots for a Graphviz `rankdir`: the axis and
+  // whether it is the low or the high end of that axis.
+  function rootEdge(direction) {
+    switch (String(direction || "TB").toUpperCase()) {
+      case "BT": return { axis: "y", low: false };
+      case "LR": return { axis: "x", low: true };
+      case "RL": return { axis: "x", low: false };
+      default: return { axis: "y", low: true };
+    }
+  }
+
+  // After a fitted render: keep node clicks working when the pointer moves a few
+  // pixels during a click (d3-zoom otherwise takes it for a drag and swallows the
+  // click), and when the fit made the graph unreadably small, zoom to
+  // `minReadableGraphScale` with the roots' rank at the canvas's leading edge,
+  // centred across it. Pan and zoom stay available. Returns the applied scale
+  // (CSS pixels per point), or null when the fitted view was kept.
+  export function applyReadableGraphZoom(graphRoot, graphviz, direction, minScale) {
+    if (!(graphRoot instanceof Element) || !graphviz) return null;
+    const zoom = typeof graphviz.zoomBehavior === "function" ? graphviz.zoomBehavior() : null;
+    const selection = typeof graphviz.zoomSelection === "function" ? graphviz.zoomSelection() : null;
+    if (!zoom || !selection) return null;
+    if (typeof zoom.clickDistance === "function") zoom.clickDistance(6);
+    const svg = graphRoot.querySelector("svg");
+    const graph = svg ? svg.querySelector("g.graph") || svg.querySelector("g") : null;
+    const d3 = typeof window !== "undefined" ? window.d3 : null;
+    if (!svg || !graph || !d3 || typeof d3.zoomTransform !== "function" || !d3.zoomIdentity) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm || !(ctm.a > 0)) return null;
+    const current = d3.zoomTransform(svg);
+    const pxPerPoint = ctm.a * current.k;
+    const wanted = Number.isFinite(minScale) && minScale > 0 ? minScale : minReadableGraphScale;
+    if (pxPerPoint >= wanted) return null;
+    const nodes = Array.from(graph.querySelectorAll("g.node")).map(function (node) {
+      try { return node.getBBox(); } catch (_err) { return null; }
+    }).filter(function (box) { return box && box.width > 0; });
+    if (nodes.length === 0) return null;
+    const edge = rootEdge(direction);
+    const lead = function (box) {
+      return edge.axis === "y" ? (edge.low ? box.y : box.y + box.height) : (edge.low ? box.x : box.x + box.width);
+    };
+    const leadValues = nodes.map(lead);
+    const extreme = edge.low ? Math.min.apply(null, leadValues) : Math.max.apply(null, leadValues);
+    const rankSize = Math.max.apply(null, nodes.map(function (box) { return edge.axis === "y" ? box.height : box.width; }));
+    const roots = nodes.filter(function (box) { return Math.abs(lead(box) - extreme) <= rankSize / 2; });
+    const across = roots.map(function (box) { return edge.axis === "y" ? box.x + box.width / 2 : box.y + box.height / 2; });
+    const centre = across.reduce(function (a, b) { return a + b; }, 0) / across.length;
+    // the target point in the svg's own (viewBox) coordinates
+    const rect = graphRoot.getBoundingClientRect();
+    const margin = 24;
+    const inv = ctm.inverse();
+    const screen = svg.createSVGPoint();
+    if (edge.axis === "y") {
+      screen.x = rect.left + rect.width / 2;
+      screen.y = edge.low ? rect.top + margin : rect.bottom - margin;
+    } else {
+      screen.x = edge.low ? rect.left + margin : rect.right - margin;
+      screen.y = rect.top + rect.height / 2;
+    }
+    const target = screen.matrixTransform(inv);
+    const k = wanted / ctm.a;
+    const rx = edge.axis === "y" ? centre : extreme;
+    const ry = edge.axis === "y" ? extreme : centre;
+    selection.call(zoom.transform, d3.zoomIdentity.translate(target.x - k * rx, target.y - k * ry).scale(k));
+    return wanted;
+  }
+
   export function resetGraphvizForVariant(graphRoot, graphState) {
     let cachedGraphviz = null;
     if (graphState && typeof graphState === "object" && graphState.graphviz) {
@@ -368,6 +446,8 @@
     rememberGraphLayoutMeasurements,
     resizeRenderedGraphToCanvas,
     resetGraphvizForVariant,
+    applyReadableGraphZoom,
+    minReadableGraphScale,
     makeGroupPanelPositioner
   };
 

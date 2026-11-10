@@ -19,6 +19,7 @@ const {
   rememberGraphLayoutMeasurements,
   resizeRenderedGraphToCanvas,
   resetGraphvizForVariant,
+  applyReadableGraphZoom,
   makeGroupPanelPositioner
 } = graphRuntimeCoreModule;
 
@@ -955,6 +956,9 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           .fit(true)
           .on("end", function () {
             finalizeRender();
+            if (graphState.renderToken === renderToken) {
+              applyReadableGraphZoom(graphRoot, gv, options.direction);
+            }
           });
         gv.renderDot(dot);
         setTimeout(function () {
