@@ -196,7 +196,10 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table 
   color: var(--bp-sidebar-fg-muted);
 }
 
-.bp_sidebar_foot_extra summary {
+/* Adopted controls bring their own colours for a light page (the status legend's
+   summary is the faint text colour); on the sidebar their summary takes the
+   sidebar's muted text, which keeps 4.5:1 on its background. */
+.bp_sidebar_foot .bp_sidebar_foot_extra summary {
   color: var(--bp-sidebar-fg-muted);
 }
 
