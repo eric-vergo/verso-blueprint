@@ -28,25 +28,25 @@ def css : String := r##"
 }
 
 .bp_rust_kw {
-  color: #7c2d12;
+  color: var(--bp-color-rust-keyword);
   font-weight: 700;
 }
 
 .bp_rust_ty {
-  color: #0f766e;
+  color: var(--bp-color-rust-type);
   font-weight: 600;
 }
 
 .bp_rust_num {
-  color: #166534;
+  color: var(--bp-color-rust-number);
 }
 
 .bp_rust_str {
-  color: #9f1239;
+  color: var(--bp-color-rust-string);
 }
 
 .bp_rust_comment {
-  color: #64748b;
+  color: var(--bp-color-rust-comment);
   font-style: italic;
 }
 "##

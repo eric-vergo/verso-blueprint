@@ -44,7 +44,7 @@ def css : String := r##"
   border: 1px solid var(--bp-color-border-soft, #d8dee8);
   border-radius: var(--bp-radius-md, 0.45rem);
   background: var(--bp-color-surface, #ffffff);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--bp-shadow-xs);
 }
 
 .bp_graft_side_by_side .bp_wrapper,

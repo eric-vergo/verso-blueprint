@@ -15,7 +15,7 @@ register_option verso.blueprint.debug.commands : Bool := {
   descr := "Emit debug info logs for blueprint graph, summary, and bibliography commands"
 }
 
-def blueprintTokensCss : String := r##"
+def blueprintLightTokensCss : String := r##"
 :root {
   --bp-color-surface: #ffffff;
   --bp-color-surface-muted: #f8fafc;
@@ -74,6 +74,49 @@ def blueprintTokensCss : String := r##"
   --bp-color-biblio-border-soft: #e9ddff;
   --bp-color-biblio-surface-soft: #fdfbff;
   --bp-color-biblio-link: #4c1d95;
+  --bp-color-tint-success: rgba(22, 101, 52, 0.08);
+  --bp-color-tint-success-border: rgba(22, 101, 52, 0.18);
+  --bp-color-tint-warning: rgba(161, 98, 7, 0.09);
+  --bp-color-tint-warning-border: rgba(161, 98, 7, 0.2);
+  --bp-color-tint-error: rgba(185, 28, 28, 0.08);
+  --bp-color-tint-error-border: rgba(185, 28, 28, 0.18);
+  --bp-color-tint-info: rgba(124, 58, 237, 0.08);
+  --bp-color-tint-info-border: rgba(124, 58, 237, 0.18);
+  --bp-color-tint-danger: rgba(220, 38, 38, 0.08);
+  --bp-color-overlay-surface: rgba(255, 255, 255, 0.98);
+  --bp-color-overlay-surface-soft: rgba(255, 255, 255, 0.9);
+  --bp-color-ink-hairline: rgba(15, 23, 42, 0.14);
+  --bp-color-ink-rule: rgba(15, 23, 42, 0.2);
+  --bp-color-ink-divider: rgba(15, 23, 42, 0.35);
+  --bp-color-badge-highlight: rgba(255, 255, 255, 0.35);
+  --bp-color-relation-statement-text: #1d4ed8;
+  --bp-color-relation-proof-text: #047857;
+  --bp-color-relation-auto-text: #6d28d9;
+  --bp-color-relation-auto-prefix: #7c3aed;
+  --bp-color-relation-aux-text: #92400e;
+  --bp-color-relation-aux-prefix: #b45309;
+  --bp-color-relation-tech-text: #4338ca;
+  --bp-color-relation-tech-prefix: #4f46e5;
+  --bp-color-kind-rule: #000000;
+  --bp-color-slide-accent: #075985;
+  --bp-color-slide-link: #0e7490;
+  --bp-color-slide-math: #164e63;
+  --bp-color-slide-ok-text: #166534;
+  --bp-color-slide-ok-icon: #16a34a;
+  --bp-color-slide-ok-bg: rgba(22, 163, 74, 0.08);
+  --bp-color-slide-ok-border: rgba(22, 163, 74, 0.26);
+  --bp-color-slide-code-keyword: #8839a0;
+  --bp-color-slide-code-const: #1a5fb4;
+  --bp-color-slide-code-var: #1a7a6a;
+  --bp-color-rust-keyword: #7c2d12;
+  --bp-color-rust-type: #0f766e;
+  --bp-color-rust-number: #166534;
+  --bp-color-rust-string: #9f1239;
+  --bp-color-rust-comment: #64748b;
+  --bp-color-graph-bg: #ffffff;
+  --bp-color-graph-edge: #6b7280;
+  --bp-color-graph-cluster: #cbd5e1;
+  --bp-color-graph-label: #000000;
   --bp-radius-sm: 0.35rem;
   --bp-radius-md: 0.45rem;
   --bp-radius-lg: 0.5rem;
@@ -85,10 +128,204 @@ def blueprintTokensCss : String := r##"
   --bp-shadow-md: 0 10px 24px rgba(15, 23, 42, 0.16);
   --bp-shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.18);
   --bp-shadow-modern: 0 6px 18px rgba(15, 23, 42, 0.08);
+  --bp-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --bp-shadow-inset: inset 0 1px 1px rgba(15, 23, 42, 0.08);
+  --bp-shadow-popover: 0 8px 20px rgba(15, 23, 42, 0.15);
+  --bp-shadow-icon: 0 1px 2px rgba(15, 23, 42, 0.18);
+  --bp-shadow-step: 0 3px 0 rgba(15, 23, 42, 0.14);
+  --bp-shadow-slide-card: 0 10px 24px rgba(15, 23, 42, 0.12);
+  --bp-shadow-slide-panel: 0 18px 42px rgba(15, 23, 42, 0.2);
   --bp-shadow-bold: 0 7px 0 var(--bp-color-text-strong);
   --bp-shadow-bold-lg: 0 9px 0 var(--bp-color-text-strong);
 }
 "##
+
+/-- Dark values for the `--bp-*` tokens above plus the Verso base variables, as `(name, value)`
+pairs. This single list renders both dark triggers (`blueprintDarkTokensCss`); radii are
+theme-independent and have no dark value. `--bp-color-link` and the `--bp-code-*` tokens have no
+light value here (consumers fall back to their own default). -/
+def darkTokens : List (String × String) := [
+  ("color-scheme", "dark"),
+  ("--bp-color-surface", "#1b1f27"),
+  ("--bp-color-surface-muted", "#20252e"),
+  ("--bp-color-surface-subtle", "#1e232b"),
+  ("--bp-color-surface-modern", "#1c2230"),
+  ("--bp-color-surface-warn", "#2a2118"),
+  ("--bp-color-surface-warn-soft", "#3a2a1a"),
+  ("--bp-color-surface-note", "#2a2615"),
+  ("--bp-color-border", "#334155"),
+  ("--bp-color-border-soft", "#2a3140"),
+  ("--bp-color-border-muted", "#3b4252"),
+  ("--bp-color-border-panel", "#2e3646"),
+  ("--bp-color-border-strong", "#64748b"),
+  ("--bp-color-text-strong", "#f8fafc"),
+  ("--bp-color-text", "#e5e7eb"),
+  ("--bp-color-text-muted", "#cbd5e1"),
+  ("--bp-color-text-subtle", "#a3b1c6"),
+  ("--bp-color-text-faint", "#8b9ab0"),
+  ("--bp-color-accent-success", "#4ade80"),
+  ("--bp-color-accent-warning", "#facc15"),
+  ("--bp-color-accent-danger", "#f87171"),
+  ("--bp-color-accent-info", "#a78bfa"),
+  ("--bp-color-status-success-text", "#86efac"),
+  ("--bp-color-status-warning-text", "#fde047"),
+  ("--bp-color-status-warning-strong", "#fdba74"),
+  ("--bp-color-status-warning-border", "#b45309"),
+  ("--bp-color-status-warning-border-soft", "#7c4a1a"),
+  ("--bp-color-status-error-text", "#fca5a5"),
+  ("--bp-color-status-error-strong", "#fecaca"),
+  ("--bp-color-status-error-border-soft", "#7f1d1d"),
+  ("--bp-color-status-note-border", "#b45309"),
+  ("--bp-color-status-note-text", "#fcd34d"),
+  ("--bp-color-focus-border", "#60a5fa"),
+  ("--bp-color-focus-surface", "#1a2540"),
+  ("--bp-color-focus-ring", "rgba(96, 165, 250, 0.25)"),
+  ("--bp-color-selection", "rgba(96, 165, 250, 0.28)"),
+  ("--bp-color-selection-ring", "rgba(96, 165, 250, 0.34)"),
+  ("--bp-color-selection-surface-strong", "rgba(96, 165, 250, 0.4)"),
+  ("--bp-color-selection-surface-soft", "rgba(96, 165, 250, 0.22)"),
+  ("--bp-color-selection-surface-faint", "rgba(96, 165, 250, 0.16)"),
+  ("--bp-color-selection-shadow-strong", "rgba(96, 165, 250, 0.45)"),
+  ("--bp-color-selection-shadow-soft", "rgba(96, 165, 250, 0.36)"),
+  ("--bp-color-selection-shadow-faint", "rgba(96, 165, 250, 0.26)"),
+  ("--bp-color-target-ring", "rgba(96, 165, 250, 0.34)"),
+  ("--bp-color-target-surface", "rgba(96, 165, 250, 0.22)"),
+  ("--bp-color-target-ring-strong", "rgba(96, 165, 250, 0.42)"),
+  ("--bp-color-modern-border", "#2b3547"),
+  ("--bp-color-modern-surface-alt", "#1d2433"),
+  ("--bp-color-modern-caption", "#1e3a5f"),
+  ("--bp-color-bold-surface-glow-1", "rgba(250, 204, 21, 0.12)"),
+  ("--bp-color-bold-surface-glow-2", "rgba(52, 211, 153, 0.12)"),
+  ("--bp-color-bold-link", "#fdba74"),
+  ("--bp-color-bold-label", "#f59e0b"),
+  ("--bp-color-biblio-border", "#4c3d8f"),
+  ("--bp-color-biblio-surface", "#211c33"),
+  ("--bp-color-biblio-border-soft", "#3a2f66"),
+  ("--bp-color-biblio-surface-soft", "#1f1b2e"),
+  ("--bp-color-biblio-link", "#c4b5fd"),
+  ("--bp-color-tint-success", "rgba(74, 222, 128, 0.14)"),
+  ("--bp-color-tint-success-border", "rgba(74, 222, 128, 0.3)"),
+  ("--bp-color-tint-warning", "rgba(250, 204, 21, 0.14)"),
+  ("--bp-color-tint-warning-border", "rgba(250, 204, 21, 0.3)"),
+  ("--bp-color-tint-error", "rgba(248, 113, 113, 0.14)"),
+  ("--bp-color-tint-error-border", "rgba(248, 113, 113, 0.3)"),
+  ("--bp-color-tint-info", "rgba(167, 139, 250, 0.14)"),
+  ("--bp-color-tint-info-border", "rgba(167, 139, 250, 0.3)"),
+  ("--bp-color-tint-danger", "rgba(248, 113, 113, 0.14)"),
+  ("--bp-color-overlay-surface", "rgba(27, 31, 39, 0.98)"),
+  ("--bp-color-overlay-surface-soft", "rgba(27, 31, 39, 0.9)"),
+  ("--bp-color-ink-hairline", "rgba(255, 255, 255, 0.18)"),
+  ("--bp-color-ink-rule", "rgba(255, 255, 255, 0.2)"),
+  ("--bp-color-ink-divider", "rgba(0, 0, 0, 0.5)"),
+  ("--bp-color-badge-highlight", "rgba(255, 255, 255, 0.08)"),
+  ("--bp-color-relation-statement-text", "#93c5fd"),
+  ("--bp-color-relation-proof-text", "#6ee7b7"),
+  ("--bp-color-relation-auto-text", "#c4b5fd"),
+  ("--bp-color-relation-auto-prefix", "#a78bfa"),
+  ("--bp-color-relation-aux-text", "#fcd34d"),
+  ("--bp-color-relation-aux-prefix", "#f59e0b"),
+  ("--bp-color-relation-tech-text", "#a5b4fc"),
+  ("--bp-color-relation-tech-prefix", "#818cf8"),
+  ("--bp-color-kind-rule", "#94a3b8"),
+  ("--bp-color-slide-accent", "#7dd3fc"),
+  ("--bp-color-slide-link", "#67e8f9"),
+  ("--bp-color-slide-math", "#a5f3fc"),
+  ("--bp-color-slide-ok-text", "#86efac"),
+  ("--bp-color-slide-ok-icon", "#4ade80"),
+  ("--bp-color-slide-ok-bg", "rgba(74, 222, 128, 0.14)"),
+  ("--bp-color-slide-ok-border", "rgba(74, 222, 128, 0.3)"),
+  ("--bp-color-slide-code-keyword", "#c792ea"),
+  ("--bp-color-slide-code-const", "#7cb7ff"),
+  ("--bp-color-slide-code-var", "#5eead4"),
+  ("--bp-color-rust-keyword", "#fdba74"),
+  ("--bp-color-rust-type", "#5eead4"),
+  ("--bp-color-rust-number", "#86efac"),
+  ("--bp-color-rust-string", "#fda4af"),
+  ("--bp-color-rust-comment", "#8b9ab0"),
+  ("--bp-color-graph-bg", "#1b1f27"),
+  ("--bp-color-graph-edge", "#94a3b8"),
+  ("--bp-color-graph-cluster", "#475569"),
+  ("--bp-color-graph-label", "#e5e7eb"),
+  ("--bp-shadow-sm", "0 4px 14px rgba(0, 0, 0, 0.45)"),
+  ("--bp-shadow-md", "0 10px 24px rgba(0, 0, 0, 0.45)"),
+  ("--bp-shadow-lg", "0 12px 28px rgba(0, 0, 0, 0.45)"),
+  ("--bp-shadow-modern", "0 6px 18px rgba(0, 0, 0, 0.4)"),
+  ("--bp-shadow-bold", "0 7px 0 var(--bp-color-border-strong)"),
+  ("--bp-shadow-bold-lg", "0 9px 0 var(--bp-color-border-strong)"),
+  ("--bp-shadow-xs", "0 1px 2px rgba(0, 0, 0, 0.4)"),
+  ("--bp-shadow-inset", "inset 0 1px 1px rgba(0, 0, 0, 0.4)"),
+  ("--bp-shadow-popover", "0 8px 20px rgba(0, 0, 0, 0.5)"),
+  ("--bp-shadow-icon", "0 1px 2px rgba(0, 0, 0, 0.5)"),
+  ("--bp-shadow-step", "0 3px 0 rgba(0, 0, 0, 0.45)"),
+  ("--bp-shadow-slide-card", "0 10px 24px rgba(0, 0, 0, 0.45)"),
+  ("--bp-shadow-slide-panel", "0 18px 42px rgba(0, 0, 0, 0.55)"),
+  -- Tokens other branches consume; they may have no light value in this branch.
+  ("--bp-color-link", "#93c5fd"),
+  ("--bp-code-keyword", "#7cb7ff"),
+  ("--bp-code-const", "#e5c07b"),
+  ("--bp-code-var", "#9cdcfe"),
+  ("--bp-code-sort", "#4ec9b0"),
+  ("--bp-code-literal", "#b5cea8"),
+  ("--bp-code-comment", "#8b949e"),
+  ("--bp-code-punctuation", "#d4d4d4"),
+  -- Verso base variables, so the whole page is dark even without a Verso dark theme.
+  ("--verso-text-color", "#e5e7eb"),
+  ("--verso-code-color", "#e5e7eb"),
+  ("--verso-structure-color", "#f8fafc"),
+  ("--verso-selected-color", "#1e3a5f"),
+  ("--verso-tooltip-color", "#e5e7eb"),
+  ("--verso-tooltip-bg-color", "#20252e"),
+  ("--verso-tooltip-border-color", "#64748b"),
+  ("--verso-tooltip-separator-color", "#334155"),
+  ("--verso-code-info-hover-bg-color", "#1e3a8a"),
+  ("--verso-code-warning-hover-bg-color", "#5c4a14"),
+  ("--verso-code-error-hover-bg-color", "#5a2020"),
+  ("--verso-message-error-color", "#f87171"),
+  ("--verso-tactic-state-color", "#e5e7eb"),
+  ("--verso-tactic-state-bg-color", "#1b1f27"),
+  ("--verso-tactic-state-border-color", "#475569"),
+  ("--verso-tactic-toggle-color", "#64748b"),
+  ("--verso-tactic-toggle-checked-color", "#94a3b8"),
+  ("--verso-code-hover-bg-color", "#2a3140"),
+  ("--verso-toc-background-color", "#171b22"),
+  ("--verso-toc-border-color", "#334155"),
+  ("--verso-toc-resize-handle-color", "#64748b"),
+  ("--verso-burger-toc-visible-color", "#e5e7eb"),
+  ("--verso-burger-toc-visible-shadow-color", "#1b1f27"),
+  ("--verso-burger-toc-hidden-color", "#e5e7eb"),
+  ("--verso-burger-toc-hidden-shadow-color", "#1b1f27"),
+  ("background-color", "var(--bp-color-surface)")
+]
+
+/-- Page-level rules that Verso's `book.css` hard-codes rather than routing through variables:
+`(selector below html, declarations)`. An empty selector means `html` itself. -/
+def darkPageRules : List (String × List (String × String)) := [
+  ("body", [("background", "var(--bp-color-surface)"), ("color", "var(--verso-text-color)")]),
+  ("header", [("background", "var(--bp-color-surface)")]),
+  ("#toc .split-toc label.toggle-split-toc::before",
+    [("background-color", "var(--verso-text-color)")])
+]
+
+private def renderDarkRule (trigger selector : String) (decls : List (String × String)) : String :=
+  let sel := if selector.isEmpty then trigger else trigger ++ " " ++ selector
+  sel ++ " {\n" ++
+    String.join (decls.map fun (name, value) => "  " ++ name ++ ": " ++ value ++ ";\n") ++ "}\n"
+
+private def renderDarkRules (trigger : String) : String :=
+  String.join <|
+    renderDarkRule trigger "" darkTokens ::
+      darkPageRules.map fun (selector, decls) => renderDarkRule trigger selector decls
+
+/-- Dark theme CSS: one block per trigger (the `data-theme="dark"` attribute, and the OS
+preference unless `data-theme="light"` opts out), both rendered from `darkTokens`. -/
+def blueprintDarkTokensCss : String :=
+  "\n" ++ renderDarkRules "html[data-theme=\"dark\"]" ++
+  "@media (prefers-color-scheme: dark) {\n" ++
+  renderDarkRules "html:not([data-theme=\"light\"])" ++ "}\n"
+
+/-- All token CSS shipped with every blueprint page: light tokens plus the dark theme. -/
+def blueprintTokensCss : String :=
+  blueprintLightTokensCss ++ blueprintDarkTokensCss
 
 def previewPanelCss : String := r##"
 .bp_preview_panel {

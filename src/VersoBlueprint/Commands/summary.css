@@ -239,7 +239,7 @@
 
 .bp_summary_badge_error {
   border-color: var(--bp-color-status-error-border-soft);
-  background: rgba(220, 38, 38, 0.08);
+  background: var(--bp-color-tint-danger);
   color: var(--bp-color-status-error-strong);
 }
 
