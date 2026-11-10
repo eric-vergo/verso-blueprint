@@ -85,6 +85,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintAttributeLateRendering,
     `VersoBlueprintTests.BlueprintBlockFolding,
     `VersoBlueprintTests.BlueprintCodeRenderMatrix,
+    `VersoBlueprintTests.BlueprintDarkTheme,
     `VersoBlueprintTests.BlueprintDocstringReferences,
     `VersoBlueprintTests.BlueprintImportedDuplicates.Direct,
     `VersoBlueprintTests.BlueprintImportedDuplicates.ProviderA,

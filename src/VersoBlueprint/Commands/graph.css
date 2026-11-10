@@ -28,6 +28,30 @@
   overflow: hidden;
 }
 
+/* Graphviz bakes its default colours into the SVG; route them through theme tokens. */
+.bp_graph_canvas svg g.graph > polygon {
+  fill: var(--bp-color-graph-bg);
+}
+
+.bp_graph_canvas svg g.edge path {
+  stroke: var(--bp-color-graph-edge);
+}
+
+.bp_graph_canvas svg g.edge polygon {
+  stroke: var(--bp-color-graph-edge);
+  fill: var(--bp-color-graph-edge);
+}
+
+.bp_graph_canvas svg g.cluster polygon,
+.bp_graph_canvas svg g.cluster path {
+  stroke: var(--bp-color-graph-cluster);
+}
+
+.bp_graph_canvas svg g.cluster text,
+.bp_graph_canvas svg g.edge text {
+  fill: var(--bp-color-graph-label);
+}
+
 .bp_graph_fullwidth[data-bp-graph-layout="fill"] {
   height: 100%;
   min-height: 0;
@@ -94,7 +118,7 @@
   height: min(42vh, 24rem);
   border: 1px solid var(--bp-color-border);
   border-radius: var(--bp-radius-xl);
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--bp-color-overlay-surface);
   box-shadow: var(--bp-shadow-lg);
   padding: 0.55rem 0.65rem;
   pointer-events: auto;
@@ -314,7 +338,7 @@
   max-height: min(70vh, 34rem);
   border: 1px solid var(--bp-color-border-soft);
   border-radius: var(--bp-radius-xl);
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--bp-color-overlay-surface);
   box-shadow: var(--bp-shadow-lg);
   overflow: auto;
   backdrop-filter: blur(3px);
@@ -329,7 +353,7 @@
   max-width: min(18rem, calc(100% - 1.8rem));
   border: 1px solid var(--bp-color-border-soft);
   border-radius: var(--bp-radius-xl);
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--bp-color-overlay-surface);
   box-shadow: var(--bp-shadow-lg);
   overflow: auto;
   backdrop-filter: blur(3px);
@@ -474,7 +498,7 @@
 }
 
 html[data-bp-style="blueprint"] .bp_graph_legend_item {
-  color: #111827;
+  color: var(--bp-color-text);
 }
 
 html[data-bp-style="modern"] .bp_graph_controls_button {
@@ -501,7 +525,7 @@ html[data-bp-style="modern"] .bp_graph_legend_group {
 
 html[data-bp-style="bold"] .bp_graph_controls_button {
   border-width: 2px;
-  box-shadow: 0 3px 0 rgba(15, 23, 42, 0.14);
+  box-shadow: var(--bp-shadow-step);
 }
 
 html[data-bp-style="bold"] .bp_graph_legend_popover,
@@ -517,14 +541,14 @@ html[data-bp-style="bold"] .bp_graph_options_popover {
 
 html[data-bp-style="bold"] .bp_graph_legend_popover_header,
 html[data-bp-style="bold"] .bp_graph_options_popover_header {
-  border-bottom-color: rgba(15, 23, 42, 0.2);
+  border-bottom-color: var(--bp-color-ink-rule);
 }
 
 html[data-bp-style="bold"] .bp_graph_legend_group {
   border: 2px solid var(--bp-color-text-strong);
   border-radius: var(--bp-radius-xl);
-  box-shadow: 0 3px 0 rgba(15, 23, 42, 0.14);
-  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--bp-shadow-step);
+  background: var(--bp-color-overlay-surface-soft);
 }
 
 html[data-bp-style="bold"] .bp_graph_legend_item {

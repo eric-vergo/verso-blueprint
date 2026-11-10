@@ -1439,6 +1439,19 @@ workspace module that declares a referenced declaration; Lake caches the result
 per module, so only changed modules are highlighted again. The first build of a
 large project can take a while: highlighting re-elaborates each such module.
 
+### Dark theme
+
+Every blueprint page ships a dark palette. It applies in two cases: when the
+page's `<html>` element carries `data-theme="dark"` (the attribute a Verso theme
+toggle sets), and when the operating system prefers a dark colour scheme, unless
+the page opts out with `data-theme="light"`. Both triggers use identical values.
+
+All colours are CSS variables (`--bp-color-*`, `--bp-shadow-*`). Verso's own page
+variables (`--verso-text-color`, `--verso-tooltip-bg-color`, ...) are overridden
+as well, so the whole page turns dark. A project can override any of these
+variables in its own stylesheet; to change only the dark values, scope the
+override under `html[data-theme="dark"]`.
+
 ### Dependency graph
 
 `blueprint_graph` renders a dependency-oriented view of the current Blueprint
