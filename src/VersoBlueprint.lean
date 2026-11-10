@@ -57,6 +57,7 @@ import VersoBlueprint.Graft
 import VersoBlueprint.ModuleInclude
 import VersoBlueprint.Resolve
 import VersoBlueprint.TraversalIndex
+import VersoBlueprint.Sidebar
 import VersoBlueprint.StyleSwitcher
 import VersoBlueprint.Profiling
 

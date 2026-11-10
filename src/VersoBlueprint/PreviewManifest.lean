@@ -11,6 +11,7 @@ import Std.Data.HashSet
 import VersoManual
 import VersoManual.HighlightedCode
 import VersoBlueprint.Cite
+import VersoBlueprint.Sidebar
 import VersoBlueprint.Informal.Block
 import VersoBlueprint.Informal.Uses
 import VersoBlueprint.Informal.Block.Store
@@ -2728,7 +2729,11 @@ def blueprintMain (text : Part Manual)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 :=
+    (model : RenderModel := by exact blueprint_render_model%)
+    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 :=
+  let config := match sidebar? with
+    | some sidebar => Informal.Sidebar.withSidebar sidebar config
+    | none => config
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
 
 def blueprintMainWithPreviewData
@@ -2737,9 +2742,13 @@ def blueprintMainWithPreviewData
     (extensionImpls : ExtensionImpls)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 := do
+    (model : RenderModel := by exact blueprint_render_model%)
+    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
+  let config := match sidebar? with
+    | some sidebar => Informal.Sidebar.withSidebar sidebar config
+    | none => config
   let (dumped?, options, externalMarkupConfig) ← handleCliFlags text options extensionImpls config
   if let some code := dumped? then
     return code

@@ -1397,6 +1397,40 @@ label-only fallback HTML.
 When labeled inline Rust code is attached to a node, the rendered page also
 shows an associated Rust code panel below the statement body.
 
+### Sidebar
+
+A generator can turn Verso's table of contents into a navigation sidebar:
+
+```lean
+def main (args : List String) : IO UInt32 :=
+  Informal.PreviewManifest.blueprintMainWithPreviewData
+    (%doc Contents) args
+    (extensionImpls := by exact extension_impls%)
+    (sidebar? := some {
+      links := #[
+        { label := "Paper [web]", href := "https://arxiv.org/abs/..." },
+        { label := "Paper [pdf]", href := "https://arxiv.org/pdf/..." },
+        { label := "GitHub", href := "https://github.com/..." }
+      ]
+    })
+```
+
+The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
+chapters with the current one in bold, a separator, the unnumbered pages
+(dependency graph, summary, bibliography, ...), the configured external links
+after another separator (none when `links` is empty), and a light/dark switch at
+its foot. The current chapter's sections stay below the chapter list. On narrow
+screens the sidebar collapses behind Verso's menu button, as the table of
+contents does.
+
+The theme switch sets `data-theme="light"` or `data-theme="dark"` on the root
+element and stores the choice under the `localStorage` key `verso-theme`; an
+inline script in `<head>` applies a stored choice before the page is drawn.
+Without a stored choice the operating system's preference applies. If the page
+already has a theme control in the table of contents, the sidebar adds none.
+The sidebar colours are CSS variables (`--bp-sidebar-bg`, `--bp-sidebar-fg`,
+`--bp-sidebar-rule`, ...) that a project stylesheet can override.
+
 ### Dependency graph
 
 `blueprint_graph` renders a dependency-oriented view of the current Blueprint
