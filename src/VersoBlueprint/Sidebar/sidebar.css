@@ -1,0 +1,160 @@
+/* Blueprint sidebar: Verso's table of contents restyled as a navigation
+   sidebar. Active only on sites built with a sidebar configuration, which
+   announce themselves with <meta name="verso-blueprint-sidebar">. */
+html:has(meta[name="verso-blueprint-sidebar"]) {
+  --bp-sidebar-bg: #425c7a;
+  --bp-sidebar-fg: #ffffff;
+  --bp-sidebar-fg-muted: rgba(255, 255, 255, 0.78);
+  --bp-sidebar-hover-bg: rgba(255, 255, 255, 0.08);
+  --bp-sidebar-rule: rgba(255, 255, 255, 0.28);
+  --bp-sidebar-switch-track: rgba(255, 255, 255, 0.32);
+  --bp-sidebar-switch-knob: #ffffff;
+  --verso-toc-background-color: var(--bp-sidebar-bg);
+  --verso-toc-text-color: var(--bp-sidebar-fg);
+  --verso-toc-border-color: transparent;
+}
+
+html[data-theme="dark"]:has(meta[name="verso-blueprint-sidebar"]) {
+  --bp-sidebar-bg: #1c2633;
+  --bp-sidebar-fg: #e8edf3;
+  --bp-sidebar-fg-muted: rgba(232, 237, 243, 0.72);
+  --bp-sidebar-rule: rgba(232, 237, 243, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]):has(meta[name="verso-blueprint-sidebar"]) {
+    --bp-sidebar-bg: #1c2633;
+    --bp-sidebar-fg: #e8edf3;
+    --bp-sidebar-fg-muted: rgba(232, 237, 243, 0.72);
+    --bp-sidebar-rule: rgba(232, 237, 243, 0.18);
+  }
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc {
+  background-color: var(--bp-sidebar-bg);
+  color: var(--bp-sidebar-fg);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc a,
+html:has(meta[name="verso-blueprint-sidebar"]) #toc a:hover {
+  color: var(--bp-sidebar-fg);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-tocs {
+  margin-top: 0.9rem;
+  padding: 0 0.6rem 0 0.4rem;
+}
+
+/* The book table of contents becomes a flat list of chapters. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > .title {
+  display: none;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > table {
+  border-left: 0;
+  padding-left: 0;
+  margin-left: 0;
+  max-height: none;
+  border-spacing: 0;
+  width: 100%;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td {
+  padding: 0.3rem 0.25rem 0.3rem 0;
+  line-height: 1.25;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td.num {
+  padding-left: 0.5rem;
+  white-space: nowrap;
+  color: var(--bp-sidebar-fg-muted);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td.num {
+  display: none;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td:last-child {
+  padding-left: 0.5rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr:hover > td {
+  background: var(--bp-sidebar-hover-bg);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.current a {
+  font-weight: 700;
+}
+
+/* "Blueprint Home" and rules inserted by the sidebar script. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_home > td {
+  padding-left: 0.5rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_rule > td {
+  padding: 0.45rem 0 0.45rem 0.5rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_rule hr,
+.bp_sidebar_foot {
+  border: 0;
+  border-top: 1px solid var(--bp-sidebar-rule);
+  margin: 0;
+}
+
+/* The current chapter's sections: smaller and indented. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) {
+  font-size: 0.9rem;
+  color: var(--bp-sidebar-fg-muted);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc label.toggle-split-toc::before {
+  background-color: var(--bp-sidebar-fg-muted);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table {
+  border-left-color: var(--bp-sidebar-rule);
+}
+
+/* Theme switch at the foot of the sidebar. */
+.bp_sidebar_foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.75rem 0.5rem 0.9rem;
+  color: var(--bp-sidebar-fg);
+  font-size: 0.95rem;
+}
+
+.bp_theme_switch {
+  position: relative;
+  width: 2.4rem;
+  height: 1.3rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bp-sidebar-switch-track);
+  cursor: pointer;
+}
+
+.bp_theme_switch::after {
+  content: "";
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--bp-sidebar-switch-knob);
+  transition: transform 140ms ease;
+}
+
+.bp_theme_switch[aria-checked="true"]::after {
+  transform: translateX(1.1rem);
+}
+
+.bp_theme_switch:focus-visible {
+  outline: 2px solid var(--bp-sidebar-fg);
+  outline-offset: 2px;
+}

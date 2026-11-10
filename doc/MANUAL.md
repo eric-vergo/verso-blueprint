@@ -1403,6 +1403,10 @@ A generator can render every statement that has `(lean := ...)` references as a
 two-column node: the statement, its status glyph and its proof on the left, and
 the highlighted Lean source of the referenced declarations on the right:
 
+### Sidebar
+
+A generator can turn Verso's table of contents into a navigation sidebar:
+
 ```lean
 def main (args : List String) : IO UInt32 :=
   Informal.PreviewManifest.blueprintMainWithPreviewData
@@ -1451,6 +1455,31 @@ variables (`--verso-text-color`, `--verso-tooltip-bg-color`, ...) are overridden
 as well, so the whole page turns dark. A project can override any of these
 variables in its own stylesheet; to change only the dark values, scope the
 override under `html[data-theme="dark"]`.
+
+    (sidebar? := some {
+      links := #[
+        { label := "Paper [web]", href := "https://arxiv.org/abs/..." },
+        { label := "Paper [pdf]", href := "https://arxiv.org/pdf/..." },
+        { label := "GitHub", href := "https://github.com/..." }
+      ]
+    })
+```
+
+The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
+chapters with the current one in bold, a separator, the unnumbered pages
+(dependency graph, summary, bibliography, ...), the configured external links
+after another separator (none when `links` is empty), and a light/dark switch at
+its foot. The current chapter's sections stay below the chapter list. On narrow
+screens the sidebar collapses behind Verso's menu button, as the table of
+contents does.
+
+The theme switch sets `data-theme="light"` or `data-theme="dark"` on the root
+element and stores the choice under the `localStorage` key `verso-theme`; an
+inline script in `<head>` applies a stored choice before the page is drawn.
+Without a stored choice the operating system's preference applies. If the page
+already has a theme control in the table of contents, the sidebar adds none.
+The sidebar colours are CSS variables (`--bp-sidebar-bg`, `--bp-sidebar-fg`,
+`--bp-sidebar-rule`, ...) that a project stylesheet can override.
 
 ### Dependency graph
 
