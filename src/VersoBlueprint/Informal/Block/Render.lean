@@ -719,6 +719,11 @@ structure InformalBlockRenderModel where
   as the left column of a two-column node and this as the right column.
   -/
   formalColumn? : Option Verso.Output.Html := none
+  /--
+  Render the block as a side-by-side node even without a Lean column (a
+  statement with no Lean declaration): the same card, one full-width column.
+  -/
+  sideBySideNode : Bool := false
   wrapperClass? : Option String := none
   showHeader : Bool := true
 
@@ -826,21 +831,33 @@ def htmlClassAttrs (className : String) : Array (String × String) :=
   if className.isEmpty then #[] else #[("class", className)]
 
 /--
-Two-column node of the side-by-side layout: the informal block on the left, the
-Lean column on the right. Proofs of the node that follow it on the page are moved
-into the left column by the page script.
+Node of the side-by-side layout: the informal block on the left, the Lean column
+on the right. Without a Lean column (a statement with no Lean declaration) the
+node keeps the same card with the informal block as its only, full-width column
+(`bp_sbs_single`). Proofs of the node that follow it on the page are moved into
+the left column by the page script.
 -/
-def renderSideBySideNode (label : String) (informal formal : Verso.Output.Html) :
-    Verso.Output.Html :=
+def renderSideBySideNode (label : String) (informal : Verso.Output.Html)
+    (formal? : Option Verso.Output.Html) : Verso.Output.Html :=
   open Verso.Output.Html in
-  {{
-    <div class="bp_sbs" data-bp-node={{label}}>
-      <div class="bp_sbs_grid">
-        <div class="bp_sbs_informal">{{informal}}</div>
-        <div class="bp_sbs_formal">{{formal}}</div>
+  match formal? with
+  | some formal =>
+    {{
+      <div class="bp_sbs" data-bp-node={{label}}>
+        <div class="bp_sbs_grid">
+          <div class="bp_sbs_informal">{{informal}}</div>
+          <div class="bp_sbs_formal">{{formal}}</div>
+        </div>
       </div>
-    </div>
-  }}
+    }}
+  | none =>
+    {{
+      <div class="bp_sbs bp_sbs_single" data-bp-node={{label}}>
+        <div class="bp_sbs_grid">
+          <div class="bp_sbs_informal">{{informal}}</div>
+        </div>
+      </div>
+    }}
 
 /-- A status glyph of the side-by-side layout: its symbol, CSS modifier and meaning. -/
 structure StatusGlyphKind where
@@ -903,8 +920,10 @@ def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.H
     (showHeader := model.showHeader)
   let blockHtml :=
     match model.formalColumn? with
-    | some formal => renderSideBySideNode model.data.label.toString blockHtml formal
-    | none => blockHtml
+    | some formal => renderSideBySideNode model.data.label.toString blockHtml (some formal)
+    | none =>
+      if model.sideBySideNode then renderSideBySideNode model.data.label.toString blockHtml none
+      else blockHtml
   let html := Verso.Output.Html.seq (#[blockHtml] ++ model.companionPanels)
   match model.wrapperClass? with
   | some className => Verso.Output.Html.tag "div" (htmlClassAttrs className) html
