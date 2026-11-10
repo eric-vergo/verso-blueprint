@@ -97,6 +97,12 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.current a
   font-weight: 700;
 }
 
+/* The current entry is marked by weight alone, without Verso's dotted underline. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc .current td:not(.num),
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc .title .current {
+  text-decoration-line: none;
+}
+
 /* "Blueprint Home" and rules inserted by the sidebar script. */
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_rule > td {
   padding: 0.45rem 0.4rem 0.45rem 0.6rem;
@@ -113,7 +119,51 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_rule hr,
   margin: 0;
 }
 
-/* The current chapter's sections: smaller and indented. */
+/* The current chapter's sections, nested by the sidebar script under their
+   chapter: smaller and indented. Verso's separate per-level lists are hidden
+   once they have been nested; without the script they stay as Verso shows them. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.bp_sidebar_nested {
+  display: none;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_sections > td {
+  padding: 0 0 0.25rem 1.75rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_sections:hover > td {
+  background: transparent;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc table.bp_sidebar_subtoc {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0.86rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc table.bp_sidebar_subtoc > tbody {
+  display: block;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book table.bp_sidebar_subtoc tr > td {
+  padding-top: 0.18rem;
+  padding-bottom: 0.18rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book table.bp_sidebar_subtoc tr > td.num {
+  min-width: 2rem;
+  padding-left: 0.4rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book table.bp_sidebar_subtoc a {
+  color: var(--bp-sidebar-fg-muted);
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book table.bp_sidebar_subtoc tr.current a {
+  color: var(--bp-sidebar-fg);
+}
+
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) {
   font-size: 0.9rem;
   color: var(--bp-sidebar-fg-muted);
@@ -127,15 +177,71 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table 
   border-left-color: var(--bp-sidebar-rule);
 }
 
-/* Theme switch at the foot of the sidebar. */
+/* Sidebar foot: page controls (style switcher, legends) and the theme switch. */
 .bp_sidebar_foot {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  padding: 0.75rem 0.5rem 0.9rem;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem 0.85rem;
   color: var(--bp-sidebar-fg);
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.85rem;
+}
+
+.bp_sidebar_foot_extra:empty {
+  display: none;
+}
+
+.bp_sidebar_foot_extra {
+  color: var(--bp-sidebar-fg-muted);
+}
+
+.bp_sidebar_foot_extra summary {
+  color: var(--bp-sidebar-fg-muted);
+}
+
+.bp_sidebar_controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.bp_sidebar_theme {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
   font-size: 0.95rem;
+}
+
+/* The Blueprint style switcher, moved here from its floating box. */
+.bp_sidebar_controls #bp-style-switcher {
+  position: static;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--bp-sidebar-fg-muted);
+  font-size: 0.8rem;
+}
+
+.bp_sidebar_controls #bp-style-switcher label {
+  font-weight: 400;
+}
+
+.bp_sidebar_controls #bp-style-switcher select {
+  border: 1px solid var(--bp-sidebar-rule);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--bp-sidebar-fg);
+  font-size: 0.8rem;
+}
+
+.bp_sidebar_controls #bp-style-switcher option {
+  color: initial;
 }
 
 .bp_theme_switch {
@@ -172,4 +278,122 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table 
 
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td.num + td {
   padding-left: 0.6rem;
+}
+
+/* Page header (site title and search) at the top of the sidebar instead of a
+   full-width bar, so that the content starts at the top of the window. Narrow
+   screens keep Verso's bar with the menu button. */
+@media screen and (min-width: 701px) {
+  html:has(meta[name="verso-blueprint-sidebar"]) {
+    --verso-header-height: 0px;
+    --search-bar-width: calc(var(--verso-toc-effective-width) - 2rem);
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header {
+    right: auto;
+    width: var(--verso-toc-effective-width);
+    height: auto;
+    box-sizing: border-box;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+    padding: 0.95rem 1rem 0.75rem;
+    background: var(--bp-sidebar-bg);
+    color: var(--bp-sidebar-fg);
+    box-shadow: none;
+    border-bottom: 1px solid var(--bp-sidebar-rule);
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-logo-wrapper:empty {
+    display: none;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-title-wrapper {
+    flex: 0 0 auto;
+    container-type: normal;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-title {
+    margin: 0;
+    max-width: none;
+    color: var(--bp-sidebar-fg);
+    font-family: var(--verso-structure-font-family);
+    font-size: 1.12rem;
+    line-height: 1.25;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-title h1 {
+    text-wrap: balance;
+    white-space: normal;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header #search-wrapper {
+    position: relative;
+    inset: auto;
+    width: auto;
+    padding: 0;
+    align-items: stretch;
+    background: transparent;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header #search-wrapper .cb_edit {
+    border: 1px solid var(--bp-sidebar-rule);
+    border-radius: 0.3rem;
+    background-color: var(--bp-sidebar-hover-bg);
+    color: var(--bp-sidebar-fg);
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header #search-wrapper .cb_edit:empty::before {
+    color: var(--bp-sidebar-fg-muted);
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header #search-wrapper ul[role="listbox"] {
+    width: max(var(--search-bar-width), 26rem);
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) .with-toc #toc {
+    top: var(--bp-sidebar-head-height, 6.5rem);
+    height: calc(100dvh - var(--bp-sidebar-head-height, 6.5rem));
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-tocs {
+    margin-top: 0.5rem;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) .toc-resize-handle {
+    top: 0;
+    height: 100dvh;
+  }
+}
+
+/* Narrow screens: a slim bar whose title never pushes the menu button away. */
+@media screen and (max-width: 700px) {
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-title {
+    font-size: 1.15rem;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header .header-title h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Print: the page alone, without the sidebar, header or page navigation. */
+@media print {
+  html:has(meta[name="verso-blueprint-sidebar"]) body > header,
+  html:has(meta[name="verso-blueprint-sidebar"]) #toc,
+  html:has(meta[name="verso-blueprint-sidebar"]) #toggle-toc-click,
+  html:has(meta[name="verso-blueprint-sidebar"]) .toc-resize-handle,
+  html:has(meta[name="verso-blueprint-sidebar"]) .prev-next-buttons,
+  html:has(meta[name="verso-blueprint-sidebar"]) #bp-style-switcher {
+    display: none;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) .with-toc {
+    margin-top: 0;
+  }
+
+  html:has(meta[name="verso-blueprint-sidebar"]) .with-toc > main {
+    margin-left: 0;
+  }
 }

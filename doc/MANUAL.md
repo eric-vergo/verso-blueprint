@@ -1422,9 +1422,17 @@ The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
 chapters with the current one in bold, a separator, the unnumbered pages
 (dependency graph, summary, bibliography, ...), the configured external links
 after another separator (none when `links` is empty), and a light/dark switch at
-its foot. The current chapter's sections stay below the chapter list. On narrow
-screens the sidebar collapses behind Verso's menu button, as the table of
-contents does.
+its foot. The current chapter's sections are listed under that chapter,
+indented and smaller (and a section's subsections under the section); Verso's
+separate per-level lists are not shown. The current entry is in bold.
+
+The site title and the search box sit at the top of the sidebar instead of in a
+full-width header, so pages start at the top of the window. Page controls that
+would otherwise float over the content move into the sidebar foot: the
+Blueprint style switcher, and the status-glyph legend of the side-by-side
+layout. On narrow screens (700 pixels and less) the sidebar collapses behind
+Verso's menu button and the title and search stay in Verso's slim header bar.
+When printing, the sidebar, header and page navigation are left out.
 
 The theme switch sets `data-theme="light"` or `data-theme="dark"` on the root
 element and stores the choice under the `localStorage` key `verso-theme`; an
