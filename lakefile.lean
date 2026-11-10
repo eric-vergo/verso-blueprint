@@ -96,6 +96,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintProofLeanRefs,
     `VersoBlueprintTests.BlueprintProofLeanRefs.Roundtrip,
     `VersoBlueprintTests.BlueprintInlinePrecision,
+    `VersoBlueprintTests.BlueprintLeanSourceAnchors,
     `VersoBlueprintTests.BlueprintLinkHover,
     `VersoBlueprintTests.BlueprintMainWrapper,
     `VersoBlueprintTests.BlueprintPreviewResources,
