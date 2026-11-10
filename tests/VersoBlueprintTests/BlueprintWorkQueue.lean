@@ -66,7 +66,10 @@ A theorem.
       hasSubstr out "class=\"bp_work_queue\"" &&
       hasSubstr out "data-bp-node=\"«wq.base»\"" &&
       !hasSubstr out "data-bp-node=\"«wq.top»\"" &&
-      hasSubstr out "statement ready to formalize"
+      hasSubstr out "statement ready to formalize" &&
+      -- the entry shows the node's statement
+      appearsBefore out "class=\"bp_work_queue_statement\"" "A base definition." &&
+      appearsBefore out "data-bp-node=\"«wq.base»\"" "class=\"bp_work_queue_statement\""
     )
 
 end Verso.VersoBlueprintTests.BlueprintWorkQueue

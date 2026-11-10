@@ -23,6 +23,7 @@ planning data as the dependency graph page and `vbp query work-queue`: a node is
 listed when its statement is ready to formalize, or, for theorem-like nodes,
 when its proof is ready to formalize or has incomplete Lean code. Ready nodes
 come first, then nodes with incomplete Lean code, each group in document order.
+Each entry shows the node's statement, shortened to its first lines.
 -/
 
 namespace Informal.Commands
@@ -95,7 +96,14 @@ private def stageText (entry : WorkQueueEntry) : String :=
   | _, true => "statement ready to formalize"
   | _, false => "statement: Lean code incomplete"
 
-private def renderEntry (state : TraverseState) (entry : WorkQueueEntry) : Output.Html :=
+/-- The statement blocks of a node, as stored for previews during traversal. -/
+private def statementBlocks (state : TraverseState) (node : Graph.NodeData) :
+    Array (Doc.Block Manual) :=
+  let key := Informal.TraversalIndex.TraversalPreviews.key node.label .statement
+  (Informal.TraversalIndex.TraversalPreviews.entry? state key).map (·.blocks) |>.getD #[]
+
+private def renderEntry (state : TraverseState) (entry : WorkQueueEntry)
+    (statement? : Option Output.Html) : Output.Html :=
   let needs : Output.Html :=
     if entry.needs.isEmpty then .empty
     else
@@ -111,6 +119,9 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry) : Outpu
         {{nodeLink state entry.node (nodeHeading state entry.node)}}
         <span class="bp_work_queue_stage">{{.text true (stageText entry)}}</span>
       </div>
+      {{match statement? with
+        | some statement => {{<div class="bp_work_queue_statement">{{statement}}</div>}}
+        | Option.none => .empty}}
       {{needs}}
     </li>
   }}
@@ -121,7 +132,7 @@ structure WorkQueueBlockData where
 deriving Inhabited, FromJson, ToJson
 
 private def workQueueToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT ExtensionImpls (BuildLogT IO))) :=
-  fun _goI _goB _id json _blocks => do
+  fun _goI goB _id json _blocks => do
     let some data ← Informal.ExtensionDecode.decode? (α := WorkQueueBlockData) json
         (fun err => s!"Malformed data in Block.workQueue.toHtml ({err})")
       | pure .empty
@@ -134,14 +145,19 @@ private def workQueueToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT Ex
         | .error message => Verso.reportError message; pure Option.none
     let some model := model? | pure .empty
     let entries := workQueue model
-    let ready := entries.filter (·.ready)
-    let incomplete := entries.filter (!·.ready)
-    let renderSection (title : String) (items : Array WorkQueueEntry) : Output.Html :=
+    -- Each entry shows its statement, shortened by the stylesheet.
+    let rendered ← entries.mapM fun entry => do
+      let blocks := statementBlocks s entry.node
+      let statement? ← if blocks.isEmpty then pure Option.none else some <$> .seq <$> blocks.mapM goB
+      pure (entry, renderEntry s entry statement?)
+    let ready := rendered.filter (·.1.ready)
+    let incomplete := rendered.filter (!·.1.ready)
+    let renderSection (title : String) (items : Array (WorkQueueEntry × Output.Html)) : Output.Html :=
       if items.isEmpty then .empty
       else {{
         <section class="bp_work_queue_section">
           <h2 class="bp_work_queue_title">{{.text true s!"{title} ({items.size})"}}</h2>
-          <ol class="bp_work_queue_list">{{items.map (renderEntry s)}}</ol>
+          <ol class="bp_work_queue_list">{{items.map (·.2)}}</ol>
         </section>
       }}
     if entries.isEmpty then
