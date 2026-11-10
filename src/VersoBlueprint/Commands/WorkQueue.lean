@@ -10,6 +10,7 @@ import VersoManual
 import VersoBlueprint.Commands.Common
 import VersoBlueprint.Commands.SerializedExtension
 import VersoBlueprint.Graph
+import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.TeX
 import VersoBlueprint.TraversalIndex
@@ -81,9 +82,11 @@ private def nodeLink (state : TraverseState) (node : Graph.NodeData) (text : Str
   | some href => {{<a href={{href}}>{{.text true text}}</a>}}
   | Option.none => .text true text
 
-private def nodeHeading (node : Graph.NodeData) : String :=
-  if node.title.isEmpty || node.title == node.displayLabel then node.displayLabel
-  else s!"{node.displayLabel}: {node.title}"
+/-- The node's numbered title ("Lemma 4.2"), falling back to the graph's display label. -/
+private def nodeHeading (state : TraverseState) (node : Graph.NodeData) : String :=
+  match Informal.TraversalIndex.Nodes.display? state node.label with
+  | some display => display.title
+  | Option.none => node.displayLabel
 
 private def stageText (entry : WorkQueueEntry) : String :=
   match entry.stage, entry.ready with
@@ -96,7 +99,7 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry) : Outpu
   let needs : Output.Html :=
     if entry.needs.isEmpty then .empty
     else
-      let links := entry.needs.map fun dep => nodeLink state dep dep.displayLabel
+      let links := entry.needs.map fun dep => nodeLink state dep (nodeHeading state dep)
       let separated := links.foldl (init := #[]) fun acc link =>
         if acc.isEmpty then #[link] else acc ++ #[.text true ", ", link]
       {{<div class="bp_work_queue_needs"><span class="bp_work_queue_needs_key">"needs: "</span>{{separated}}</div>}}
@@ -105,7 +108,7 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry) : Outpu
     <li class={{s!"bp_work_queue_item {stateClass}"}} data-bp-node={{entry.node.label.toString}}
         data-bp-stage={{entry.stage}}>
       <div class="bp_work_queue_head">
-        {{nodeLink state entry.node (nodeHeading entry.node)}}
+        {{nodeLink state entry.node (nodeHeading state entry.node)}}
         <span class="bp_work_queue_stage">{{.text true (stageText entry)}}</span>
       </div>
       {{needs}}
