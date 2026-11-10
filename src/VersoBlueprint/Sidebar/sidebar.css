@@ -50,32 +50,43 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > .title {
   display: none;
 }
 
-html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > table {
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > table,
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book > table > tbody {
+  display: block;
   border-left: 0;
   padding-left: 0;
   margin-left: 0;
   max-height: none;
-  border-spacing: 0;
   width: 100%;
 }
 
+/* One flex row per entry: a fixed number column, then the title. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr {
+  display: flex;
+  align-items: baseline;
+}
+
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td {
-  padding: 0.3rem 0.25rem 0.3rem 0;
+  display: block;
+  flex: 1 1 auto;
+  padding: 0.3rem 0.4rem 0.3rem 0.6rem;
   line-height: 1.25;
 }
 
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td.num {
-  padding-left: 0.5rem;
+  flex: 0 0 auto;
+  min-width: 1.4rem;
+  padding-right: 0;
   white-space: nowrap;
   color: var(--bp-sidebar-fg-muted);
 }
 
-html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td.num {
-  display: none;
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td.num + td {
+  padding-left: 0.3rem;
 }
 
-html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td:last-child {
-  padding-left: 0.5rem;
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td.num {
+  display: none;
 }
 
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr:hover > td {
@@ -87,12 +98,12 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.current a
 }
 
 /* "Blueprint Home" and rules inserted by the sidebar script. */
-html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_home > td {
-  padding-left: 0.5rem;
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_rule > td {
+  padding: 0.45rem 0.4rem 0.45rem 0.6rem;
 }
 
-html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_rule > td {
-  padding: 0.45rem 0 0.45rem 0.5rem;
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_rule:hover > td {
+  background: transparent;
 }
 
 html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_rule hr,
@@ -157,4 +168,8 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table 
 .bp_theme_switch:focus-visible {
   outline: 2px solid var(--bp-sidebar-fg);
   outline-offset: 2px;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered > td.num + td {
+  padding-left: 0.6rem;
 }
