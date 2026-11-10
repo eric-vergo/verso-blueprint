@@ -1866,6 +1866,35 @@ The detailed public API reference lives in [`API.md`](./API.md). It covers:
 - [the public browser runtime API](./API.md#browser-runtime-api) and the
   boundary around bundled helper APIs
 
+### Lean source anchors for embedding viewers
+
+Generated HTML carries plain attributes that let an embedding viewer (an editor
+that shows the Blueprint next to the Lean code, for example) map rendered nodes
+to Lean declarations and back without scraping presentation markup:
+
+- The root element of every node facet (statement or proof) with associated
+  Lean declarations carries `data-lean-decls="<Name1> <Name2>"`: the declared
+  names of its `(lean := ...)` references, space separated, including names
+  that were missing when the Blueprint was built.
+- The element that renders one declaration carries `data-lean-decl="<Name>"`
+  and, when the declaring module and source range are known,
+  `data-lean-source="<path>:<startLine>:<startCol>-<endLine>:<endCol>"`.
+- The Lean code panel heading contains one jump link per present declaration,
+  `lean:decl/<Name>`; viewers may also accept
+  `lean:source/<path>:<line>:<col>`.
+
+`<path>` is the declaring module's source path relative to its package source
+directory (`Mathlib/Order/Basic.lean` for `Mathlib.Order.Basic`). Lines are
+1-based; columns are 0-based UTF-16 code units, as in the Language Server
+Protocol. The range is Lean's declaration range, which starts at the doc comment
+or first modifier. Names are printed as Lean prints them; in links they are
+percent-encoded (UTF-8) outside `A-Z a-z 0-9 . _ ~ - ' ! / :`.
+
+Browsers have no handler for the `lean:` scheme, so the jump links are hidden
+unless the page's root element has a `data-lean-links` attribute. A viewer sets
+it (for example with a script injected at document start), intercepts
+navigations to `lean:` URLs, cancels them, and opens the target in its editor.
+
 ## The Generator Entry Point
 
 Blueprint projects normally expose a small generator `main` function.

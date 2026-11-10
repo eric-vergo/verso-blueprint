@@ -26,6 +26,7 @@ import VersoBlueprint.Informal.Block.Traversal
 import VersoBlueprint.Informal.CodeSummary
 import VersoBlueprint.Informal.ExternalCode
 import VersoBlueprint.Informal.ExternalMarkupRender
+import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Resolve
 import VersoBlueprint.RenderingResolution
@@ -86,9 +87,9 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           match selectedMarkupAndContent? with
           | some (selectedMarkup, _) => Informal.ExternalMarkupRender.sourceBackedAttrs selectedMarkup
           | none => #[]
-        let attrs := s.htmlId id ++ sourceBackedAttrs
         let codeHint? := data.codeData
         let externalDecls := codeHint?.map (·.externalDecls) |>.getD #[]
+        let attrs := s.htmlId id ++ sourceBackedAttrs ++ LeanSourceAnchor.rootAttrs externalDecls
         let getDeclHref (decl : Name) : Option String :=
           Resolve.resolveInformalDeclHref? s data.label decl
         let getDeclAnchorAttrs (decl : Data.ExternalRef) : Array (String × String) :=

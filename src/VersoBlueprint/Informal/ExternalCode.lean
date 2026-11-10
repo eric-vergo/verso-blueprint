@@ -12,6 +12,7 @@ import VersoBlueprint.ExternalRefSnapshot
 import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.LeanCodeLink
 import VersoBlueprint.LeanNameParsing
+import VersoBlueprint.LeanSourceAnchor
 
 /-!
 Parsing and rendering support for external Lean declarations attached to an
@@ -155,7 +156,7 @@ private def linkedExternalDecl
   {
     decl
     href := externalRefHref? getDeclHref decl
-    anchorAttrs := getDeclAnchorAttrs decl
+    anchorAttrs := getDeclAnchorAttrs decl ++ LeanSourceAnchor.declAttrs decl
   }
 
 /--
@@ -418,6 +419,21 @@ def renderPreviewHtmlWithCacheHovers
     (renderExternalDeclList rows, hoverState)
 
 /--
+Editor jump links (`lean:decl/<Name>`) for the declarations of a Lean code panel.
+
+Browsers have no handler for the `lean:` scheme, so the links are hidden by the
+stylesheet unless an embedding viewer opts in with `<html data-lean-links>`.
+-/
+def renderLeanJumpLinks (externalDecls : Array Data.ExternalRef) : Output.Html :=
+  open Verso.Output.Html in
+  let links := externalDecls.filter (·.present) |>.map fun decl =>
+    let name := LeanSourceAnchor.declText decl.canonical
+    {{<a class="bp_lean_jump" href={{LeanSourceAnchor.declHref decl.canonical}}
+        data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>{{.text true name}}</a>}}
+  if links.isEmpty then .empty
+  else {{<span class="bp_lean_jumps">{{links}}</span>}}
+
+/--
 Render an external-code panel into a real page `Html.State`.
 
 This is the normal page-rendering path for `(lean := ...)` references. It
@@ -438,6 +454,7 @@ def renderPanelWithPageHovers [Monad m] (panelHeader : CodePanelHeader)
     let rows ← renderExternalDeclRowsWith externalDeclRenderedWithPageHovers linkedDecls
     pure <| mkCodePanel panelHeader summaryTitle indicator
       (renderExternalDeclList rows)
+      (headingExtra := renderLeanJumpLinks externalDecls)
       (folded := folded)
 
 end ExternalCode

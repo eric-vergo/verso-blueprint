@@ -778,6 +778,31 @@ span[class$="_thmlabel"]::after {
   max-width: 100%;
 }
 
+/* Editor jump links (`lean:decl/...`) are only useful inside an embedding
+   viewer that handles the `lean:` scheme; such a viewer opts in with
+   `<html data-lean-links>`. */
+.bp_lean_jumps {
+  display: none;
+}
+
+html[data-lean-links] .bp_lean_jumps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.bp_lean_jump {
+  font-family: var(--bp-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 0.72rem;
+  color: var(--bp-color-link, #1d4ed8);
+  text-decoration: none;
+}
+
+.bp_lean_jump:hover {
+  text-decoration: underline;
+}
+
 .bp_code_panel .bp_external_decl_rendered .declaration {
   --bp-box-border-color: var(--bp-color-border-panel);
   --bp-box-background: var(--bp-color-surface);
