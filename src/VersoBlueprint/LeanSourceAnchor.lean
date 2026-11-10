@@ -19,7 +19,11 @@ attributes and links:
 * `data-lean-decl="<Name>"` and, when the source location is known,
   `data-lean-source="<path>:<startLine>:<startCol>-<endLine>:<endCol>"` on the
   element that renders one declaration;
-* jump links `lean:decl/<Name>` and `lean:source/<path>:<line>:<col>`.
+* jump links `lean:decl/<Name>` in the Lean code panel heading (the only form
+  generated pages contain: a name survives edits of the Lean file after the
+  build, a position does not). `sourceHref` builds the
+  `lean:source/<path>:<line>:<col>` form from a `data-lean-source` location for
+  custom generators and viewers.
 
 `<path>` is the declaring module's source path relative to its package source
 directory (`Mathlib/Order/Basic.lean` for `Mathlib.Order.Basic`), lines are

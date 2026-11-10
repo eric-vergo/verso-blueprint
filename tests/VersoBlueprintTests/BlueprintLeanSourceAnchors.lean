@@ -88,7 +88,9 @@ private def modulePath : String := "VersoBlueprintTests/BlueprintLeanSourceAncho
       hasSubstr out s!"data-lean-source=\"{modulePath}:25:0-26:76\"" &&
       hasSubstr out s!"href=\"lean:decl/{squareName}\"" &&
       hasSubstr out s!"href=\"lean:decl/{nonnegName}\"" &&
-      countSubstr out "class=\"bp_lean_jumps\"" == 2
+      countSubstr out "class=\"bp_lean_jumps\"" == 2 &&
+      -- only `lean:decl/` links are generated (positions live in `data-lean-source`)
+      !hasSubstr out "lean:source/"
     )
 
 end Verso.VersoBlueprintTests.BlueprintLeanSourceAnchors
