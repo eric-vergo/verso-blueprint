@@ -294,6 +294,10 @@ def darkTokens : List (String × String) := [
   ("--verso-burger-toc-visible-shadow-color", "#1b1f27"),
   ("--verso-burger-toc-hidden-color", "#e5e7eb"),
   ("--verso-burger-toc-hidden-shadow-color", "#1b1f27"),
+  ("--verso-background-color", "#1b1f27"),
+  ("--verso-surface-color", "#20252e"),
+  ("--verso-border-color", "#334155"),
+  ("--verso-muted-color", "#a3b1c6"),
   ("background-color", "var(--bp-color-surface)")
 ]
 
@@ -303,7 +307,12 @@ def darkPageRules : List (String × List (String × String)) := [
   ("body", [("background", "var(--bp-color-surface)"), ("color", "var(--verso-text-color)")]),
   ("header", [("background", "var(--bp-color-surface)")]),
   ("#toc .split-toc label.toggle-split-toc::before",
-    [("background-color", "var(--verso-text-color)")])
+    [("background-color", "var(--verso-text-color)")]),
+  -- Verso's book.css colours these black: the page title, previous/next links, ToC links.
+  (".header-title", [("color", "var(--verso-structure-color)")]),
+  (".prev-next-buttons > *", [("color", "var(--verso-structure-color)")]),
+  ("#toc a", [("color", "var(--verso-text-color)")]),
+  ("#toc a:hover", [("color", "var(--verso-structure-color)")])
 ]
 
 private def renderDarkRule (trigger selector : String) (decls : List (String × String)) : String :=
