@@ -180,8 +180,12 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   font-weight: 400;
 }
 
-/* Counts of zero say nothing: hide them. */
-.bp_sbs_informal .bp_extras .bp_relation_chip_empty {
+/* Counts of zero say nothing: hide them. A slot or a header row left with
+   nothing to show takes no room either, so a folded proof stays one line tall
+   when the header wraps in a narrow card. */
+.bp_sbs_informal .bp_extras .bp_relation_chip_empty,
+.bp_sbs_informal .bp_extras > .bp_extra_slot:not(:has(> :not(.bp_relation_chip_empty))),
+.bp_sbs_informal .bp_extras:not(:has(> .bp_extra_slot > :not(.bp_relation_chip_empty))):not(:has(> :not(.bp_extra_slot))) {
   display: none;
 }
 
@@ -405,6 +409,18 @@ main .bp_status_legend {
   margin-top: 0.25rem;
   padding-left: 0.6rem;
   border-left: 2px solid var(--bp-color-border-soft);
+}
+
+/* Hovers in the Lean column stay inside the window: the box is at most the
+   viewport wide and long signatures wrap, so a narrow pane gets no
+   horizontal scrollbar while one is shown. */
+html:has(.bp_sbs) .tippy-box[data-theme~='lean'] {
+  max-width: calc(100vw - 2rem) !important;
+}
+
+html:has(.bp_sbs) .tippy-box[data-theme~='lean'] .hover-info > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @container (max-width: 760px) {
