@@ -113,6 +113,40 @@ class TestSideBySideRuntime:
         proof.locator("summary").first.click()
         expect(proof).to_have_attribute("open", "")
 
+    def test_node_without_lean_uses_the_card_in_one_column(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        # `used_proof` (fixture chapter "Preview Relationships") has no `(lean := ...)`: it gets the same
+        # card, one full-width column, the heading row with kind, number and the status glyph, and its
+        # proof folded inside the card, not a separate block after it.
+        errors = record_runtime_errors(page)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        path = None
+        for index in sorted(side_by_side_site_dir.rglob("index.html")):
+            if 'data-bp-node="used_proof"' in index.read_text(encoding="utf-8"):
+                path = "/" + str(index.parent.relative_to(side_by_side_site_dir)).replace("\\", "/") + "/"
+                break
+        assert path is not None, "no page with the used_proof node"
+        page.goto(side_by_side_server + path)
+        node = page.locator('.bp_sbs.bp_sbs_single[data-bp-node="used_proof"]')
+        expect(node).to_have_count(1)
+        expect(node.locator(".bp_sbs_formal")).to_have_count(0)
+        tracks = node.locator(":scope > .bp_sbs_grid").evaluate("e => getComputedStyle(e).gridTemplateColumns")
+        assert len(tracks.split()) == 1, tracks
+        expect(node.locator(".bp_heading_title_row .bp_status_glyph").first).to_be_visible()
+        kind = node.locator(".bp_heading_title_row").first.bounding_box()
+        glyph = node.locator(".bp_heading_title_row .bp_status_glyph").first.bounding_box()
+        assert kind is not None and glyph is not None
+        assert abs(glyph["y"] - kind["y"]) < kind["height"], (kind, glyph)
+        proof = node.locator(".bp_sbs_informal > details.bp_kind_proof_wrapper")
+        expect(proof).to_have_count(1)
+        expect(proof.locator(".bp_caption").first).to_have_text("Proof")
+        expect(proof).not_to_have_attribute("open", "")
+        assert node.evaluate(
+            "n => !(n.nextElementSibling && n.nextElementSibling.getAttribute('data-bp-node') === 'used_proof')"
+        )
+        assert_no_runtime_errors(errors)
+
     def test_narrow_viewport_stacks_columns(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
     ):

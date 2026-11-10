@@ -161,6 +161,8 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           content
           companionPanels := #[externalPanel]
           formalColumn?
+          -- statements without Lean declarations get the same card (one column)
+          sideBySideNode := sideBySide && !data.isProof
         }
 
 /- Informal custom blocks -/
