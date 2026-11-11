@@ -471,6 +471,9 @@ def prepareChapter (s : Session) (target : String) : IO (Session × Outcome) := 
   let some module := loaded.sources.modules.find? isTarget
     | return (s, { code := 0, mode := "prepare" })
   unless loaded.chapters.contains module.name do return (s, { code := 0, mode := "prepare" })
+  -- already kept: its next rebuild reuses its imports anyway
+  if s.chapterEnvs.contains module.name then
+    return (s, { code := 0, mode := "prepare", chapters := #[module.name] })
   let some hash ← fileHash? module.file | return (s, { code := 1, mode := "prepare" })
   let (s, _) ← elaborateChapter s { module with hash }
   return (s, { code := 0, mode := "prepare", chapters := #[module.name] })
