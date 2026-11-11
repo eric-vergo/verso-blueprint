@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import VersoBlueprint.Vbp
+import VersoBlueprint.VbpResident
 import Lake.CLI.Actions
 import Lake.Load.Workspace
 
@@ -14,7 +15,7 @@ open System
 namespace VersoBlueprint.Vbp.Main
 
 private def buildUsageLine : String :=
-  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--serve] [--port <n>]"
+  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--serve] [--port <n>] [--resident]"
 
 private def mainCommandLines : List String := [
   "lake exe vbp discover",
@@ -29,7 +30,8 @@ private def defaultHelpLines : List String := [
   "--verbose shows Blueprint generation phase progress during build",
   "query and check read _out/site",
   "--serve serves the generated html-multi directory after a successful build",
-  "--serve --port <n> serves on a fixed port"
+  "--serve --port <n> serves on a fixed port",
+  "--resident keeps the generator loaded and rebuilds on each `build` line read from stdin"
 ]
 
 private def buildOptionLines : List String := [
@@ -40,7 +42,8 @@ private def buildOptionLines : List String := [
   "--reproducible      Omit build time and Git metadata, emit relative source paths",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
-  "--port <n>          Serve on a fixed TCP port; requires --serve"
+  "--port <n>          Serve on a fixed TCP port; requires --serve",
+  "--resident          Build, then rebuild incrementally on each `build` line read from stdin"
 ]
 
 private def indentHelpLine (line : String) : String :=
@@ -265,6 +268,7 @@ structure BuildOptions where
   reproducible : Bool := false
   serve : Bool := false
   port? : Option Nat := none
+  resident : Bool := false
 
 private def maxTcpPort : Nat := 65535
 
@@ -314,6 +318,7 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
         | "--verbose", args => parseBuildOptionsCore args { opts with verbose := true }
         | "--reproducible", args => parseBuildOptionsCore args { opts with reproducible := true }
         | "--serve", args => parseBuildOptionsCore args { opts with serve := true }
+        | "--resident", args => parseBuildOptionsCore args { opts with resident := true }
         | "--port", raw :: args =>
             match parseTcpPort raw with
             | .ok port => parseBuildOptionsCore args { opts with port? := some port }
@@ -324,6 +329,8 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
 private def validateBuildOptions (opts : BuildOptions) : Except String BuildOptions :=
   if opts.port?.isSome && !opts.serve then
     .error "--port requires --serve"
+  else if opts.resident && opts.serve then
+    .error "--resident cannot be combined with --serve"
   else
     .ok opts
 
@@ -383,15 +390,22 @@ private def pdfGeneratorArgs (opts : BuildOptions) : Array String :=
   | some runs => args ++ #[Informal.PreviewManifest.pdfRunsFlag, toString runs]
   | none => args
 
+/-- The arguments the generator's `main` receives (what follows `--run <file>`). -/
+def generatorMainArgs (opts : BuildOptions) : Array String :=
+  let args := #["--output", opts.output.toString] ++ (if opts.verbose then #["--verbose"] else #[])
+  let args := args ++ pdfGeneratorArgs opts
+  if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
+
 private def generateSite (opts : BuildOptions) : IO UInt32 := do
   match ← generatorContext with
   | .error err =>
       IO.eprintln err
       pure 1
   | .ok context =>
-      let args := generatorLeanArgs context.generatorFile opts.output opts.verbose ++ pdfGeneratorArgs opts
-      let args := if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
-      runGenerator context args
+      if opts.resident then
+        Resident.run context.workspace context.generatorFile (generatorMainArgs opts).toList
+      else
+        runGenerator context (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts)
 
 private def serveScript : String := String.intercalate "\n" [
   "import functools, http.server, socketserver, sys",

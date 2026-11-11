@@ -28,14 +28,21 @@ def RenderModel.fromJsonString! (serialized : String) : RenderModel := Id.run do
   | .error error => panic! s!"Invalid Blueprint render model: {error}"
   | .ok (nodes, graph, summary) => return { nodes, graph, summary }
 
-/-- Capture runtime data without carrying a Lean environment into the generator. -/
-elab "blueprint_render_model%" : term => do
+/--
+The serialized render model of the Blueprint state in the current environment: what
+`blueprint_render_model%` embeds and `RenderModel.fromJsonString!` reads back.
+-/
+def RenderModel.captureJson : CoreM String := do
   Environment.reportImportedConflicts
   let state := Environment.informalExt.getState (← getEnv)
   let nodes := TraversalIndex.Nodes.capture state
   let graph := Graph.buildModel state (state.data.toArray.map (·.1)) (groupTitles := state.groups.toArray)
   let summary ← Commands.buildSummary
-  let serialized := (toJson (nodes, graph, summary)).compress
+  return (toJson (nodes, graph, summary)).compress
+
+/-- Capture runtime data without carrying a Lean environment into the generator. -/
+elab "blueprint_render_model%" : term => do
+  let serialized ← RenderModel.captureJson
   Lean.Elab.Term.elabTerm (← `(RenderModel.fromJsonString! $(quote serialized))) none
 
 
