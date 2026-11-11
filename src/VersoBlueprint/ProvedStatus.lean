@@ -310,7 +310,7 @@ private def axisRoots (name : Name) (expressions : Array Expr) : Array Name :=
 Ordinary hidden imports remain unverified even when cached footprints are empty.
 `collectAxioms` is used only for positive sorry evidence; original kind comes
 from Lean metadata. -/
-def analyzeDeclaration [Monad m] [MonadEnv m] (name : Name) : m ProvedStatus := do
+def analyzeDeclaration [Monad m] [MonadEnv m] [MonadLiftT BaseIO m] (name : Name) : m ProvedStatus := do
   let env ← getEnv
   let some info := env.checked.get.find? name
     | return .incomplete { unverified := #[{ declaration := name }] }
@@ -365,7 +365,7 @@ def analyzeDeclaration [Monad m] [MonadEnv m] (name : Name) : m ProvedStatus := 
 single closed certificate covers every requested root. A blocked union does not
 attribute its blocker to unrelated roots: those use individual analysis. No
 negative imported footprint or cross-environment cache authorizes completion. -/
-def analyzeDeclarations [Monad m] [MonadEnv m] (names : Array Name) : m (Array ProvedStatus) := do
+def analyzeDeclarations [Monad m] [MonadEnv m] [MonadLiftT BaseIO m] (names : Array Name) : m (Array ProvedStatus) := do
   if names.isEmpty then return #[]
   let (inspection, _) ← (inspectSorryDependencies names (stopAtBlocker := true)).run {}
   let completion := ProvedStatus.ofInspection inspection {}

@@ -159,33 +159,55 @@ def inspectDeclaration [Monad m] [MonadEnv m] (name : Name) : m InspectedDeclara
 It stores graph nodes, not premature empty closure results for recursive names. -/
 abbrev SorryInspectionM (m : Type → Type) := StateT InspectedDeclarations m
 
+/-- Inspected views of imported declarations, shared by every inspection in one imported
+environment. An imported declaration cannot change while its environment exists, so its view, once
+computed, stays exact; declarations of the module being elaborated are never stored. Each imported
+environment starts with its own empty cache (`mkInitial` runs per environment), so views never
+cross environments. Like the per-inspection cache, it stores graph nodes only, never closures. -/
+initialize importedInspectionCache : EnvExtension (Option (IO.Ref InspectedDeclarations)) ←
+  registerEnvExtension (some <$> IO.mkRef {}) (asyncMode := .local)
+
 /-- Breadth-first inspection of actual checked dependencies. In blocker-search
 mode, stop at the first observed hole or verification failure. Partial graphs
 never certify absence: `isComplete` still requires closed coverage of every edge.
-Full mode collects the entire closure, including cycles, before certification. -/
-partial def inspectSorryDependencies [Monad m] [MonadEnv m] (roots : Array Name)
+Full mode collects the entire closure, including cycles, before certification.
+
+Views of imported declarations come from the environment's `importedInspectionCache` when present:
+one snapshot is read at the start and the views computed here are added in one update at the
+end, so parallel inspections never contend on the shared map. -/
+partial def inspectSorryDependencies [Monad m] [MonadEnv m] [MonadLiftT BaseIO m] (roots : Array Name)
     (stopAtBlocker : Bool := false) : SorryInspectionM m SorryInspection := do
-  let declarations ← visit { dList := roots.toList } {}
+  let shared? := importedInspectionCache.getState (← getEnv)
+  let shared ← match shared? with
+    | some ref => (ref.get : BaseIO InspectedDeclarations)
+    | none => pure {}
+  let (declarations, fresh) ← visit shared { dList := roots.toList } {} {}
+  if let some ref := shared? then
+    unless fresh.isEmpty do
+      (ref.modify fun known => fresh.fold (fun known name info => known.insert name info) known :
+        BaseIO Unit)
   return { roots, declarations }
 where
-  visit (pending : Std.Queue Name) (declarations : InspectedDeclarations) :
-      SorryInspectionM m InspectedDeclarations := do
+  visit (shared : InspectedDeclarations) (pending : Std.Queue Name)
+      (declarations fresh : InspectedDeclarations) :
+      SorryInspectionM m (InspectedDeclarations × InspectedDeclarations) := do
     match pending.dequeue? with
-    | none => return declarations
+    | none => return (declarations, fresh)
     | some (name, pending) =>
-      if declarations.contains name then return ← visit pending declarations
+      if declarations.contains name then return ← visit shared pending declarations fresh
       let cache ← get
-      let info ← match cache[name]? with
-        | some info => pure info
+      let (info, fresh) ← match cache[name]? <|> shared[name]? with
+        | some info => pure (info, fresh)
         | none =>
           let info ← inspectDeclaration name
           modify (·.insert name info)
-          pure info
+          let imported := ((← getEnv).getModuleIdxFor? name).isSome
+          pure (info, if imported then fresh.insert name info else fresh)
       let declarations := declarations.insert name info
       if stopAtBlocker && (name == ``sorryAx || info.directSorry ||
           info.cachedSorry || info.unverified.isSome) then
-        return declarations
+        return (declarations, fresh)
       let pending := info.dependencies.foldl (fun queue dep => queue.enqueue dep) pending
-      visit pending declarations
+      visit shared pending declarations fresh
 
 end Informal.Data
