@@ -2131,6 +2131,60 @@ individual fields) to `blueprintMainWithPreviewData`; command-line flags add to
 that setting. GitHub source links in Lean code panels still name the project's
 current commit, so they change when the project is committed, not between builds.
 
+### Resident builds
+
+Editing one chapter's prose and running `lake exe vbp build` again costs
+seconds to a minute on a Mathlib-based project, most of it spent outside the
+edit: Lake re-elaborates the chapter and the document root, and the generator
+then imports the whole project once more. For an edit loop (an editor
+integration, a watcher), keep a build session running instead:
+
+```bash
+lake exe vbp build --resident [--output <dir>] [--verbose] [--reproducible]
+```
+
+The session builds once, as `vbp build` does, then reads requests from standard
+input, one per line:
+
+- `build`: rebuild what changed since the last build;
+- `build --full`: let Lake build the generator's imports and load them again,
+  whatever changed;
+- `prepare <chapter>` (a module name or source path): elaborate that chapter
+  now, so that its first rebuild does not pay for importing its imports;
+- `quit`, or the end of the input: end the session.
+
+Every request ends with one line on standard output, after the generator's
+usual output, so a client can wait for it:
+
+```
+vbp resident: done exit=<code> mode=<full|chapters|unchanged|prepare> ms=<wall time> chapters=<modules>
+```
+
+A module of the generator's import closure is a *chapter* when the document
+root (the module of the generator's `%doc`) includes it, imports it, and is the
+only module of the closure that imports it, and it does not use the module
+system. When only chapters changed, and not their imports, the session
+elaborates each of them again in-process (Lean's own processing pipeline, with
+the options and imports Lake gives the module, reusing the chapter's imported
+environment from its previous elaboration), substitutes the new chapter in the
+document the generator renders, rebuilds the Blueprint state with the chapter's
+new entries, and runs the generator's `main` again (`Informal.Resident`;
+generators that call `blueprintMain` or `blueprintMainWithPreviewData` need no
+change). The output is byte-identical to a `vbp build` of the same sources.
+Anything else (a Lean module, the root, the generator file, a changed import)
+goes through Lake, as `vbp build` does, and the session loads the result. A
+change of `lakefile.*`, `lake-manifest.json`, `lean-toolchain` or
+`.lake/package-overrides.json` ends the session with
+`vbp resident: restart (<file> changed)` and exit code 3: start a new one.
+
+The session does not rewrite the `.olean` of a chapter it elaborated
+in-process; the next Lake build (in the session or a plain `vbp build`)
+rebuilds it as usual. A session holds the project's environment and up to two
+chapter environments in memory: on a Mathlib-based project, several GB.
+Native code comes from the `vbp` executable itself, which links
+VersoBlueprint and its dependencies; other precompiled libraries named by
+Lake's setup for the generator are loaded as `lake lean` loads them.
+
 ### HTML and PDF Feature Support
 
 PDF generation is a static TeX/PDF output path. It is useful for reading,

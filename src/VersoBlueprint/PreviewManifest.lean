@@ -24,6 +24,7 @@ import VersoBlueprint.PreviewManifest.Cli
 import VersoBlueprint.PreviewManifest.ExternalMarkupRender
 import VersoBlueprint.PreviewRender
 import VersoBlueprint.RenderModel
+import VersoBlueprint.Resident
 import VersoBlueprint.RenderingResolution
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Graph
@@ -2834,7 +2835,8 @@ def blueprintMain (text : Part Manual)
     (model : RenderModel := by exact blueprint_render_model%)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
-    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 :=
+    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
+  let (text, model) ← Informal.Resident.apply text model
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
@@ -2852,6 +2854,7 @@ def blueprintMainWithPreviewData
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
+  let (text, model) ← Informal.Resident.apply text model
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
