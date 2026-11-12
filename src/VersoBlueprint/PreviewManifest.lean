@@ -2518,7 +2518,7 @@ private def nodeViewLinks (entries : Array RelatedEntry) : Array Informal.NodeVi
 
 /--
 Render the view of every dependency-graph node (`Informal.NodeView`): its
-statement fragment from the HTML cache (none for a code-only node), its Lean
+statement and proof fragments from the HTML cache (none for a code-only node), its Lean
 declarations' highlighted source when `Informal.DeclarationSource` has it (else
 their signature rows), inline Lean code fragments, its status and its relations.
 Lean hovers are registered in the cache's hover table `hoverState`.
@@ -2543,6 +2543,9 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         if entry.codeOnlyPreview then none else
         (bodies.get? key.value).bind fun html =>
           if fragmentIsBlank html then none else some (.text false html)
+      let proof? : Option Output.Html :=
+        (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
+          if fragmentIsBlank html then none else some (.text false html)
       let decls := (entry.codeData.map (·.externalDecls)).getD #[]
       let (sourceParts, hoverState') ←
         Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
@@ -2558,6 +2561,7 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         status := Informal.statusGlyph
           (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData)
         informal?
+        proof?
         lean := sourceParts ++ inlineParts
         leanDecls := decls.map (·.canonical)
         uses := nodeViewLinks entry.uses

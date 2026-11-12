@@ -62,6 +62,9 @@ private def view : NodeView.NodeView := {
   hasSubstr leanOnly "data-bp-node-view-layout=\"lean\"" &&
     hasSubstr leanOnly "class=\"bp_sbs bp_sbs_single bp_node_view_body\"" &&
     hasSubstr leanOnly "class=\"bp_sbs_formal\"" && !hasSubstr leanOnly "bp_sbs_informal" &&
+    -- a proof without a statement is not shown on its own
+    !hasSubstr { view with informal? := none, proof? := some (.text true "P") }.render.asString
+      "bp_node_view_proof" &&
     -- a blank statement counts as none when the caller says what blank is
     hasSubstr ({ view with informal? := some (.text true "  ") }.render
         (isBlank := fun h => h.asString.trimAscii.isEmpty)).asString
@@ -92,6 +95,10 @@ def nodeViewCodeOnly : Nat := 3
 
 :::theorem "thm:nv.both" (lean := "Verso.VersoBlueprintTests.BlueprintNodeView.nodeViewTheorem") (uses := "def:nv.code")
 A true statement about $`3`.
+:::
+
+:::proof "thm:nv.both"
+Immediate from the definition.
 :::
 
 :::lemma_ "lem:nv.prose" (uses := "thm:nv.both")
@@ -139,6 +146,9 @@ private def viewOf (files : PreviewManifest.Files) (label : String) : String :=
       -- statement and Lean side by side: the source card, its hovers in the cache's table
       hasSubstr both "data-bp-node-view-layout=\"both\"" &&
       hasSubstr both "A true statement" &&
+      -- the informal proof, folded below the statement
+      appearsBefore both "A true statement" "<details class=\"bp_node_view_proof\">" &&
+      hasSubstr both "Immediate from the definition." &&
       hasSubstr both "class=\"bp_decl_source bp_decl_source_theorem\"" &&
       hasSubstr both ">nodeViewTheorem<" &&
       hasSubstr both s!"data-lean-decls=\"{theoremName}\"" &&

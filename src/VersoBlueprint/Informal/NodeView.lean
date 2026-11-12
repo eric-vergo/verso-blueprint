@@ -19,7 +19,8 @@ from the environment.
 
 Layout rules:
 
-* the informal statement is the left column when the node has one;
+* the informal statement is the left column when the node has one, with its
+  informal proof folded below it;
 * the Lean column is on the right whenever the node has Lean declarations;
 * a node with only one of the two shows it full width (`bp_sbs_single`), never
   an empty column;
@@ -60,6 +61,8 @@ structure NodeView where
   status : StatusGlyphKind × String := (.noLean, StatusGlyphKind.noLean.meaning)
   /-- The informal statement; `none` (or blank) when the node has no prose. -/
   informal? : Option Verso.Output.Html := none
+  /-- The informal proof, shown folded below the statement. -/
+  proof? : Option Verso.Output.Html := none
   /-- The Lean column: one part per defining command or declaration. -/
   lean : Array Verso.Output.Html := #[]
   /-- The node's Lean declarations, in authoring order (`data-lean-decls`). -/
@@ -111,7 +114,12 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     <div class="bp_node_view_header">
       {{titleHtml}}{{glyphHtml}}<span class="bp_node_view_status">{{statusText}}</span>
     </div>}}
-  let informal := if v.hasInformal isBlank then v.informal? else none
+  let proof := v.proof?.bind fun h => if isBlank h then none else some h
+  let informal := if v.hasInformal isBlank then v.informal?.map fun h =>
+      match proof with
+      | some p => .seq #[h, {{<details class="bp_node_view_proof"><summary>"Proof"</summary>{{p}}</details>}}]
+      | none => h
+    else none
   let lean := if v.lean.isEmpty then none else some (Verso.Output.Html.seq v.lean)
   let columns : Array Verso.Output.Html :=
     (informal.map fun h => {{<div class="bp_sbs_informal">{{h}}</div>}}).toArray ++

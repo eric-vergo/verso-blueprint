@@ -102,3 +102,28 @@ a.bp_node_view_link:hover {
 .bp_graph_preview[data-bp-preview-size="node"] .bp_sbs_grid {
   padding: 0.75rem 0.9rem 0.8rem;
 }
+
+.bp_node_view_proof {
+  margin-top: 0.6rem;
+}
+
+.bp_node_view_proof > summary {
+  cursor: pointer;
+  font-style: italic;
+  color: var(--bp-color-text-faint);
+  list-style: none;
+}
+
+.bp_node_view_proof > summary::-webkit-details-marker {
+  display: none;
+}
+
+.bp_node_view_proof > summary::after {
+  content: " [show]";
+  font-style: normal;
+  color: var(--bp-color-link, #1d4ed8);
+}
+
+.bp_node_view_proof[open] > summary::after {
+  content: " [hide]";
+}
