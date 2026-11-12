@@ -1861,6 +1861,9 @@ div.proof_content {
 /-- Styles of the side-by-side node layout (`.bp_sbs`). -/
 def sideBySideCss : String := include_str "side-by-side.css"
 
+/-- Styles of the node view (`Informal.NodeView`) and of the dependency graph's wide panel. -/
+def nodeViewCss : String := include_str "node-view.css"
+
 /-- Page script of the side-by-side node layout: attaches proofs to their nodes. -/
 def sideBySideJs : String := include_str "side-by-side.js"
 
@@ -1869,7 +1872,8 @@ def codeAssetBundle : Informal.Commands.BlueprintAssetBundle :=
 
 def blockAssetBundle : Informal.Commands.BlueprintAssetBundle :=
   Informal.Commands.previewPanelInlinePreviewAssetBundle
-    (cssExtras := [css, Informal.StyleSwitcher.css, sideBySideCss, Verso.Genre.Manual.docstringStyle])
+    (cssExtras := [css, Informal.StyleSwitcher.css, sideBySideCss, nodeViewCss,
+      Verso.Genre.Manual.docstringStyle])
     (jsAfter := [Informal.Macros.blueprintMathJs, Informal.StyleSwitcher.jsInteractive, sideBySideJs])
 
 def codeCssAssets : List String :=
