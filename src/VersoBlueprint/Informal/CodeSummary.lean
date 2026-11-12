@@ -616,5 +616,12 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
     codeEntry := renderCodeEntryWrap cdata.codeHref title s!"{data.label}"
       (renderSummaryPreview cdata hrefOf) (codeEntryVisual (!source.isEmpty) statusMark) renderHealth }
 
+/-- The heading status of a statement of kind `kind` whose Lean side is `source?`, as
+`renderParts` computes it; `none` without associated Lean declarations. -/
+def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option BlockStatusMark :=
+  let source := source?.getD {}
+  if source.isEmpty then none else
+    some (statusMarkFromHealth (Informal.Graph.codeHealthOfBlockSource kind {} source?))
+
 end CodeSummary
 end Informal

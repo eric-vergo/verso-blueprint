@@ -323,3 +323,91 @@ class TestSideBySideRuntime:
             assert width[0] <= width[1], width
             right = box.evaluate("e => e.getBoundingClientRect().right")
             assert right <= page.viewport_size["width"], right
+
+
+# The id of the graph node whose label is `label`, from the page's graph data.
+_GRAPH_NODE_ID_JS = """
+label => {
+  const data = JSON.parse(document.querySelector('script.bp-graph-data').textContent);
+  const node = (data.nodes || []).find(n => n.label === label);
+  if (!node) return '';
+  const pairs = (data.variants[0] || {}).previewKeyByNodeId || [];
+  const pair = pairs.find(p => p[1] === node.previewKey);
+  return pair ? pair[0] : '';
+}
+"""
+
+
+def _open_graph(page: Page, server: str, fragment: str = "") -> None:
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.goto(server + "/Dependency-Graph/" + fragment)
+    page.locator(".bp_graph_canvas svg g.node").first.wait_for()
+
+
+def _click_graph_node(page: Page, label: str) -> None:
+    node_id = page.evaluate(_GRAPH_NODE_ID_JS, label)
+    assert node_id, f"no graph node {label}"
+    page.locator(f'[id="{node_id}"]').first.dispatch_event("click")
+
+
+class TestGraphNodeView:
+    def test_node_click_shows_statement_beside_lean(self, side_by_side_server: str, page: Page):
+        errors = record_runtime_errors(page)
+        _open_graph(page, side_by_side_server)
+        _click_graph_node(page, "panel_external_theorem")
+        view = page.locator('.bp_graph_preview .bp_node_view[data-bp-node-view="panel_external_theorem"]')
+        expect(view).to_be_visible()
+        expect(view).to_have_attribute("data-bp-node-view-layout", "both")
+        expect(page.locator(".bp_graph_preview")).to_have_attribute("data-bp-preview-size", "node")
+        left = view.locator(".bp_sbs_informal").bounding_box()
+        right = view.locator(".bp_sbs_formal").bounding_box()
+        assert left is not None and right is not None
+        assert right["x"] > left["x"] + left["width"] - 1
+        expect(view.locator(".bp_sbs_formal .bp_decl_source code.hl.lean")).not_to_have_count(0)
+        expect(view.locator(".bp_node_view_header .bp_status_glyph")).to_be_visible()
+        assert page.url.endswith("#node=panel_external_theorem"), page.url
+        assert_no_runtime_errors(errors)
+
+    def test_node_without_prose_shows_lean_alone(self, side_by_side_server: str, page: Page):
+        # `panel_docstring_target` comes from `@[blueprint]` on declarations without docstrings
+        _open_graph(page, side_by_side_server)
+        _click_graph_node(page, "panel_docstring_target")
+        view = page.locator('.bp_graph_preview .bp_node_view[data-bp-node-view="panel_docstring_target"]')
+        expect(view).to_have_attribute("data-bp-node-view-layout", "lean")
+        expect(view.locator(".bp_sbs_informal")).to_have_count(0)
+        grid = view.locator(".bp_sbs_grid").bounding_box()
+        formal = view.locator(".bp_sbs_formal").bounding_box()
+        assert grid is not None and formal is not None
+        # full width: the Lean column fills the card, less its padding
+        assert formal["width"] > grid["width"] * 0.9, (grid, formal)
+
+    def test_url_reopens_the_view_and_links_switch_nodes(self, side_by_side_server: str, page: Page):
+        _open_graph(page, side_by_side_server, "#node=used_target")
+        view = page.locator('.bp_graph_preview:not([hidden]) .bp_node_view')
+        expect(view).to_have_attribute("data-bp-node-view", "used_target")
+        link = view.locator("[data-bp-node-link]").first
+        target = link.get_attribute("data-bp-node-link")
+        assert target
+        link.click()
+        expect(page.locator(".bp_graph_preview .bp_node_view")).to_have_attribute("data-bp-node-view", target)
+        page.wait_for_function("t => decodeURIComponent(location.hash) === '#node=' + t", arg=target)
+        page.locator(".bp_graph_preview_close").click()
+        expect(page.locator(".bp_graph_preview")).to_be_hidden()
+        page.wait_for_function("() => location.hash === '#node='")
+
+    def test_lean_hovers_work_in_the_view(self, side_by_side_server: str, page: Page):
+        _open_graph(page, side_by_side_server)
+        _click_graph_node(page, "panel_external_theorem")
+        token = page.locator(".bp_graph_preview .bp_sbs_formal .hl.lean [data-verso-hover]").first
+        token.hover()
+        expect(page.locator(".tippy-box").first).to_be_visible()
+
+    def test_view_follows_the_dark_theme(self, side_by_side_server: str, page: Page):
+        page.emulate_media(color_scheme="dark")
+        _open_graph(page, side_by_side_server)
+        _click_graph_node(page, "panel_external_theorem")
+        grid = page.locator(".bp_graph_preview .bp_node_view .bp_sbs_grid")
+        expect(grid).to_be_visible()
+        rgb = grid.evaluate("e => getComputedStyle(e).backgroundColor")
+        channels = [int(c) for c in rgb[rgb.index("(") + 1 : rgb.index(")")].split(",")[:3]]
+        assert sum(channels) / 3 < 90, rgb

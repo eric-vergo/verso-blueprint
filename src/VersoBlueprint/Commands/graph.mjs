@@ -335,6 +335,123 @@ function graphPreviewHeading(graphData, label, previewKey) {
   return graphTitle || String(label || "").trim();
 }
 
+// Node views: a pinned graph node opens its view (`Informal.NodeView`, the
+// informal statement beside the Lean declarations) in the preview panel. The
+// views are generated with the site (`blueprint-node-views.json`) and loaded on
+// the first click. The page URL names the open view (`#node=<label>`), so a link
+// or a reload opens it again; the fragment is changed with `location.replace`,
+// a same-document navigation that adds no history entry and that embedding
+// viewers observe as a navigation.
+
+const nodeViewFragmentPrefix = "node=";
+let nodeViewsPromise = null;
+
+function loadNodeViews(previewUtils) {
+  if (nodeViewsPromise) return nodeViewsPromise;
+  const url = previewUtils && typeof previewUtils.dataUrl === "function"
+    ? previewUtils.dataUrl("blueprint-node-views.json")
+    : "";
+  nodeViewsPromise = !url || typeof fetch !== "function"
+    ? Promise.resolve(new Map())
+    : fetch(url)
+      .then(function (resp) { return resp.ok ? resp.json() : null; })
+      .then(function (data) {
+        const views = new Map();
+        const entries = data && Array.isArray(data.entries) ? data.entries : [];
+        entries.forEach(function (entry) {
+          if (entry && typeof entry.label === "string" && typeof entry.html === "string") {
+            views.set(entry.label, entry.html);
+          }
+        });
+        return views;
+      })
+      .catch(function () { return new Map(); });
+  return nodeViewsPromise;
+}
+
+// Verso binds its Lean hovers once, when the page loads; a node view inserted
+// later gets the same tooltips here, from the site's hover table.
+let versoDocsPromise = null;
+
+function loadVersoDocs() {
+  if (versoDocsPromise) return versoDocsPromise;
+  versoDocsPromise = typeof fetch !== "function"
+    ? Promise.resolve({})
+    : fetch(new URL("-verso-docs.json", document.baseURI).href)
+      .then(function (resp) { return resp.ok ? resp.json() : {}; })
+      .catch(function () { return {}; });
+  return versoDocsPromise;
+}
+
+function renderDocstrings(root) {
+  if (typeof marked === "undefined" || typeof marked.parse !== "function") return;
+  root.querySelectorAll("code.docstring, pre.docstring").forEach(function (d) {
+    const rendered = document.createElement("div");
+    rendered.classList.add("docstring");
+    rendered.innerHTML = marked.parse(d.textContent || "");
+    d.replaceWith(rendered);
+  });
+}
+
+async function bindNodeViewHovers(root) {
+  if (!(root instanceof Element)) return;
+  renderDocstrings(root);
+  if (typeof tippy !== "function") return;
+  const docs = await loadVersoDocs();
+  root.querySelectorAll(".hl.lean [data-verso-hover]").forEach(function (el) {
+    if (el._tippy) return;
+    tippy(el, {
+      theme: "lean",
+      maxWidth: "none",
+      appendTo: function () { return document.body; },
+      interactive: true,
+      delay: [100, null],
+      content: function () {
+        const content = document.createElement("span");
+        content.className = "hl lean";
+        content.style.display = "block";
+        content.style.maxHeight = "300px";
+        content.style.overflowY = "auto";
+        content.style.overflowX = "hidden";
+        const info = document.createElement("span");
+        info.className = "hover-info";
+        info.style.display = "block";
+        info.innerHTML = docs[el.getAttribute("data-verso-hover")] || "";
+        renderDocstrings(info);
+        content.appendChild(info);
+        return content;
+      }
+    });
+  });
+}
+
+function nodeViewLabelFromLocation() {
+  const hash = String(window.location.hash || "");
+  if (!hash.startsWith("#" + nodeViewFragmentPrefix)) return "";
+  try {
+    return decodeURIComponent(hash.slice(1 + nodeViewFragmentPrefix.length));
+  } catch (_err) {
+    return "";
+  }
+}
+
+function setNodeViewLocation(label) {
+  if (nodeViewLabelFromLocation() === label) return;
+  // Closing leaves an empty `#node=` rather than `#`, which would scroll to the top.
+  const base = String(window.location.href).split("#")[0];
+  window.location.replace(base + "#" + nodeViewFragmentPrefix + encodeURIComponent(label));
+}
+
+function graphNodeIdForLabel(graphData, previewKeys, label) {
+  const graphNode = graphDataNodeForPreview(graphData, label, "");
+  const previewKey = graphNode && typeof graphNode.previewKey === "string" ? graphNode.previewKey : "";
+  if (!previewKey) return "";
+  for (const [nodeId, key] of previewKeys) {
+    if (key === previewKey) return nodeId;
+  }
+  return "";
+}
+
 function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, previewController, previewKeyByNodeId) {
   if (!previewController) return;
   const graphState = ensureGraphBlockState(graphBlock);
@@ -349,11 +466,34 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
     previewController.hide();
     return;
   }
+  const panel = previewController.panel;
   const show = async function (label, anchorNode) {
     const requestToken = ++graphState.previewRequestToken;
     const nodeId = anchorNode instanceof Element ? graphNodeId(anchorNode) : "";
     const previewKey = nodeId ? (previewKeys.get(nodeId) || "") : "";
     if (!previewKey) return;
+    const graphNode = graphDataNodeForPreview(graphState.graphData, label, previewKey);
+    const nodeLabel = graphNode && typeof graphNode.label === "string" ? graphNode.label : "";
+    const pinned = !previewController.behavior || previewController.behavior.mode !== "hover";
+    const views = pinned && nodeLabel ? await loadNodeViews(previewUtils) : null;
+    const viewHtml = views ? (views.get(nodeLabel) || "") : "";
+    if (requestToken !== graphState.previewRequestToken) return;
+    if (viewHtml) {
+      graphState.previewActiveNode = anchorNode instanceof Element ? anchorNode : null;
+      panel.setAttribute("data-bp-preview-size", "node");
+      graphState.nodeViewLabel = nodeLabel;
+      previewController.showContent({
+        heading: graphPreviewHeading(graphState.graphData, label, previewKey),
+        headingHref: graphPreviewHref(graphState.graphData, graphState.previewActiveNode, label, previewKey),
+        headingTitle: graphPreviewLinkTitle(graphState.graphData, label, previewKey),
+        html: viewHtml,
+        anchor: graphState.previewActiveNode
+      });
+      bindNodeViewHovers(previewController.body);
+      setNodeViewLocation(nodeLabel);
+      return;
+    }
+    panel.removeAttribute("data-bp-preview-size");
     const resolved = await previewUtils.resolvePreviewHtml(previewKey);
     if (resolved && resolved.reason === "semantic-preview-body-missing") return;
     const html = resolved.html || "";
@@ -399,6 +539,17 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
     show(label, node);
     return true;
   };
+  graphState.openNodeView = function (label) {
+    const nodeId = graphNodeIdForLabel(graphState.graphData, previewKeys, label);
+    if (!nodeId) return false;
+    const node = Array.from(svg.querySelectorAll("g.node")).find(function (el) {
+      return graphNodeId(el) === nodeId;
+    });
+    if (!node) return false;
+    if (graphState.previewActiveNode === node && !panel.hidden) return true;
+    show(graphNodeLabel(node), node);
+    return true;
+  };
   previewController.bindTriggers({
     eventRoot: svg,
     eventRootBoundAttr: "data-bp-preview-bound",
@@ -412,6 +563,33 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
     enterRequiresHover: true,
     bindEscape: false,
     bindWindow: false
+  });
+  const fromLocation = nodeViewLabelFromLocation();
+  if (fromLocation && panel.hidden) graphState.openNodeView(fromLocation);
+}
+
+// Links between node views (`data-bp-node-link`) switch the panel to the other
+// node when it is in this graph; the fragment follows Back / Forward.
+function bindNodeViewNavigation(graphBlock, previewController) {
+  if (!previewController || graphBlock.getAttribute("data-bp-node-view-bound") === "1") return;
+  graphBlock.setAttribute("data-bp-node-view-bound", "1");
+  const graphState = ensureGraphBlockState(graphBlock);
+  previewController.panel.addEventListener("click", function (ev) {
+    if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    const target = ev.target instanceof Element ? ev.target.closest("[data-bp-node-link]") : null;
+    if (!target) return;
+    const open = graphState.openNodeView;
+    if (typeof open === "function" && open(target.getAttribute("data-bp-node-link") || "")) {
+      ev.preventDefault();
+    }
+  });
+  window.addEventListener("hashchange", function () {
+    const label = nodeViewLabelFromLocation();
+    if (label && label !== graphState.nodeViewLabel && typeof graphState.openNodeView === "function") {
+      graphState.openNodeView(label);
+    } else if (!label && graphState.nodeViewLabel) {
+      previewController.hide();
+    }
   });
 }
 
@@ -620,9 +798,13 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         onHide: function () {
           graphState.previewRequestToken += 1;
           graphState.previewActiveNode = null;
+          if (previewPanelNode) previewPanelNode.removeAttribute("data-bp-preview-size");
+          if (graphState.nodeViewLabel && !graphState.rerendering) setNodeViewLocation("");
+          if (!graphState.rerendering) graphState.nodeViewLabel = "";
         }
       });
       graphState.previewController = previewController;
+      bindNodeViewNavigation(graphBlock, previewController);
       const readPreviewMode = function () {
         if (previewModeSelector) return previewModeSelector.value;
         if (previewController && previewController.behavior) return previewController.behavior.mode;
@@ -906,7 +1088,10 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         graphState.renderToken += 1;
         const renderToken = graphState.renderToken;
         syncLegend(graphBlock, activeVariant.key);
+        // A re-render keeps the URL's node view; it opens again once the graph is drawn.
+        graphState.rerendering = true;
         if (previewController) previewController.hide();
+        graphState.rerendering = false;
         if (groupHoverController) groupHoverController.hide();
         layoutGraphCanvas(graphRoot, graphState, opts);
         const width = graphRoot.clientWidth;

@@ -1569,6 +1569,35 @@ The command-side options and the runtime graph controls are compatible:
 Group metadata may be used to organize the presentation, but grouping does not
 change dependency edges.
 
+#### Node views
+
+In pinned mode, clicking a node opens its *node view* in the graph's panel,
+which widens to hold it:
+
+- the node's informal statement on the left, when the node has one;
+- its Lean declarations on the right: the highlighted source of each defining
+  command with its hovers on sites built with side-by-side source (see
+  "Side-by-side layout"), otherwise the signature and docstring rows of the
+  Lean code panel, plus any inline Lean code of the node;
+- a node with only one of the two (a code-only node from `@[blueprint]`
+  without a docstring, or a statement without `(lean := ...)`) shows it at full
+  width, never an empty column;
+- above, the node's status glyph and status text (where a `sorry` is, an
+  axiom-like declaration); below, links to the nodes it uses and the nodes
+  that use it, which switch the panel to that node.
+
+The open view is named in the page URL as `#node=<label>` (the label
+URI-encoded), so a link to `Dependency-Graph/#node=<label>` or a reload opens
+it again; closing the panel leaves `#node=` with no label. The fragment
+changes with `location.replace`, so it adds no browser history entry, and an
+embedding viewer sees each change as a same-document navigation. Hover mode
+keeps the compact statement preview.
+
+The views are rendered with the site into
+`-verso-data/blueprint-node-views.json` (`{"entries": [{"label", "html"}]}`;
+hover ids refer to the HTML cache's hover table) by `Informal.NodeView`, which
+takes plain data, so other generators can render the same view.
+
 Graph data is also available through documented Lean, manifest, and browser APIs.
 Lean callers build a semantic `GraphModel` before traversal and cross one
 finalization boundary to obtain an immutable `GraphData` record after traversal,

@@ -491,10 +491,11 @@ private def declarationSourceMeta (decl : Data.ExternalRef) : Output.Html :=
     </div>
   }}
 
-/-- One card of the side-by-side Lean column: the defining command's highlighted source. -/
-private def renderDeclarationSourceCard [Monad m]
-    (item : LinkedExternalDecl) (src : SubVerso.Module.DeclSource) :
-    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+/-- One card of the side-by-side Lean column: the defining command's highlighted source, its
+hovers registered by `renderHtml` (a page's or the generated cache's hover table). -/
+private def renderDeclarationSourceCardWith [Monad m]
+    (renderHtml : ExternalDeclRenderedHtml → m String)
+    (item : LinkedExternalDecl) (src : SubVerso.Module.DeclSource) : m Output.Html := do
   let (statement, proof?) := declarationSourceParts item.decl src
   let statementLines := DeclarationSource.lines statement
   let proofLines := (proof?.map DeclarationSource.lines).getD #[]
@@ -518,7 +519,7 @@ private def renderDeclarationSourceCard [Monad m]
         {{<details class="bp_decl_source_proof"><summary>"Lean proof"</summary>{{
           code statementLines.size htmls.size}}</details>}}
     .seq #[code 0 statementLines.size, proofHtml]
-  let html ← renderedHtmlWithPageHovers rendered
+  let html ← renderHtml rendered
   let kindClass := if isTheoremLike item.decl then "bp_decl_source_theorem" else "bp_decl_source_definition"
   pure <| .tag "div" (#[("class", s!"bp_decl_source {kindClass}")] ++ item.anchorAttrs)
     (.seq #[declarationSourceMeta item.decl, .text false html])
@@ -533,10 +534,11 @@ proof for theorem-like declarations. A command that defines several of the
 node's declarations is shown once. Declarations without available source keep
 the signature-and-docstring row of the Lean code panel.
 -/
-def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
+private def renderDeclarationSourcePartsWith [Monad m] [MonadLiftT IO m]
+    (renderHtml : ExternalDeclRenderedHtml → m String)
     (externalDecls : Array Data.ExternalRef) (getDeclHref : Name → Option String)
-    (getDeclAnchorAttrs : Data.ExternalRef → Array (String × String) := fun _ => #[]) :
-    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+    (getDeclAnchorAttrs : Data.ExternalRef → Array (String × String)) :
+    m (Array Output.Html) := do
   let mut seen : Array (Name × Nat) := #[]
   let mut parts : Array Output.Html := #[]
   for decl in externalDecls do
@@ -546,11 +548,36 @@ def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
       let key := (decl.provenance.moduleName?.getD .anonymous, src.index)
       unless seen.contains key do
         seen := seen.push key
-        parts := parts.push (← renderDeclarationSourceCard item src)
+        parts := parts.push (← renderDeclarationSourceCardWith renderHtml item src)
     | none =>
-      let rows ← renderExternalDeclRowsWith externalDeclRenderedWithPageHovers #[item]
+      let rows ← renderExternalDeclRowsWith (externalDeclRenderedWith renderHtml) #[item]
       parts := parts.push (renderExternalDeclList rows)
-  pure (.seq parts)
+  pure parts
+
+def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
+    (externalDecls : Array Data.ExternalRef) (getDeclHref : Name → Option String)
+    (getDeclAnchorAttrs : Data.ExternalRef → Array (String × String) := fun _ => #[]) :
+    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+  pure (.seq (← renderDeclarationSourcePartsWith renderedHtmlWithPageHovers externalDecls
+    getDeclHref getDeclAnchorAttrs))
+
+/--
+The Lean column of a node view (`Informal.NodeView`), one part per defining command (or, without
+highlighted source, per declaration row), for the generated cache: hover payloads go into the
+cache's hover table `hoverState`, as for other cached Lean fragments.
+-/
+def renderDeclarationSourcePartsWithCacheHovers
+    (externalDecls : Array Data.ExternalRef)
+    (hoverState : Verso.Code.Hover.State Output.Html)
+    (getDeclHref : Name → Option String := fun _ => none) :
+    IO (Array Output.Html × Verso.Code.Hover.State Output.Html) :=
+  let register (payload : ExternalDeclHoverPayload) :
+      StateT (Verso.Code.Hover.State Output.Html) IO Nat :=
+    modifyGet fun st =>
+      let (id, dedup) := st.dedup.insert (.text false payload.html)
+      (id, { st with dedup })
+  (renderDeclarationSourcePartsWith (renderedHtmlWithHoverTable register) externalDecls
+    getDeclHref (fun _ => #[])).run hoverState
 
 end ExternalCode
 end Informal

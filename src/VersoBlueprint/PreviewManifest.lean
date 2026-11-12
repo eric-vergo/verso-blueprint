@@ -18,6 +18,7 @@ import VersoBlueprint.Informal.Uses
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Informal.Group
 import VersoBlueprint.Informal.LeanCodePreview
+import VersoBlueprint.Informal.NodeView
 import VersoBlueprint.Lib.PreviewSource
 import VersoBlueprint.PreviewCache
 import VersoBlueprint.PreviewManifest.Cli
@@ -709,6 +710,9 @@ def manifestFilename : String := "blueprint-manifest.json"
 
 def htmlCacheFilename : String := "blueprint-html-cache.json"
 
+/-- The dependency graph's node views (`NodeViewFile`), next to the manifest. -/
+def nodeViewsFilename : String := "blueprint-node-views.json"
+
 /--
 Internal schema marker for generated Blueprint manifests.
 
@@ -1230,6 +1234,19 @@ structure PreparedPreviewState where private mk ::
 def PreparedPreviewState.prepare (state : TraverseState) : PreparedPreviewState :=
   PreparedPreviewState.mk (Informal.RelatedPanel.patchRelationCaches state)
 
+/-- The rendered view of one dependency-graph node. -/
+structure NodeViewEntry where
+  /-- The graph node's label, as the graph data writes it. -/
+  label : String
+  /-- The rendered `Informal.NodeView`; its hover ids refer to the HTML cache's hover table. -/
+  html : String
+deriving Inhabited, Repr, ToJson, FromJson
+
+/-- The dependency graph's node views (`blueprint-node-views.json`). -/
+structure NodeViewFile where
+  entries : Array NodeViewEntry := #[]
+deriving Inhabited, Repr, ToJson, FromJson
+
 /-- Paired, emission-ready preview-data outputs for a generated Blueprint site. -/
 structure Files where private mk ::
   /--
@@ -1243,6 +1260,11 @@ structure Files where private mk ::
   this cache with `manifest` by preview key when they need presentation data.
   -/
   htmlCache : HtmlCache.File := {}
+  /--
+  One rendered view per dependency-graph node (`Informal.NodeView`): the informal
+  statement beside its Lean declarations. Hover ids refer to `htmlCache.hoverDocs`.
+  -/
+  nodeViews : NodeViewFile := {}
 deriving Repr
 
 /--
@@ -2482,6 +2504,72 @@ def sourcePathRoot? (reproducibility : ReproducibilityOptions) : IO (Option Stri
   else
     return none
 
+/-- Whether a rendered fragment has no text outside its tags (an inert or empty body). -/
+private def fragmentIsBlank (html : String) : Bool := Id.run do
+  let mut inTag := false
+  for c in html.toList do
+    if c == '<' then inTag := true
+    else if c == '>' then inTag := false
+    else if !inTag && !c.isWhitespace then return false
+  return true
+
+private def nodeViewLinks (entries : Array RelatedEntry) : Array Informal.NodeView.Link :=
+  entries.map fun e => { label := e.label.toString, title := e.title, href? := e.href }
+
+/--
+Render the view of every dependency-graph node (`Informal.NodeView`): its
+statement and proof fragments from the HTML cache (none for a code-only node), its Lean
+declarations' highlighted source when `Informal.DeclarationSource` has it (else
+their signature rows), inline Lean code fragments, its status and its relations.
+Lean hovers are registered in the cache's hover table `hoverState`.
+-/
+private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entry)
+    (hoverState : Verso.Code.Hover.State Output.Html) :
+    IO (NodeViewFile × Verso.Code.Hover.State Output.Html) := do
+  let index := manifest.index
+  let bodies : Std.HashMap String String :=
+    htmlEntries.foldl (fun m e => m.insert e.key e.html) {}
+  let mut hoverState := hoverState
+  let mut seen : Std.HashSet String := {}
+  let mut entries : Array NodeViewEntry := #[]
+  for graph in manifest.graphs do
+    for node in graph.nodes do
+      let label := node.label.toString
+      if seen.contains label then continue
+      let some key := node.previewKey | continue
+      let some entry := index.findEntry? key.value | continue
+      seen := seen.insert label
+      let informal? : Option Output.Html :=
+        if entry.codeOnlyPreview then none else
+        (bodies.get? key.value).bind fun html =>
+          if fragmentIsBlank html then none else some (.text false html)
+      let proof? : Option Output.Html :=
+        (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
+          if fragmentIsBlank html then none else some (.text false html)
+      let decls := (entry.codeData.map (·.externalDecls)).getD #[]
+      let (sourceParts, hoverState') ←
+        Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
+      hoverState := hoverState'
+      let inlineParts : Array Output.Html := entry.leanCodePreviewKeys.filterMap fun k =>
+        match index.findEntry? k, bodies.get? k with
+        | some e, some html => if e.targetKind == .inlineLeanCode then some (.text false html) else none
+        | _, _ => none
+      let view : Informal.NodeView.NodeView := {
+        label
+        title := node.title
+        href? := node.href
+        status := Informal.statusGlyph
+          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData)
+        informal?
+        proof?
+        lean := sourceParts ++ inlineParts
+        leanDecls := decls.map (·.canonical)
+        uses := nodeViewLinks entry.uses
+        usedBy := nodeViewLinks entry.usedBy
+      }
+      entries := entries.push { label, html := view.render.asString }
+  pure ({ entries }, hoverState)
+
 /--
 Build the semantic Blueprint manifest and rendered-fragment cache from a
 completed Manual traversal state.
@@ -2548,6 +2636,9 @@ def buildPreviewDataFiles
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint resource {entry.key}: {error}")
     pure ({ key := entry.key, html := html.asString } : HtmlCache.Entry)
+  let (nodeViews, hoverState) ←
+    withTimedBuildProgress verbose "building dependency-graph node views" <|
+      buildNodeViews manifest resolvedEntries hoverState
   let hoverDocs ← hoverState.dedup.contentId.toArray.mapM fun (id, html) => do
     let html ← match resolve html with
       | .ok html => pure html
@@ -2566,7 +2657,7 @@ def buildPreviewDataFiles
   let manifest := match sourcePathRoot? with
     | some root => manifest.relativizeSourcePaths root
     | none => manifest
-  pure <| Files.mk manifest htmlCache
+  pure <| Files.mk manifest htmlCache nodeViews
 
 private def dumpPreviewDataJson
     (select : Files → Json)
@@ -2668,6 +2759,7 @@ def emitBlueprintPreviewData : BlueprintExtraStep := fun preparedState => do
     IO.FS.createDirAll dataDir
     IO.FS.writeFile (dataDir / manifestFilename) (toJson files.manifest).compress
     IO.FS.writeFile (dataDir / htmlCacheFilename) (toJson files.htmlCache).compress
+    IO.FS.writeFile (dataDir / nodeViewsFilename) (toJson files.nodeViews).compress
   withTimedBuildProgress cfg.verbose s!"writing {modeDescription} Blueprint runtime modules" <|
     writeBlueprintRuntimeModules dataDir
   withTimedBuildProgress cfg.verbose s!"merging {modeDescription} hover docs" <|
@@ -2766,6 +2858,12 @@ private def emitBlueprintHtml
       document.save path
     return
   let prepared := PreparedRendererState.prepare document
+  -- Before the preview data: the dependency graph's node views show the same source.
+  if sideBySide then
+    let modules := declarationSourceModules prepared.state
+    withTimedBuildProgress cfg.verbose s!"loading highlighted source of {modules.size} Lean modules" <|
+      Informal.DeclarationSource.prepare (← IO.currentDir) modules
+        (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
   let prepared ← match previewConfig? with
     | none => pure prepared
     | some previewConfig => do
@@ -2780,11 +2878,6 @@ private def emitBlueprintHtml
   let pageImpls := match prepared.previewFiles? with
     | none => impls
     | some files => files.withPageExtensions impls
-  if sideBySide then
-    let modules := declarationSourceModules prepared.state
-    withTimedBuildProgress cfg.verbose s!"loading highlighted source of {modules.size} Lean modules" <|
-      Informal.DeclarationSource.prepare (← IO.currentDir) modules
-        (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
   Informal.DeclarationSource.setEnabled sideBySide
   try
     withReader (fun _ => pageImpls) <|
