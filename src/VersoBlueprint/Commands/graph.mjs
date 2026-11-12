@@ -1084,9 +1084,11 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       return controller;
     }
 
+// The copies the site ships under `-verso-data/vendor/` (see `static-web/vendor/README.md`),
+// resolved against this module's URL so that pages draw the graph without the network.
 const defaultGraphRuntimeLibraryUrls = {
-  d3: "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
-  graphviz: "https://cdn.jsdelivr.net/npm/d3-graphviz@5.6.0/build/d3-graphviz.min.js"
+  d3: new URL("../vendor/d3/d3.min.js", import.meta.url).href,
+  graphviz: new URL("../vendor/d3-graphviz/d3-graphviz.min.js", import.meta.url).href
 };
 
 let graphRuntimeLibrariesPromise = null;

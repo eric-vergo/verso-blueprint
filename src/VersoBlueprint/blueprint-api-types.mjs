@@ -451,8 +451,8 @@
  * Runtime dependency URLs accepted by graph rendering helpers.
  *
  * @typedef {Object} BlueprintGraphRuntimeLibraries
- * @property {string} [d3] URL for D3 when the page has not loaded it already.
- * @property {string} [graphviz] URL for d3-graphviz when the page has not loaded it already.
+ * @property {string} [d3] URL for D3 when the page has not loaded it already (default: the copy the site ships under `-verso-data/vendor/`).
+ * @property {string} [graphviz] URL for d3-graphviz when the page has not loaded it already (default: the site's copy, as for `d3`).
  */
 
 /**

@@ -192,6 +192,27 @@ def preview_node_by_label(page: Page, label: str):
 
 
 class TestGraphLayoutRuntime:
+    def test_graph_draws_without_the_network(self, server: str, page: Page):
+        """The graph's libraries come with the site (`-verso-data/vendor/`): with every request
+        outside the site's server refused, the page asks for none and still draws its nodes."""
+        outside: list[str] = []
+
+        def refuse_outside(route):
+            url = route.request.url
+            if url.startswith(server) or url.startswith(("data:", "blob:")):
+                route.continue_()
+            else:
+                outside.append(url)
+                route.abort("internetdisconnected")
+
+        page.context.route("**/*", refuse_outside)
+        try:
+            goto_graph_page(page, f"{server}/Dependency-Graph/")
+            first_preview_node(page)
+        finally:
+            page.context.unroute("**/*", refuse_outside)
+        assert outside == []
+
     def test_public_graph_api_exposes_rendered_page_and_manifest_data(self, server: str, page: Page):
         page.set_viewport_size({"width": 1400, "height": 900})
         goto_graph_page(page, f"{server}/Dependency-Graph/")

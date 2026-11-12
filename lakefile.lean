@@ -24,6 +24,12 @@ input_file mathLintWorkerJs where
   path := "static-web/katex-lint.mjs"
   text := true
 
+-- The graph's browser libraries, shipped with every site (static-web/vendor/README.md).
+input_dir vendoredWebAssets where
+  path := "static-web/vendor"
+  text := true
+  filter := .extension <| .mem #["js"]
+
 -- Optional VIR resource API; neither the core library nor generator imports it.
 lean_lib VersoBlueprintVir where
   srcDir := "src"
@@ -48,7 +54,7 @@ lean_lib VersoBlueprint where
   srcDir := "src"
   roots := #[`VersoBlueprint]
   precompileModules := true
-  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs]
+  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs, vendoredWebAssets]
 
 @[default_target]
 lean_exe «vbp» where
