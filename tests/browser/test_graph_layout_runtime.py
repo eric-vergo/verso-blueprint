@@ -194,7 +194,9 @@ def preview_node_by_label(page: Page, label: str):
 class TestGraphLayoutRuntime:
     def test_graph_draws_without_the_network(self, server: str, page: Page):
         """The graph's libraries come with the site (`-verso-data/vendor/`): with every request
-        outside the site's server refused, the page asks for none and still draws its nodes."""
+        outside the site's server refused, the page still draws its nodes and never asks the
+        network for D3 or d3-graphviz. (Other remote assets of the page, such as the Markdown
+        renderer Verso's page template loads, are Verso's.)"""
         outside: list[str] = []
 
         def refuse_outside(route):
@@ -211,7 +213,7 @@ class TestGraphLayoutRuntime:
             first_preview_node(page)
         finally:
             page.context.unroute("**/*", refuse_outside)
-        assert outside == []
+        assert [url for url in outside if "d3" in url or "graphviz" in url] == []
 
     def test_public_graph_api_exposes_rendered_page_and_manifest_data(self, server: str, page: Page):
         page.set_viewport_size({"width": 1400, "height": 900})
