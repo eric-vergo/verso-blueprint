@@ -119,6 +119,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintPreviewSchema,
     `VersoBlueprintTests.BlueprintPreviewSource,
     `VersoBlueprintTests.BlueprintPreviewWiring,
+    `VersoBlueprintTests.BlueprintNodeView,
     `VersoBlueprintTests.BlueprintSideBySide,
     `VersoBlueprintTests.BlueprintSidebar,
     `VersoBlueprintTests.BlueprintSource,
