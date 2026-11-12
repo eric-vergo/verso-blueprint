@@ -867,12 +867,12 @@ class TestGraphLayoutRuntime:
         page.go_back()
         wait_for_graph(page)
         panel = page.locator(".bp_graph_preview").first
-        node = preview_node_by_label(page, "used_target")
-        node.click()
+        # the page URL names the node view the click opened, so going back opens it again
         page.wait_for_function(
             """() => {
                 const panel = document.querySelector(".bp_graph_preview");
-                return !!panel && !panel.hidden && panel.getAttribute("data-bp-preview-mode") === "pinned";
+                return !!panel && !panel.hidden && panel.getAttribute("data-bp-preview-mode") === "pinned" &&
+                    !!panel.querySelector('.bp_node_view[data-bp-node-view="used_target"]');
             }"""
         )
 
