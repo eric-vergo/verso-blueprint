@@ -774,6 +774,13 @@ private def graphRuntimeCoreModuleMjs : String := include_str "Commands/graph-ru
 
 private def graphRuntimeModuleMjs : String := include_str "Commands/graph.mjs"
 
+/-- D3, vendored (`static-web/vendor/README.md`); `Commands/graph.mjs` loads it from the site. -/
+private def vendoredD3Js : String := include_str "../../static-web/vendor/d3/d3.min.js"
+
+/-- d3-graphviz with its bundled Graphviz WebAssembly build, vendored like `vendoredD3Js`. -/
+private def vendoredD3GraphvizJs : String :=
+  include_str "../../static-web/vendor/d3-graphviz/d3-graphviz.min.js"
+
 private def relationPanelModuleMjs : String := include_str "Informal/Block/relation-panel.mjs"
 
 private def previewRuntimeBaseModuleFilename : String := "preview-runtime-base.mjs"
@@ -830,7 +837,9 @@ private def pageRuntimeModules : Array (String × String) := #[
   ("Commands/inline-preview.mjs", inlinePreviewModuleMjs),
   ("Commands/graph-runtime-core.mjs", graphRuntimeCoreModuleMjs),
   ("Commands/graph.mjs", graphRuntimeModuleMjs),
-  ("Informal/Block/relation-panel.mjs", relationPanelModuleMjs)
+  ("Informal/Block/relation-panel.mjs", relationPanelModuleMjs),
+  ("vendor/d3/d3.min.js", vendoredD3Js),
+  ("vendor/d3-graphviz/d3-graphviz.min.js", vendoredD3GraphvizJs)
 ]
 
 private def writeDataFile (dataDir : System.FilePath) (relativePath contents : String) : IO Unit := do
