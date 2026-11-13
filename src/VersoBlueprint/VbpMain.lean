@@ -15,7 +15,7 @@ open System
 namespace VersoBlueprint.Vbp.Main
 
 private def buildUsageLine : String :=
-  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--serve] [--port <n>] [--resident]"
+  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--no-stats-page] [--serve] [--port <n>] [--resident]"
 
 private def mainCommandLines : List String := [
   "lake exe vbp discover",
@@ -40,6 +40,7 @@ private def buildOptionLines : List String := [
   "--pdf-engine <cmd>  Use <cmd> for PDF compilation",
   "--pdf-runs <n>      Run the PDF engine <n> times",
   "--reproducible      Omit build time and Git metadata, emit relative source paths",
+  "--no-stats-page     Leave the Project Stats page out of the site",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
   "--port <n>          Serve on a fixed TCP port; requires --serve",
@@ -266,6 +267,8 @@ structure BuildOptions where
   pdfRuns? : Option Nat := none
   verbose : Bool := false
   reproducible : Bool := false
+  /-- Leave the automatic Project Stats page out (the generator's `--no-stats-page`). -/
+  noStatsPage : Bool := false
   serve : Bool := false
   port? : Option Nat := none
   resident : Bool := false
@@ -317,6 +320,7 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
         match arg, args with
         | "--verbose", args => parseBuildOptionsCore args { opts with verbose := true }
         | "--reproducible", args => parseBuildOptionsCore args { opts with reproducible := true }
+        | "--no-stats-page", args => parseBuildOptionsCore args { opts with noStatsPage := true }
         | "--serve", args => parseBuildOptionsCore args { opts with serve := true }
         | "--resident", args => parseBuildOptionsCore args { opts with resident := true }
         | "--port", raw :: args =>
@@ -394,6 +398,7 @@ private def pdfGeneratorArgs (opts : BuildOptions) : Array String :=
 def generatorMainArgs (opts : BuildOptions) : Array String :=
   let args := #["--output", opts.output.toString] ++ (if opts.verbose then #["--verbose"] else #[])
   let args := args ++ pdfGeneratorArgs opts
+  let args := if opts.noStatsPage then args.push Informal.Commands.noStatsPageFlag else args
   if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
 
 private def generateSite (opts : BuildOptions) : IO UInt32 := do

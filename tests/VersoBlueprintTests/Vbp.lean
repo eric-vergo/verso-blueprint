@@ -1562,6 +1562,20 @@ private def queryReadModeExamples : List (String × List String × Bool) := [
     | .ok opts => opts.reproducible && !opts.verbose
     | .error _ => false
 
+-- `vbp build --no-stats-page` hands the flag on to the generator, which leaves the page out.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show Bool from
+    match VersoBlueprint.Vbp.Main.parseBuildOptions ["--no-stats-page"] {} with
+    | .ok opts =>
+        opts.noStatsPage &&
+          (VersoBlueprint.Vbp.Main.generatorMainArgs opts).contains
+            Informal.Commands.noStatsPageFlag &&
+          !(VersoBlueprint.Vbp.Main.generatorMainArgs {}).contains
+            Informal.Commands.noStatsPageFlag
+    | .error _ => false
+
 /-- info: true -/
 #guard_msgs in
 #eval
