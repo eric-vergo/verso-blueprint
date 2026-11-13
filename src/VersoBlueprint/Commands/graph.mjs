@@ -49,6 +49,49 @@ function dotForVariantOptions(variant, options) {
   return dotWithGraphOptions(variant.dot, options);
 }
 
+// A view laid out while the site was built has its positions beside the graph data
+// (`script.bp-graph-layout[data-variant]`, for the variant's own options): Graphviz's `nop2`
+// engine draws them without a layout pass. Other options are laid out in the page from the
+// variant's DOT.
+function variantLayout(graphBlock, variant) {
+  if (!(graphBlock instanceof Element) || !variant) return "";
+  const scripts = graphBlock.querySelectorAll("script.bp-graph-layout");
+  for (const script of scripts) {
+    if (script.getAttribute("data-variant") === variant.key) return script.textContent || "";
+  }
+  return "";
+}
+
+// The first view drawn while the site was built (`svg.bp_graph_prerendered` in the canvas) is
+// shown from the moment the page is parsed. Before the renderer draws the interactive graph into
+// the canvas, the drawing moves to an overlay over the canvas (the renderer would otherwise take
+// it for its own); the overlay is removed once the interactive graph is drawn.
+function liftPrerenderedGraph(graphRoot) {
+  if (!(graphRoot instanceof Element)) return null;
+  const drawing = graphRoot.querySelector(":scope > svg.bp_graph_prerendered");
+  if (!drawing || !graphRoot.parentNode) return null;
+  const overlay = document.createElement("div");
+  overlay.className = "bp_graph_prerender_overlay";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.left = graphRoot.offsetLeft + "px";
+  overlay.style.top = graphRoot.offsetTop + "px";
+  overlay.style.width = graphRoot.offsetWidth + "px";
+  overlay.style.height = graphRoot.offsetHeight + "px";
+  graphRoot.parentNode.insertBefore(overlay, graphRoot.nextSibling);
+  overlay.appendChild(drawing);
+  setTimeout(function () { overlay.remove(); }, 10000);
+  return overlay;
+}
+
+function renderSourceForVariant(graphBlock, variant, options) {
+  if (!variant || typeof variant !== "object") return { engine: "dot", dot: "" };
+  if (graphOptionsKey(normalizeGraphOptions(options)) === graphOptionsKey(normalizeGraphOptions(variant.options))) {
+    const layout = variantLayout(graphBlock, variant).trim();
+    if (layout.length > 0) return { engine: "nop2", dot: layout };
+  }
+  return { engine: "dot", dot: dotForVariantOptions(variant, options) };
+}
+
 // Runtime graph-data rendering consumes Lean-computed variants from public GraphData,
 // then feeds the generated block into the same initializer used by page graphs.
 let runtimeGraphIdCounter = 0;
@@ -425,6 +468,16 @@ async function bindNodeViewHovers(root) {
   });
 }
 
+// A node view's neighbourhood link names its node's ego view by fragment (`#ego=<label>`); pages
+// resolve links against the site root, so the link is pointed at this graph page.
+function pointEgoLinksHere(root) {
+  if (!(root instanceof Element)) return;
+  const base = String(window.location.href).split("#")[0];
+  root.querySelectorAll("a[data-bp-ego-link]").forEach(function (a) {
+    a.setAttribute("href", base + egoFragment(a.getAttribute("data-bp-ego-link") || "", 1));
+  });
+}
+
 function nodeViewLabelFromLocation() {
   const hash = String(window.location.hash || "");
   if (!hash.startsWith("#" + nodeViewFragmentPrefix)) return "";
@@ -490,6 +543,7 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
         anchor: graphState.previewActiveNode
       });
       bindNodeViewHovers(previewController.body);
+      pointEgoLinksHere(previewController.body);
       setNodeViewLocation(nodeLabel);
       return;
     }
@@ -591,6 +645,149 @@ function bindNodeViewNavigation(graphBlock, previewController) {
       previewController.hide();
     }
   });
+}
+
+// Ego views: the neighbourhood of one node, the nodes it uses and the nodes that use it up to
+// `k` hops (1 to 3). On a large graph this is how a reader sees a node's surroundings without
+// the whole graph. The view is cut from the full view's DOT, whose statements `Graph.toDot`
+// writes one per line (`"<label>" [<attributes>];` for a node, `"<a>" -> "<b>" ...;` for an
+// edge), and laid out in the page; it keeps every node's and edge's styling. The page URL names
+// it (`#ego=<label>&k=<k>`), so a link (the node view's "Neighbourhood", a chapter entry) or a
+// reload opens it.
+
+const egoFragmentPrefix = "ego=";
+const egoMaxHops = 3;
+const egoVariantKey = "ego";
+const dotNodeLine = /^\s*"((?:[^"\\]|\\.)*)" \[(.*)\];\s*$/;
+const dotEdgeLine = /^\s*"((?:[^"\\]|\\.)*)" -> "((?:[^"\\]|\\.)*)"(.*);\s*$/;
+
+export function egoFromLocation(hash) {
+  const raw = String(hash === undefined ? window.location.hash || "" : hash);
+  if (!raw.startsWith("#" + egoFragmentPrefix)) return null;
+  const parts = raw.slice(1).split("&");
+  let label = "";
+  let k = 1;
+  parts.forEach(function (part) {
+    const eq = part.indexOf("=");
+    const key = eq < 0 ? part : part.slice(0, eq);
+    const value = eq < 0 ? "" : part.slice(eq + 1);
+    try {
+      if (key === "ego") label = decodeURIComponent(value);
+      if (key === "k") k = parseInt(decodeURIComponent(value), 10);
+    } catch (_err) {
+      // a malformed escape leaves the field at its default
+    }
+  });
+  if (!label) return null;
+  if (!Number.isFinite(k) || k < 1) k = 1;
+  return { label: label, k: Math.min(k, egoMaxHops) };
+}
+
+export function egoFragment(label, k) {
+  return "#" + egoFragmentPrefix + encodeURIComponent(label) + "&k=" + String(k);
+}
+
+function parseDotStatements(dot) {
+  const header = [];
+  const nodes = new Map();
+  const edges = [];
+  let inBody = false;
+  String(dot || "").split("\n").forEach(function (line) {
+    const node = line.match(dotNodeLine);
+    if (node) {
+      inBody = true;
+      nodes.set(node[1].replace(/\\(.)/g, "$1"), line.trim());
+      return;
+    }
+    const edge = line.match(dotEdgeLine);
+    if (edge) {
+      inBody = true;
+      edges.push({
+        source: edge[1].replace(/\\(.)/g, "$1"),
+        target: edge[2].replace(/\\(.)/g, "$1"),
+        line: line.trim()
+      });
+      return;
+    }
+    if (/^\s*subgraph /.test(line)) inBody = true;
+    if (!inBody && line.trim() !== "") header.push(line);
+  });
+  return { header: header, nodes: nodes, edges: edges };
+}
+
+function markEgoCenter(line) {
+  let out = line.replace(/penwidth="[^"]*"/, 'penwidth="3.4"');
+  if (/class="[^"]*"/.test(out)) {
+    out = out.replace(/class="([^"]*)"/, 'class="$1 bp_graph_ego_center"');
+  } else {
+    out = out.replace(/\];$/, ', class="bp_graph_ego_center"];');
+  }
+  return out;
+}
+
+// The nodes within `k` hops of `label` along edges in either direction, with their distance.
+export function egoNeighbourhood(edges, label, k) {
+  const out = new Map([[label, 0]]);
+  let frontier = [label];
+  for (let hop = 1; hop <= k && frontier.length > 0; hop++) {
+    const wanted = new Set(frontier);
+    const next = [];
+    edges.forEach(function (edge) {
+      const pairs = [[edge.source, edge.target], [edge.target, edge.source]];
+      pairs.forEach(function (pair) {
+        if (wanted.has(pair[0]) && !out.has(pair[1])) {
+          out.set(pair[1], hop);
+          next.push(pair[1]);
+        }
+      });
+    });
+    frontier = next;
+  }
+  return out;
+}
+
+// The ego view of `label` as a render variant, or null when the full view does not have it.
+export function egoVariant(fullVariant, graphData, label, k) {
+  if (!fullVariant || typeof fullVariant.dot !== "string") return null;
+  const parsed = parseDotStatements(fullVariant.dot);
+  if (!parsed.nodes.has(label)) return null;
+  const near = egoNeighbourhood(parsed.edges, label, k);
+  const lines = parsed.header.slice();
+  near.forEach(function (_distance, name) {
+    const line = parsed.nodes.get(name);
+    if (line) lines.push("  " + (name === label ? markEgoCenter(line) : line));
+  });
+  parsed.edges.forEach(function (edge) {
+    if (near.has(edge.source) && near.has(edge.target)) lines.push("  " + edge.line);
+  });
+  lines.push("}");
+  const previewKeys = fullVariant.previewKeyByNodeId instanceof Map
+    ? fullVariant.previewKeyByNodeId
+    : new Map(fullVariant.previewKeyByNodeId || []);
+  const keptIds = new Set();
+  near.forEach(function (_distance, name) {
+    const id = (parsed.nodes.get(name) || "").match(/\bid="([^"]*)"/);
+    if (id) keptIds.add(id[1]);
+  });
+  const graphNodes = graphData && Array.isArray(graphData.nodes) ? graphData.nodes : [];
+  const centre = graphNodes.find(function (node) { return node && node.label === label; });
+  const shown = centre && centre.displayLabel ? centre.displayLabel : label;
+  const previewKeyByNodeId = new Map();
+  previewKeys.forEach(function (key, nodeId) {
+    if (keptIds.has(nodeId)) previewKeyByNodeId.set(nodeId, key);
+  });
+  return {
+    key: egoVariantKey,
+    label: "Neighbourhood of " + shown + " (" + k + (k === 1 ? " hop)" : " hops)"),
+    dot: lines.join("\n"),
+    options: fullVariant.options,
+    selectOnNodeId: [],
+    hoverOnNodeId: [],
+    previewKeyByNodeId: previewKeyByNodeId,
+    egoLabel: label,
+    egoHops: k,
+    egoSize: near.size
+  };
 }
 
 function attachVariantSelectors(graphContainer, variantsByKey, activeVariant, onSelect, onHover, onHoverLeave) {
@@ -885,6 +1082,29 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         activeKey = initialView;
         graphBlock.setAttribute("data-bp-initial-view-shown", "1");
       }
+      // The ego view the URL names, if any (see `egoVariant`).
+      const egoOptionLabel = function (variant) {
+        if (!selector) return;
+        let option = Array.from(selector.options).find(function (o) { return o.value === egoVariantKey; });
+        if (!option) {
+          option = document.createElement("option");
+          option.value = egoVariantKey;
+          selector.appendChild(option);
+        }
+        option.textContent = variant.label;
+      };
+      const installEgo = function (label, k) {
+        const full = variantsByKey.get("full");
+        const variant = egoVariant(full, graphApiData, label, k);
+        if (!variant) return null;
+        variantsByKey.set(egoVariantKey, variant);
+        egoOptionLabel(variant);
+        return variant;
+      };
+      const fromLocation = egoFromLocation();
+      if (fromLocation && installEgo(fromLocation.label, fromLocation.k)) {
+        activeKey = egoVariantKey;
+      }
       if (selector) selector.value = activeKey;
       let activeOptions = normalizeGraphOptions({
         direction: directionSelector
@@ -929,10 +1149,12 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           if (!groupHoverGraphviz) {
             groupHoverGraphviz = container.graphviz().fit(true);
           }
+          const source = renderSourceForVariant(graphBlock, variant, getActiveOptions());
           groupHoverGraphviz
+            .engine(source.engine)
             .width(width)
             .height(height)
-            .renderDot(dotForVariantOptions(variant, getActiveOptions()));
+            .renderDot(source.dot);
         },
         positionPanel: makeGroupPanelPositioner(graphBlock, function () {
           return groupHoverController ? groupHoverController.behavior : groupHoverBehavior;
@@ -1051,13 +1273,60 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         groupHoverController.show("Preview: " + variant.label, variant, graphState.groupHoverAnchorNode);
       };
 
+      // The hop count of the ego view, shown beside the view selector while that view is open.
+      const egoHopsLabel = document.createElement("label");
+      egoHopsLabel.className = "bp_graph_controls_label bp_graph_ego_hops_label";
+      egoHopsLabel.textContent = "Hops";
+      const egoHops = document.createElement("select");
+      egoHops.className = "bp_graph_controls_select bp_graph_ego_hops";
+      egoHops.setAttribute("aria-label", "Hops around the node");
+      for (let hop = 1; hop <= egoMaxHops; hop++) appendSelectOption(document, egoHops, String(hop), String(hop), hop === 1);
+      egoHopsLabel.appendChild(egoHops);
+      const controlsPrimary = graphBlock.querySelector(".bp_graph_controls_primary");
+      if (controlsPrimary) controlsPrimary.appendChild(egoHopsLabel);
+      const syncEgoControls = function () {
+        const ego = activeKey === egoVariantKey ? variantsByKey.get(egoVariantKey) : null;
+        egoHopsLabel.hidden = !ego;
+        if (ego) egoHops.value = String(ego.egoHops);
+        graphRoot.setAttribute("data-bp-graph-ego", ego ? ego.egoLabel : "");
+      };
+      syncEgoControls();
+
       const switchVariant = function (nextKey) {
         if (!variantsByKey.has(nextKey) || nextKey === activeKey) return;
         activeKey = nextKey;
         if (selector) selector.value = nextKey;
         syncLegend(graphBlock, activeKey);
+        syncEgoControls();
         renderGraph();
       };
+
+      // Open the ego view of `label` with `k` hops; false when the graph has no such node.
+      const showEgo = function (label, k, updateLocation) {
+        const variant = installEgo(label, k);
+        if (!variant) return false;
+        if (updateLocation) {
+          const base = String(window.location.href).split("#")[0];
+          window.location.replace(base + egoFragment(label, k));
+        }
+        activeKey = egoVariantKey;
+        if (selector) selector.value = egoVariantKey;
+        syncLegend(graphBlock, activeKey);
+        syncEgoControls();
+        renderGraph();
+        return true;
+      };
+      egoHops.addEventListener("change", function () {
+        const ego = variantsByKey.get(egoVariantKey);
+        if (ego) showEgo(ego.egoLabel, parseInt(egoHops.value, 10) || 1, true);
+      });
+      window.addEventListener("hashchange", function () {
+        const wanted = egoFromLocation();
+        if (!wanted) return;
+        const ego = activeKey === egoVariantKey ? variantsByKey.get(egoVariantKey) : null;
+        if (ego && ego.egoLabel === wanted.label && ego.egoHops === wanted.k) return;
+        showEgo(wanted.label, wanted.k, false);
+      });
 
       const switchGraphOptions = function (nextOptions) {
         const rawNextOptions = nextOptions && typeof nextOptions === "object" ? nextOptions : {};
@@ -1092,7 +1361,8 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         const activeVariant = getActiveVariant();
         const options = getActiveOptions();
         const optionsKey = graphOptionsKey(options);
-        const dot = dotForVariantOptions(activeVariant, options);
+        const source = renderSourceForVariant(graphBlock, activeVariant, options);
+        const dot = source.dot;
         if (!activeVariant || !dot) return;
         graphState.renderToken += 1;
         const renderToken = graphState.renderToken;
@@ -1129,9 +1399,12 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           );
         };
 
+        const variantRenderKey = activeVariant.key === egoVariantKey
+          ? egoFragment(activeVariant.egoLabel, activeVariant.egoHops)
+          : activeVariant.key;
         if (
           (graphState.renderedVariantKey &&
-            graphState.renderedVariantKey !== activeVariant.key) ||
+            graphState.renderedVariantKey !== variantRenderKey) ||
           (graphState.renderedOptionsKey &&
             graphState.renderedOptionsKey !== optionsKey)
         ) {
@@ -1139,16 +1412,20 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         }
         const gv = graphState.graphviz || graphContainer.graphviz();
         graphState.graphviz = gv;
-        graphState.renderedVariantKey = activeVariant.key;
+        graphState.renderedVariantKey = variantRenderKey;
         graphState.renderedOptionsKey = optionsKey;
         graphRoot.setAttribute("data-bp-active-direction", options.direction);
         graphRoot.setAttribute("data-bp-active-pack", graphPackAttr(options.pack));
+        graphRoot.setAttribute("data-bp-graph-layout-source", source.engine === "nop2" ? "build" : "page");
+        const prerendered = liftPrerenderedGraph(graphRoot);
         gv
+          .engine(source.engine)
           .zoom(true)
           .width(width)
           .height(height)
           .fit(true)
           .on("end", function () {
+            if (prerendered) prerendered.remove();
             finalizeRender();
             if (graphState.renderToken === renderToken) {
               applyReadableGraphZoom(graphRoot, gv, options.direction);
@@ -1215,6 +1492,9 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         setVariant: function (nextKey) {
           switchVariant(nextKey);
           return controller;
+        },
+        showEgo: function (label, k) {
+          return showEgo(label, k || 1, true);
         },
         setOptions: function (nextOptions) {
           switchGraphOptions(nextOptions);

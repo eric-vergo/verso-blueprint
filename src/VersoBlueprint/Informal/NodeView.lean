@@ -26,7 +26,8 @@ Layout rules:
 * a node with only one of the two shows it full width (`bp_sbs_single`), never
   an empty column;
 * the header carries the node's title (a link to the node in its chapter), its
-  status glyph and status text; a footer lists the nodes it uses and the nodes
+  status glyph and status text, and a link to the node's neighbourhood in the
+  dependency graph (`#ego=<label>`, the graph page's ego view); a footer lists the nodes it uses and the nodes
   that use it, each a link carrying `data-bp-node-link` so a viewer can switch
   to that node's view in place, and the axioms its declarations depend on,
   each marked with its class (`Informal.Data.AxiomClass`): a `sorry`, an extra
@@ -79,6 +80,12 @@ structure NodeView where
   /-- Nodes that use this node. -/
   usedBy : Array Link := #[]
 deriving Inhabited
+
+/-- The link to a node's neighbourhood on the dependency graph's page (its ego view):
+`#ego=<label>`, the label percent-encoded. The graph page shows node views and points the link
+at itself. -/
+def egoHref (label : String) : String :=
+  "#ego=" ++ LeanSourceAnchor.percentEncode label
 
 /-- Whether the view has an informal column (prose that is not blank). -/
 def NodeView.hasInformal (v : NodeView) (isBlank : Verso.Output.Html → Bool) : Bool :=
@@ -133,9 +140,14 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
   let glyphHtml : Verso.Output.Html :=
     .tag "span" #[("class", s!"bp_status_glyph bp_status_glyph_{glyph.modifier}"),
       ("title", statusText), ("aria-hidden", "true")] (.text true glyph.glyph)
+  let egoHtml : Verso.Output.Html :=
+    .tag "a" #[("class", "bp_node_view_ego"), ("href", egoHref v.label),
+      ("data-bp-ego-link", v.label),
+      ("title", "Show what this node uses and what uses it in the dependency graph")]
+      (.text true "Neighbourhood")
   let header := {{
     <div class="bp_node_view_header">
-      {{titleHtml}}{{glyphHtml}}<span class="bp_node_view_status">{{statusText}}</span>
+      {{titleHtml}}{{glyphHtml}}<span class="bp_node_view_status">{{statusText}}</span>{{egoHtml}}
     </div>}}
   let proof := v.proof?.bind fun h => if isBlank h then none else some h
   let informal := if v.hasInformal isBlank then v.informal?.map fun h =>

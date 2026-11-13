@@ -38,6 +38,17 @@ a.bp_node_view_title:hover {
   color: var(--bp-color-text-faint);
 }
 
+.bp_node_view_ego {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--bp-color-link, #1d4ed8);
+  text-decoration: none;
+}
+
+.bp_node_view_ego:hover {
+  text-decoration: underline;
+}
+
 .bp_node_view .bp_node_view_body {
   margin: 0;
 }
@@ -153,4 +164,9 @@ a.bp_node_view_link:hover {
 
 .bp_node_view_proof[open] > summary::after {
   content: " [hide]";
+}
+
+/* A node view has its own neighbourhood link; a declaration card's is not repeated there. */
+.bp_node_view .bp_external_decl_ego {
+  display: none;
 }

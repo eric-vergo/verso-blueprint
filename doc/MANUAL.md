@@ -1584,6 +1584,32 @@ The command-side options and the runtime graph controls are compatible:
 Group metadata may be used to organize the presentation, but grouping does not
 change dependency edges.
 
+#### Neighbourhood (ego) view
+
+On a large graph a reader can look at one node's surroundings instead of the
+whole graph: the *ego view* of a node shows the node, the nodes it uses and the
+nodes that use it, up to a number of hops (1 to 3) chosen beside the view
+selector. It is cut from the full view's DOT and laid out in the page, so it
+keeps every node's and edge's styling; the centre node is outlined. The page
+URL names it (`#ego=<label>&k=<hops>`, the label percent-encoded), so a link or
+a reload opens it again; a node view's *Neighbourhood* link opens its node's ego
+view, and so do the declaration cards of a site generated from compiled code.
+
+#### Layout at build time
+
+A graph block may name a Graphviz `dot` program (`GraphBlockData.layoutProgram`;
+`vbp code-site` uses `dot` when one is on the `PATH`). Every view is then laid
+out once while the site is built (`dot -Tdot`, `Informal.GraphLayout`), and the
+layouts travel beside the graph data as raw text, one element per view
+(`<script type="text/vnd.graphviz" class="bp-graph-layout" data-variant="<key>">`);
+the page draws a laid-out view with Graphviz's `nop2` engine, without a layout
+pass, and reads only the view it shows. The view shown first is also drawn as
+SVG at build time (`svg.bp_graph_prerendered`), so it is on screen as soon as
+the page is parsed; it is replaced by the interactive graph once that is drawn.
+Views with more than 6,000 nodes, layouts that do not finish within two
+minutes, other directions or packing chosen by the reader, and ego views are
+laid out in the page as before.
+
 #### Node views
 
 In pinned mode, clicking a node opens its *node view* in the graph's panel,
@@ -2437,7 +2463,8 @@ without changing the project and without loading its environment.
 
 ```
 lake exe vbp code-site --data code.json --root <project> [--output <dir>]
-    [--title <text>] [--no-stats-page] [--reproducible] [--verbose]
+    [--title <text>] [--graphviz <program> | --no-graph-layout] [--no-comparator]
+    [--no-stats-page] [--reproducible] [--verbose]
 ```
 
 The data (`doc/schemas/code-site.schema.json`, format tag
@@ -2448,22 +2475,41 @@ range, proof status (`proved`, `sorry-here`, `depends-on-sorry`, `axiom`,
 of the project it uses in its statement or only in its proof. Any tool that can
 read a build can write it, for example by importing the project's modules with
 `importModules` and walking each constant's type and value. Unbuilt and skipped
-modules may be listed; the front page names them.
+modules may be listed; the front page names them. Optionally, each declaration
+lists the constants its source mentions and where (`occurrences`, as a
+module's `.ilean` file records them), and the data gives, once per constant,
+the hover a reader sees on it (`hovers`: its printed signature and docstring).
 
 The site is an ordinary Blueprint site:
 
-- one chapter per module, with a node per declaration: theorems are theorems,
-  everything else is a definition, numbered by chapter. A node has no informal
-  statement, so its card and its node view show the Lean side alone: the
-  signature, the docstring, the source excerpt read from `--root`, the status
-  and the axioms;
-- the dependency graph, with one group per module; above 300 declarations it
-  opens on the group view (`GraphBlockData.initialView`);
+- one chapter per module, starting with the module's docstrings (`/-! … -/`,
+  read from its source as Markdown), with a node per declaration: theorems are
+  theorems, everything else is a definition, numbered by chapter. A node has no
+  informal statement, so its card and its node view show the Lean side alone,
+  as an API entry: the signature and the source excerpt read from `--root`,
+  highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
+  the data's occurrences for the constants, with their hovers), the docstring
+  rendered as Markdown (raw HTML shown as text, link targets other than web,
+  mail and site-relative ones dropped), where it is defined (a link to the file
+  on GitHub when `--root` is a GitHub checkout), a link to its neighbourhood in
+  the dependency graph, the status and the axioms;
+- the search box finds declarations by name (as Lean constant documentation),
+  modules by name and docstring text (`Block.declSearch`);
+- the dependency graph, with one group per module, laid out at build time when
+  Graphviz is available; above 300 declarations it opens on the group view
+  (`GraphBlockData.initialView`);
 - the summary page and the Project Stats page (the files, identity and
-  Comparator challenge of `--root`). The headline card needs the solution's
-  environment, which the generator does not load: a challenge is shown as not
-  compared;
+  Comparator challenge of `--root`). When the project has a challenge, its
+  solution module and the challenge's imports are imported from the project's
+  build (`--root`'s `.lake` directories, with the Lean installation that
+  `LEAN_SYSROOT` names or `lean` on the `PATH` finds) and the headline is
+  compared as on a Blueprint site; when that is not possible the card says why.
+  Without a challenge there is no card;
 - the left navigation bar and the side-by-side card style.
+
+What highlighting from data cannot give, compared with a Blueprint's
+elaborated sources: local variables' types, hovers on notation and tactics,
+tactic states and messages.
 
 Nothing is inferred beyond the data: a use is an edge only when both
 declarations are in it, and a `sorry` of a declaration's own is shown as a gap

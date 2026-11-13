@@ -100,8 +100,9 @@ def fixtureState : Environment.State :=
 #eval
   match (fixtureState.data.find? `Demo.double).bind (·.externalRefs[0]?) |>.map (·.render) with
   | some (.ok r) =>
-    hasSubstr r.html "def Demo.double (n : Nat) : Nat" && hasSubstr r.html "Twice" &&
-      hasSubstr r.html "def double (n : Nat) : Nat :=" && hasSubstr r.html "Demo/Basic.lean:3"
+    hasSubstr r.html ">Demo.double</span>" && hasSubstr r.html "Twice" &&
+      hasSubstr r.html "bp_plain_decl_source" && hasSubstr r.html ">double</span>" &&
+      hasSubstr r.html "Demo/Basic.lean:3"
   | _ => false
 
 def isNodeBlock : Verso.Doc.Block Verso.Genre.Manual → Bool
