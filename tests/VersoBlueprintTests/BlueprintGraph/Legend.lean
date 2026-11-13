@@ -55,7 +55,7 @@ def groupLegend : Array LegendGroup := groupGraphLegendGroups
       match item.swatch? with
       | none => false
       | some swatch =>
-        swatch.background == proofBackgroundIncompleteColor &&
+        swatch.background == Informal.StatusColors.incomplete.cssVarOr &&
         proofStatusIncompleteText == "Lean code incomplete" &&
         graphLegendGroupViewNote.length > 0
 

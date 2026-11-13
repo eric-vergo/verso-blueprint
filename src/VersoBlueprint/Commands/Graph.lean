@@ -74,7 +74,7 @@ def parseGraphPreviewPlacement? (s : String) : Option Informal.HoverRender.Previ
 -- Keep this module rebuilt when the embedded graph assets change.
 -- This module owns the embedded graph CSS/JS boundary, so adjacent edits here
 -- should land whenever graph runtime assets are intentionally refreshed.
-def graphCss := include_str "graph.css"
+def graphCss := (include_str "graph.css") ++ Informal.Graph.graphStatusCss
 
 def fallbackGraphControlId (id : Verso.Multi.InternalId) (suffix : String) : String :=
   s!"{Informal.HtmlId.prefixed "bp-graph" (toString id)}{suffix}"
