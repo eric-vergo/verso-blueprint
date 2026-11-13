@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "project-stats.schema.json",
   "title": "Blueprint project statistics",
-  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 1. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
+  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 2. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
-    "progress", "chapters", "graph", "trust", "headline"],
+    "progress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -154,12 +154,117 @@
       }
     },
     "headline": {
-      "description": "The project's headline result when one is selected; its shape belongs to the rule that selects it.",
-      "type": ["object", "null"]
+      "description": "The project's headline result: the theorems its Comparator challenge states, compared with the solution. Null when the project has no Comparator challenge.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/headline" }]
+    },
+    "hasComparatorChallenge": {
+      "description": "Whether the project has a Comparator challenge: comparator.json at the root, or the source of Comparator.Challenge. Without one a page can say that a challenge would add a headline.",
+      "type": "boolean"
     }
   },
   "$defs": {
     "count": { "type": "integer", "minimum": 0 },
+    "correspondence": {
+      "description": "How a declaration of the challenge compares with the solution's declaration of the same name: the same (for a theorem the same statement, for anything else the same declaration including its value, and the same for every declaration of the challenge its statement uses), a definition hole whose value the solution supplies, differs, missing from the solution, or not compared (headline.unavailable says why).",
+      "enum": ["same", "hole", "differs", "missing", "notCompared"]
+    },
+    "headline": {
+      "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
+      "type": "object",
+      "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
+        "permittedAxioms", "unavailable", "unavailableDetail", "theorems", "definitions"],
+      "additionalProperties": false,
+      "properties": {
+        "challengeModule": { "$ref": "#/$defs/name" },
+        "solutionModule": { "$ref": "#/$defs/name" },
+        "challengeFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
+        "solutionFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
+        "config": {
+          "description": "comparator.json when the challenge is configured by it; null for the default modules.",
+          "$ref": "#/$defs/nullableString"
+        },
+        "permittedAxioms": {
+          "description": "The axioms the challenge permits, when it states them.",
+          "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
+        },
+        "unavailable": {
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source, or is unreadable; the environment of the site lacks the solution module or a module the challenge imports. Null when the comparison was made.",
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate",
+                "challengeUnreadable", "solutionNotImported", "importsNotAvailable"] }
+          ]
+        },
+        "unavailableDetail": {
+          "description": "The module, file or error message behind unavailable.",
+          "$ref": "#/$defs/nullableString"
+        },
+        "theorems": {
+          "description": "The theorems judged (theorem_names, or every theorem of the challenge), in source order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "docstring", "statement", "solution", "differingDeclaration",
+              "difference", "sorryFree", "axioms", "axiomsPermitted", "proved", "node"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/name" },
+              "docstring": {
+                "description": "The challenge's docstring, as written without its delimiters.",
+                "$ref": "#/$defs/nullableString"
+              },
+              "statement": {
+                "description": "The statement as written in the challenge, from its keyword to the end of the signature; empty without the source.",
+                "type": "string"
+              },
+              "solution": { "$ref": "#/$defs/correspondence" },
+              "differingDeclaration": {
+                "description": "When solution is differs: the first declaration found to differ, the theorem itself or a declaration of the challenge its statement uses.",
+                "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+              },
+              "difference": {
+                "description": "When solution is differs: how, in a few words.",
+                "$ref": "#/$defs/nullableString"
+              },
+              "sorryFree": {
+                "description": "Whether the solution's declaration is free of sorry, directly or through what it uses; null when the solution has none.",
+                "type": ["boolean", "null"]
+              },
+              "axioms": {
+                "description": "The axioms the solution's declaration depends on: sorryAx first, then other axioms, compiled-code axioms, the standard three.",
+                "type": "array",
+                "items": { "$ref": "#/$defs/name" }
+              },
+              "axiomsPermitted": {
+                "description": "Whether every axiom is in permittedAxioms; null without a list.",
+                "type": ["boolean", "null"]
+              },
+              "proved": {
+                "description": "The same statement, proved without sorry.",
+                "type": "boolean"
+              },
+              "node": {
+                "description": "The Blueprint node whose Lean declarations include the theorem.",
+                "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+              }
+            }
+          }
+        },
+        "definitions": {
+          "description": "The other declarations the challenge introduces, in source order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "solution"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/name" },
+              "solution": { "$ref": "#/$defs/correspondence" }
+            }
+          }
+        }
+      }
+    },
     "name": { "description": "A Lean name as Lean prints it, with « » around components that need them.", "type": "string" },
     "path": { "type": "string", "pattern": "^[^/]" },
     "sortedPaths": { "type": "array", "items": { "type": "string", "pattern": "^[^/]" } },

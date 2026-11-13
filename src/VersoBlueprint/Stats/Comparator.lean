@@ -523,4 +523,12 @@ def Headline.capture (root : System.FilePath) (layout : WorkspaceLayout) :
       ((← IO.getEnv "LEAN_PATH").map System.SearchPath.parse |>.getD [])
     some <$> Headline.compute config root layout libraryPath
 
+/-- The statistics with the headline of the project's Comparator challenge, looked for in the
+workspace's source directories. -/
+def ProjectStats.withHeadline (stats : ProjectStats) : CoreM ProjectStats := do
+  let root ← projectRoot
+  let layout ← WorkspaceLayout.current root
+  let headline ← Headline.capture root layout
+  return { stats with headline, hasComparatorChallenge := headline.isSome }
+
 end Informal.Stats

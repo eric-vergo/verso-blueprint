@@ -233,6 +233,19 @@ info: [none,
   let broken ← ChallengeConfig.find? root #["."]
   return [summary none₁, summary byDefault, summary configured, summary broken]
 
+-- A project without a challenge has no headline, and says so.
+/-- info: (none, false) -/
+#guard_msgs in
+#eval show CoreM _ from do
+  let cwd ← IO.currentDir
+  withScratch fun root => do
+    IO.Process.setCurrentDir root
+    try
+      let stats ← ({} : ProjectStats).withHeadline
+      return (stats.headline.map (·.challengeModule), stats.hasComparatorChallenge)
+    finally
+      IO.Process.setCurrentDir cwd
+
 -- Statements end at the first `:=`, `where` or line-initial `|` outside brackets, comments and
 -- strings; a `:=` of a `let` or `have` inside the statement does not end it.
 private def statementOf (text : String) (name : String) : String :=

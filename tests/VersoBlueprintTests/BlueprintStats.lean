@@ -198,7 +198,7 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
     stats.layout.sourceDirs.contains "tests" && stats.layout.sourceDirs.contains "src"
 
 -- JSON round trip, and the schema version.
-/-- info: (true, 1) -/
+/-- info: (true, 2) -/
 #guard_msgs in
 #eval
   match fromJson? (α := ProjectStats) (toJson stats) with
@@ -330,6 +330,8 @@ private def resolveRef (root s : Json) : Json :=
 /-- Check that every object of `v` has exactly the `required` fields of its schema `s`. -/
 private partial def schemaFieldsAgree (root s v : Json) (at_ : String := "") : Except String Unit := do
   let s := resolveRef root s
+  if (s.getObjValAs? String "type").toOption == some "null" && !(v matches .null) then
+    throw s!"{at_}: not null"
   if let .ok (.arr alternatives) := s.getObjVal? "oneOf" then
     if alternatives.any (fun alt => (schemaFieldsAgree root alt v at_).toBool) then return
     throw s!"{at_}: no alternative fits"
@@ -358,7 +360,11 @@ private partial def schemaFieldsAgree (root s v : Json) (at_ : String := "") : E
   let sample := stats.withChapters #[graphNode "a" (some "/One/#a") .ready]
   let sample := { sample with
     identity := { sample.identity with license := some { file := "LICENSE", spdx := some "MIT" } }
-    trust := { sample.trust with missingDeclarations := #[{ label := `l, declaration := `d }] } }
+    trust := { sample.trust with missingDeclarations := #[{ label := `l, declaration := `d }] }
+    headline := some {
+      challengeModule := `C, solutionModule := `S, theorems := #[{ name := `t, node := some `n }]
+      definitions := #[{ name := `d, solution := .same }] }
+    hasComparatorChallenge := true }
   let version := (schema.getObjVal? "properties" >>= (·.getObjVal? "schemaVersion") >>=
     (·.getObjValAs? Nat "const")).toOption
   let agree := (schemaFieldsAgree schema schema (toJson sample)).toBool &&

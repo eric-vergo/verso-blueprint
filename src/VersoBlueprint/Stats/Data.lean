@@ -23,7 +23,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 1
+def projectStatsSchemaVersion : Nat := 2
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -293,9 +293,11 @@ structure ProjectStats where
   chapters : Array ChapterProgress := #[]
   graph : GraphSize := {}
   trust : TrustLedger := {}
-  /-- The project's headline result, when one is selected; its shape belongs to the rule
-  that selects it. -/
-  headline : Option Json := none
+  /-- The project's headline result: its Comparator challenge, when it has one. -/
+  headline : Option Headline := none
+  /-- Whether the project has a Comparator challenge. Pages use it to say, without one, that a
+  challenge would add a headline. -/
+  hasComparatorChallenge : Bool := false
 deriving Inhabited, ToJson, FromJson
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give
