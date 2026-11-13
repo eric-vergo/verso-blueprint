@@ -118,6 +118,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintBlockFolding,
     `VersoBlueprintTests.BlueprintCodeRenderMatrix,
     `VersoBlueprintTests.BlueprintCodeSite,
+    `VersoBlueprintTests.BlueprintCodeSiteApi,
     `VersoBlueprintTests.BlueprintDarkTheme,
     `VersoBlueprintTests.BlueprintDocstringReferences,
     `VersoBlueprintTests.BlueprintImportedDuplicates.Direct,
