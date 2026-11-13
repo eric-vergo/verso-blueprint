@@ -184,11 +184,12 @@ structure Mark where
   name : Name
   isDef : Bool
 
-/-- The token of a constant: its signature and docstring when the data has them. -/
+/-- The token of a constant, with its signature and docstring; plain when the data has no hover
+for it (an empty hover would show nothing). -/
 def constToken (hovers : NameMap Hover) (m : Mark) (text : String) : Highlighted :=
   match hovers.find? m.name with
   | some h => .token ⟨.const m.name h.signature h.doc m.isDef none, text⟩
-  | none => .token ⟨.const m.name "" none m.isDef none, text⟩
+  | none => .token ⟨.unknown, text⟩
 
 /-- An identifier lexeme with the occurrences inside it: the parts before, at and after each
 occurrence. -/
