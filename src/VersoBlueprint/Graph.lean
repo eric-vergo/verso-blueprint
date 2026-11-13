@@ -225,10 +225,6 @@ structure GraphRenderVariant where
   hoverOnNodeId : Array (String × String) := #[]
   /-- Node ids that open manifest/cache-backed previews; nodes without such previews are omitted. -/
   previewKeyByNodeId : Array (String × String) := #[]
-  /-- The DOT source laid out ahead of time for `options` (Graphviz's `-Tdot` output: `dot`
-  with every position computed). A renderer draws it without a layout pass; with other options
-  it lays out `dot` itself. -/
-  layout : Option String := none
 deriving Inhabited, Repr, BEq, ToJson, FromJson, Quote
 
 /-- Direction order used by the bundled graph controls. -/
@@ -1663,16 +1659,6 @@ def GraphData.filterPreviewReferences
       }
   }
 
-/--
-Attach layouts computed ahead of time: `layouts` maps variant keys to laid-out DOT (see
-`GraphRenderVariant.layout`). Topology and the variants' own DOT stay unchanged.
--/
-def GraphData.withLayouts (data : GraphData) (layouts : Array (String × String)) : GraphData :=
-  { data with variants := data.variants.map fun variant =>
-      match layouts.find? (·.1 == variant.key) with
-      | some (_, layout) => { variant with layout := some layout }
-      | none => variant }
-
 private structure GraphDataJson where
   schemaVersion : Nat
   key : String
@@ -1709,7 +1695,7 @@ instance : FromJson GraphData where
       throw "finalized graph edges disagree with node dependencies"
     if decoded.groups != expected.groups then
       throw "finalized graph group children disagree with node parents"
-    if decoded.variants.map ({ · with layout := none }) != expected.variants then
+    if decoded.variants != expected.variants then
       throw "finalized graph variants disagree with node topology or preview references"
     pure {
       schemaVersion := decoded.schemaVersion

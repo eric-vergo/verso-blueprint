@@ -12,9 +12,10 @@ Graph layout at build time.
 The dependency graph's page lays out each view in the browser (Graphviz compiled to WebAssembly)
 when it is first shown, which on a graph of a few thousand nodes keeps the page busy for seconds.
 A generator that has Graphviz's `dot` program can instead lay every view out once, while the site
-is built: `layoutVariants` runs `dot -Tdot` on each variant's DOT source and records the result as
-the variant's `layout` (the same graph with every position filled in). The page then draws a laid
-out view with Graphviz's `nop2` engine, which only renders the given positions.
+is built: `layoutVariants` runs `dot -Tdot` on each variant's DOT source, giving the same graph
+with every position filled in. The graph block puts each layout beside the graph data as raw text
+(`<script type="text/vnd.graphviz" class="bp-graph-layout" data-variant="<key>">`), and the page
+draws a laid-out view with Graphviz's `nop2` engine, which only renders the given positions.
 
 A layout is attached only for the variant's own options; a reader who changes the direction or
 the packing gets the browser's layout as before. A variant that is too large or whose layout does
@@ -69,9 +70,26 @@ def layoutDot (cfg : Config) (dot : String) : IO (Except String String) := do
       code? ← child.tryWait
     let code := code?.getD 1
     let text ← IO.ofExcept (← IO.wait out)
+    -- the layout is written into the page as a script element's raw text
+    if (text.toLower.splitOn "</script").length > 1 then
+      return .error "the layout contains `</script`"
     if code == 0 && !text.isEmpty then return .ok text
     let msg := (← IO.ofExcept (← IO.wait err)).trimAscii.toString
     return .error s!"exit code {code}{if msg.isEmpty then "" else ": " ++ msg}"
+
+/-- Draw a laid-out DOT source (`layoutDot`'s output) as SVG with `program -Knop2 -Tsvg`, which
+renders the given positions: the `<svg>` element, or why not. A page shows it before its scripts
+have drawn the interactive graph. -/
+def prerender (cfg : Config) (layout : String) : IO (Except String String) := do
+  IO.FS.withTempFile fun h input => do
+    h.putStr layout
+    h.flush
+    let out ← IO.Process.output {
+      cmd := cfg.program, args := #["-Knop2", "-Tsvg", input.toString], stdin := .null }
+    if out.exitCode != 0 then return .error s!"exit code {out.exitCode}: {out.stderr.trimAscii}"
+    match out.stdout.splitOn "<svg" with
+    | _ :: rest@(_ :: _) => return .ok ("<svg" ++ "<svg".intercalate rest)
+    | _ => return .error "no <svg> element in the output"
 
 /-- Lay out every variant of `variants` that is small enough: the layouts by variant key, and a
 message for each variant left to the browser. -/

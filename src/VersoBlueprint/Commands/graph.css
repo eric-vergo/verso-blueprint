@@ -28,27 +28,44 @@
   overflow: hidden;
 }
 
+/* The first view as drawn while the site was built (`graph.mjs`), shown until the interactive
+   graph is drawn: fitted into the canvas, then in an overlay over it. */
+.bp_graph_canvas > svg.bp_graph_prerendered,
+.bp_graph_prerender_overlay > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 24rem;
+}
+
+.bp_graph_prerender_overlay {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* Graphviz bakes its default colours into the SVG; route them through theme tokens. */
-.bp_graph_canvas svg g.graph > polygon {
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.graph > polygon {
   fill: var(--bp-color-graph-bg);
 }
 
-.bp_graph_canvas svg g.edge path {
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge path {
   stroke: var(--bp-color-graph-edge);
 }
 
-.bp_graph_canvas svg g.edge polygon {
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge polygon {
   stroke: var(--bp-color-graph-edge);
   fill: var(--bp-color-graph-edge);
 }
 
-.bp_graph_canvas svg g.cluster polygon,
-.bp_graph_canvas svg g.cluster path {
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster polygon,
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster path {
   stroke: var(--bp-color-graph-cluster);
 }
 
-.bp_graph_canvas svg g.cluster text,
-.bp_graph_canvas svg g.edge text {
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster text,
+:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge text {
   fill: var(--bp-color-graph-label);
 }
 

@@ -49,16 +49,45 @@ function dotForVariantOptions(variant, options) {
   return dotWithGraphOptions(variant.dot, options);
 }
 
-// A variant laid out while the site was built carries its positions (`layout`, for the
-// variant's own options): Graphviz's `nop2` engine draws them without a layout pass. Other
-// options are laid out in the page from the variant's DOT.
-function renderSourceForVariant(variant, options) {
+// A view laid out while the site was built has its positions beside the graph data
+// (`script.bp-graph-layout[data-variant]`, for the variant's own options): Graphviz's `nop2`
+// engine draws them without a layout pass. Other options are laid out in the page from the
+// variant's DOT.
+function variantLayout(graphBlock, variant) {
+  if (!(graphBlock instanceof Element) || !variant) return "";
+  const scripts = graphBlock.querySelectorAll("script.bp-graph-layout");
+  for (const script of scripts) {
+    if (script.getAttribute("data-variant") === variant.key) return script.textContent || "";
+  }
+  return "";
+}
+
+// The first view drawn while the site was built (`svg.bp_graph_prerendered` in the canvas) is
+// shown from the moment the page is parsed. Before the renderer draws the interactive graph into
+// the canvas, the drawing moves to an overlay over the canvas (the renderer would otherwise take
+// it for its own); the overlay is removed once the interactive graph is drawn.
+function liftPrerenderedGraph(graphRoot) {
+  if (!(graphRoot instanceof Element)) return null;
+  const drawing = graphRoot.querySelector(":scope > svg.bp_graph_prerendered");
+  if (!drawing || !graphRoot.parentNode) return null;
+  const overlay = document.createElement("div");
+  overlay.className = "bp_graph_prerender_overlay";
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.left = graphRoot.offsetLeft + "px";
+  overlay.style.top = graphRoot.offsetTop + "px";
+  overlay.style.width = graphRoot.offsetWidth + "px";
+  overlay.style.height = graphRoot.offsetHeight + "px";
+  graphRoot.parentNode.insertBefore(overlay, graphRoot.nextSibling);
+  overlay.appendChild(drawing);
+  setTimeout(function () { overlay.remove(); }, 10000);
+  return overlay;
+}
+
+function renderSourceForVariant(graphBlock, variant, options) {
   if (!variant || typeof variant !== "object") return { engine: "dot", dot: "" };
-  if (
-    typeof variant.layout === "string" && variant.layout.length > 0 &&
-    graphOptionsKey(normalizeGraphOptions(options)) === graphOptionsKey(normalizeGraphOptions(variant.options))
-  ) {
-    return { engine: "nop2", dot: variant.layout };
+  if (graphOptionsKey(normalizeGraphOptions(options)) === graphOptionsKey(normalizeGraphOptions(variant.options))) {
+    const layout = variantLayout(graphBlock, variant).trim();
+    if (layout.length > 0) return { engine: "nop2", dot: layout };
   }
   return { engine: "dot", dot: dotForVariantOptions(variant, options) };
 }
@@ -740,7 +769,6 @@ export function egoVariant(fullVariant, graphData, label, k) {
     key: egoVariantKey,
     label: "Neighbourhood of " + shown + " (" + k + (k === 1 ? " hop)" : " hops)"),
     dot: lines.join("\n"),
-    layout: "",
     options: fullVariant.options,
     selectOnNodeId: [],
     hoverOnNodeId: [],
@@ -1010,7 +1038,6 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           key: variant.key,
           label: variant.label,
           dot: variant.dot,
-          layout: typeof variant.layout === "string" ? variant.layout : "",
           options: normalizeGraphOptions(variant.options),
           selectOnNodeId: variant.selectOnNodeId,
           hoverOnNodeId: variant.hoverOnNodeId,
@@ -1111,7 +1138,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           if (!groupHoverGraphviz) {
             groupHoverGraphviz = container.graphviz().fit(true);
           }
-          const source = renderSourceForVariant(variant, getActiveOptions());
+          const source = renderSourceForVariant(graphBlock, variant, getActiveOptions());
           groupHoverGraphviz
             .engine(source.engine)
             .width(width)
@@ -1323,7 +1350,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         const activeVariant = getActiveVariant();
         const options = getActiveOptions();
         const optionsKey = graphOptionsKey(options);
-        const source = renderSourceForVariant(activeVariant, options);
+        const source = renderSourceForVariant(graphBlock, activeVariant, options);
         const dot = source.dot;
         if (!activeVariant || !dot) return;
         graphState.renderToken += 1;
@@ -1379,6 +1406,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         graphRoot.setAttribute("data-bp-active-direction", options.direction);
         graphRoot.setAttribute("data-bp-active-pack", graphPackAttr(options.pack));
         graphRoot.setAttribute("data-bp-graph-layout-source", source.engine === "nop2" ? "build" : "page");
+        const prerendered = liftPrerenderedGraph(graphRoot);
         gv
           .engine(source.engine)
           .zoom(true)
@@ -1386,6 +1414,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           .height(height)
           .fit(true)
           .on("end", function () {
+            if (prerendered) prerendered.remove();
             finalizeRender();
             if (graphState.renderToken === renderToken) {
               applyReadableGraphZoom(graphRoot, gv, options.direction);
