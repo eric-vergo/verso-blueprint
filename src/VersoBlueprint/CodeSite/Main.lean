@@ -1,0 +1,98 @@
+/-
+Copyright (c) 2026 Lean FRO LLC. All rights reserved.
+Released under Apache 2.0 license as described in the file LICENSE.
+Author: Eric Vergo
+-/
+
+import VersoBlueprint
+import VersoBlueprint.CodeSite.Build
+import VersoBlueprint.PreviewManifest
+
+/-!
+`vbp code-site`: generate a Blueprint site from compiled-code data (`Informal.CodeSite.Project`).
+
+```
+vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>]
+              [--no-stats-page] [--reproducible] [--verbose]
+```
+
+`--root` is the project the data describes (default: the working directory): the source
+excerpts and the Project Stats page read its files. The site is written as a generator writes
+it (`<output>/html-multi`, default `_out/site`), with the left navigation bar and side-by-side
+node cards.
+-/
+
+namespace Informal.CodeSite
+
+open Lean System
+
+/-- Options of `vbp code-site`. -/
+structure Options where
+  data : Option FilePath := none
+  root : Option FilePath := none
+  title : Option String := none
+  /-- Everything else, passed on to the generator (`--output`, `--no-stats-page`, …). -/
+  rest : Array String := #[]
+deriving Inhabited
+
+/-- The usage line. -/
+def usage : String :=
+  "vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>] " ++
+  "[--no-stats-page] [--reproducible] [--verbose]"
+
+/-- Parse the command line. -/
+partial def parseOptions : List String → Options → Except String Options
+  | [], opts => .ok opts
+  | "--data" :: file :: args, opts => parseOptions args { opts with data := some file }
+  | "--root" :: dir :: args, opts => parseOptions args { opts with root := some dir }
+  | "--title" :: text :: args, opts => parseOptions args { opts with title := some text }
+  | "--output" :: dir :: args, opts =>
+    parseOptions args { opts with rest := opts.rest ++ #["--output", dir] }
+  | flag :: args, opts =>
+    if flag ∈ ["--data", "--root", "--title", "--output"] then .error s!"missing value after {flag}"
+    else if flag ∈ [Informal.Commands.noStatsPageFlag, Informal.PreviewManifest.reproducibleFlag,
+        "--verbose"] then
+      parseOptions args { opts with rest := opts.rest.push flag }
+    else .error s!"unknown code-site option '{flag}'"
+
+/-- Read the data and each module's source file under `root`. -/
+def load (data root : FilePath) : IO (Project × Std.HashMap Lean.Name String) := do
+  let project ← match Project.parse (← IO.FS.readFile data) with
+    | .ok p => pure p
+    | .error e => throw <| IO.userError s!"{data}: {e}"
+  let mut sources : Std.HashMap Lean.Name String := {}
+  for m in project.modules do
+    unless m.source.isEmpty do
+      if let some text ← (try some <$> IO.FS.readFile (root / m.source) catch _ => pure none) then
+        sources := sources.insert m.module text
+  return (project, sources)
+
+/-- Generate the site of the data at `data` for the project at `root`; `args` are the
+generator's own flags. -/
+def generate (data root : FilePath) (title? : Option String) (args : List String) : IO UInt32 := do
+  let root ← try IO.FS.realPath root catch _ => pure root
+  let (project, sources) ← load data root
+  let project := { project with title := title? <|> project.title }
+  let state := stateOf project sources.get?
+  let model ← modelOf root project state
+  let title := titleOf root project model.stats.identity
+  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project) args
+    (extensionImpls := by exact extension_impls%) (model := model)
+    -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
+    (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
+    (sidebar? := some { homeLabel := "Home" })
+
+/-- `vbp code-site` (see the module docstring). -/
+def main (args : List String) : IO UInt32 := do
+  match args with
+  | ["--help"] | ["-h"] => IO.println usage; return 0
+  | _ =>
+  match parseOptions args {} with
+  | .error e => IO.eprintln e; IO.eprintln usage; return 2
+  | .ok { data := none, .. } => IO.eprintln "missing --data <file>"; IO.eprintln usage; return 2
+  | .ok { data := some data, root, title, rest } =>
+    let root := root.getD (← IO.currentDir)
+    try generate data root title rest.toList
+    catch e => IO.eprintln s!"vbp code-site: {e}"; return 1
+
+end Informal.CodeSite

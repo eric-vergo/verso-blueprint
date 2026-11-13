@@ -25,6 +25,7 @@ If you are starting a first project, read
 - [Reusing Blueprint Nodes and Previews](#reusing-blueprint-nodes-and-previews)
 - [Blueprint APIs](#blueprint-apis)
 - [The Generator Entry Point](#the-generator-entry-point)
+- [Sites from Compiled Code](#sites-from-compiled-code)
 - [Blueprint Options](#blueprint-options)
 - [Experimental Widget](#experimental-widget)
 - [Current Limits](#current-limits)
@@ -1978,7 +1979,8 @@ should go; the generator then does not add a second one:
 
 To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
 `blueprintMainWithPreviewData`, or run the generator with the flag
-`--no-stats-page`. TeX and PDF output never get the page.
+`--no-stats-page` (`lake exe vbp build --no-stats-page` hands it on). TeX and
+PDF output never get the page.
 
 ### Bibliography page
 
@@ -2426,6 +2428,46 @@ renders a pointer to the HTML output, and `Not in PDF` is absent from
 | Browser preview runtime, relation panels, and interactive controls | Supported in generated HTML | Not in PDF | Not available in PDF |
 | Preview manifest, HTML cache, and JavaScript APIs | Emitted for generated-data and browser consumers | Not in PDF | Not embedded in `main.pdf`; still emitted alongside HTML unless those outputs are disabled |
 | Slides and other generator-side consumers | Supported through their own HTML/data render paths | Not in PDF | Not part of the `--pdf` output path |
+
+## Sites from Compiled Code
+
+A project without a Blueprint can still get a Blueprint site: `vbp code-site`
+generates one from data about its compiled code, without a Blueprint package,
+without changing the project and without loading its environment.
+
+```
+lake exe vbp code-site --data code.json --root <project> [--output <dir>]
+    [--title <text>] [--no-stats-page] [--reproducible] [--verbose]
+```
+
+The data (`doc/schemas/code-site.schema.json`, format tag
+`verso-blueprint-code-1`) lists the project's modules and, for each, its
+declarations in source order: name, kind, printed signature, docstring, source
+range, proof status (`proved`, `sorry-here`, `depends-on-sorry`, `axiom`,
+`opaque` or `unverified`), the axioms it depends on, and the other declarations
+of the project it uses in its statement or only in its proof. Any tool that can
+read a build can write it, for example by importing the project's modules with
+`importModules` and walking each constant's type and value. Unbuilt and skipped
+modules may be listed; the front page names them.
+
+The site is an ordinary Blueprint site:
+
+- one chapter per module, with a node per declaration: theorems are theorems,
+  everything else is a definition, numbered by chapter. A node has no informal
+  statement, so its card and its node view show the Lean side alone: the
+  signature, the docstring, the source excerpt read from `--root`, the status
+  and the axioms;
+- the dependency graph, with one group per module; above 300 declarations it
+  opens on the group view (`GraphBlockData.initialView`);
+- the summary page and the Project Stats page (the files, identity and
+  Comparator challenge of `--root`). The headline card needs the solution's
+  environment, which the generator does not load: a challenge is shown as not
+  compared;
+- the left navigation bar and the side-by-side card style.
+
+Nothing is inferred beyond the data: a use is an edge only when both
+declarations are in it, and a `sorry` of a declaration's own is shown as a gap
+in its proof.
 
 ## Blueprint Options
 

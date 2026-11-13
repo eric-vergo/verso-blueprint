@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "code-site.schema.json",
+  "title": "Blueprint site from compiled code: input",
+  "description": "The input of `vbp code-site` (Informal.CodeSite.Project, src/VersoBlueprint/CodeSite/Data.lean): a project's declarations, module by module, as a tool read them out of its build. Positions are Language Server Protocol positions (0-based lines, UTF-16 columns). Fields other than the required ones may be left out or null.",
+  "type": "object",
+  "required": ["format"],
+  "properties": {
+    "format": { "const": "verso-blueprint-code-1" },
+    "title": { "description": "The site's title (default: the README's first heading, else the Lake package name, else the root folder's name).", "type": ["string", "null"] },
+    "toolchain": { "type": ["string", "null"] },
+    "modules": { "type": "array", "items": { "$ref": "#/$defs/module" } },
+    "unbuilt": { "description": "Source modules without build output.", "type": "array", "items": { "type": "string" } },
+    "skipped": {
+      "description": "Modules left out of the data, with the reason.",
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["module", "reason"],
+        "properties": { "module": { "type": "string" }, "reason": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object", "required": ["line", "character"],
+      "properties": { "line": { "type": "integer", "minimum": 0 }, "character": { "type": "integer", "minimum": 0 } }
+    },
+    "range": {
+      "type": "object", "required": ["start", "end"],
+      "properties": { "start": { "$ref": "#/$defs/position" }, "end": { "$ref": "#/$defs/position" } }
+    },
+    "module": {
+      "type": "object", "required": ["module"],
+      "properties": {
+        "module": { "type": "string" },
+        "source": { "description": "The module's source file relative to the project root ('' when unknown).", "type": "string" },
+        "declarations": { "description": "In source order.", "type": "array", "items": { "$ref": "#/$defs/declaration" } }
+      }
+    },
+    "declaration": {
+      "type": "object", "required": ["name", "kind"],
+      "properties": {
+        "name": { "description": "The constant's name; a private one keeps Lean's _private prefix.", "type": "string" },
+        "display": { "description": "The name as written, when it differs.", "type": ["string", "null"] },
+        "kind": { "enum": ["theorem", "def", "instance", "structure", "class", "inductive", "axiom", "opaque"] },
+        "isPrivate": { "type": "boolean" },
+        "range": { "oneOf": [{ "$ref": "#/$defs/range" }, { "type": "null" }] },
+        "selection": { "oneOf": [{ "$ref": "#/$defs/range" }, { "type": "null" }] },
+        "signature": { "description": "The printed signature, keyword and name included.", "type": "string" },
+        "doc": { "type": ["string", "null"] },
+        "status": { "enum": ["proved", "sorry-here", "depends-on-sorry", "axiom", "opaque", "unverified"] },
+        "axioms": { "type": "array", "items": { "type": "string" } },
+        "attrs": { "type": "array", "items": { "type": "string" } },
+        "uses": {
+          "description": "Declarations of the project it uses: in its type (statement) or only in its value (proof).",
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["name", "kind"],
+            "properties": { "name": { "type": "string" }, "kind": { "enum": ["statement", "proof"] } }
+          }
+        },
+        "external": { "description": "Constants of other packages it uses.", "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
