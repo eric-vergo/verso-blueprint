@@ -1477,6 +1477,20 @@ as well, so the whole page turns dark. A project can override any of these
 variables in its own stylesheet; to change only the dark values, scope the
 override under `html[data-theme="dark"]`.
 
+The status colours form one family, `--bp-color-status-*`, with a light and a
+dark value each (`Informal.StatusColors`): the proof-status fills
+(`not-ready`, `definition`, `ready`, `incomplete`, `formalized`,
+`formalized-with-ancestors`, `unresolved`), the label colours on them
+(`fill-text`, `formalized-with-ancestors-text`, `unresolved-text`) and the
+statement-status borders (`blocked-border`, `ready-border`,
+`formalized-border`, `mathlib-border`, `unresolved-border`). The dependency
+graph paints its nodes from them: Graphviz receives the light values, each node
+carries its status classes (`bp_graph_status_<status>`,
+`bp_graph_statement_<status>`) in the SVG, and the graph stylesheet repaints the
+node from the tokens in the active theme. The graph legend and the summary's
+status cards use the same tokens, so overriding one changes it everywhere.
+Group-overview nodes mix their members' light colours and are not repainted.
+
     (sidebar? := some {
       links := #[
         { label := "Paper [web]", href := "https://arxiv.org/abs/..." },
