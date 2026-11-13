@@ -875,10 +875,15 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       // A generator may name the view shown first (`initialView`, such as the group view
       // of a graph too large to read at once); the full graph otherwise.
       const initialView = graphContainer.attr("data-bp-graph-initial-view") || "";
-      let activeKey = variantsByKey.has(initialView) ? initialView
-        : variantsByKey.has("full") ? "full" : variants[0].key;
+      let activeKey = variantsByKey.has("full") ? "full" : variants[0].key;
       if (selector && variantsByKey.has(selector.value)) {
         activeKey = selector.value;
+      }
+      // The selector starts on its first option: the initial view wins on the first render only,
+      // later renders keep the reader's choice.
+      if (variantsByKey.has(initialView) && graphBlock.getAttribute("data-bp-initial-view-shown") !== "1") {
+        activeKey = initialView;
+        graphBlock.setAttribute("data-bp-initial-view-shown", "1");
       }
       if (selector) selector.value = activeKey;
       let activeOptions = normalizeGraphOptions({
