@@ -2479,14 +2479,25 @@ modules may be listed; the front page names them. Optionally, each declaration
 lists the constants its source mentions and where (`occurrences`, as a
 module's `.ilean` file records them), and the data gives, once per constant,
 the hover a reader sees on it (`hovers`: its printed signature and docstring).
+A declaration may carry an informal statement (`statement`: its `text`, an
+optional `proof` and `title`, and the `source` the producer found it in, such
+as a LaTeX blueprint or a docstring), written as Markdown with TeX math
+between `$…$` and `$$…$$`; `texPrelude` holds TeX definitions (`\newcommand`
+lines) put before every formula of the statements, as a written Blueprint's
+`tex_prelude` is.
 
 The site is an ordinary Blueprint site:
 
 - one chapter per module, starting with the module's docstrings (`/-! … -/`,
   read from its source as Markdown), with a node per declaration: theorems are
-  theorems, everything else is a definition, numbered by chapter. A node has no
-  informal statement, so its card and its node view show the Lean side alone,
-  as an API entry: the signature and the source excerpt read from `--root`,
+  theorems, everything else is a definition, numbered by chapter. A node with a
+  statement in the data shows it as on a written Blueprint: in its chapter card
+  and in the graph's node view, beside the Lean side, its title in bold, its
+  formulas rendered by the page's KaTeX, its proof below it (folded in the node
+  view); the statement's Markdown is read with raw HTML shown as text and link
+  targets other than web, mail and site-relative ones dropped. A node without
+  one shows the Lean side alone. The Lean side is an API entry: the signature
+  and the source excerpt read from `--root`,
   highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
   the data's occurrences for the constants, with their hovers), the docstring
   rendered as Markdown (raw HTML shown as text, link targets other than web,
@@ -2494,7 +2505,8 @@ The site is an ordinary Blueprint site:
   on GitHub when `--root` is a GitHub checkout), a link to its neighbourhood in
   the dependency graph, the status and the axioms;
 - the search box finds declarations by name (as Lean constant documentation),
-  modules by name and docstring text (`Block.declSearch`);
+  modules by name and docstring text, and the text of the statements
+  (`Block.declSearch`);
 - the dependency graph, with one group per module, laid out at build time when
   Graphviz is available; above 300 declarations it opens on the group view
   (`GraphBlockData.initialView`);
