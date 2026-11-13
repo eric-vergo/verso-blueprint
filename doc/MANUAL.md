@@ -1584,7 +1584,21 @@ which widens to hold it:
   width, never an empty column;
 - above, the node's status glyph and status text (where a `sorry` is, an
   axiom-like declaration); below, links to the nodes it uses and the nodes
-  that use it, which switch the panel to that node.
+  that use it, which switch the panel to that node;
+- an *Axioms* row listing the axioms the node's Lean declarations depend on,
+  as `#print axioms` reports them, each with its class: a `sorry`
+  (`sorryAx`), an extra axiom (one the project or a dependency declares) and
+  an axiom that trusts compiled code (the `<declaration>._native.<tactic>.ax_*`
+  axioms `native_decide` and `bv_decide` add) come first, with a short tag,
+  and the standard axioms `propext`, `Classical.choice` and `Quot.sound` last.
+  The row says "none" when the declarations use no axiom, and is left out for
+  a node without Lean declarations.
+
+The axioms are computed when a node is captured, once per declaration name
+and environment (`Informal.Data.declarationAxioms`), and stored with each
+declaration reference (`ExternalRef.axioms`) and with the declarations a
+blueprint defines itself, so they are also in the site manifest's
+`codeData`.
 
 The open view is named in the page URL as `#node=<label>` (the label
 URI-encoded), so a link to `Dependency-Graph/#node=<label>` or a reload opens
