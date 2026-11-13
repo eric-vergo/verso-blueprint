@@ -216,6 +216,8 @@ private partial def filesUnder (root : System.FilePath) : IO (Array System.FileP
   return out.qsort (·.toString < ·.toString)
 
 -- Two `--reproducible` builds of the same document are byte-identical, with relative source paths.
+-- The stats page is left out: it says which modules are compiled, which changes while Lake builds
+-- the other tests.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -224,7 +226,8 @@ private partial def filesUnder (root : System.FilePath) : IO (Array System.FileP
     let build (dir : String) : IO UInt32 :=
       Informal.PreviewManifest.blueprintMainWithPreviewData
         reproducibleDoc.toPart
-        (options := ["--output", (root / dir).toString, "--without-html-single", "--reproducible"])
+        (options := ["--output", (root / dir).toString, "--without-html-single", "--reproducible",
+          Informal.Commands.noStatsPageFlag])
         (extensionImpls := by exact extension_impls%)
     let code1 ← build "a"
     let code2 ← build "b"

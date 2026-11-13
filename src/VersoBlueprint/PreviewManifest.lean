@@ -29,6 +29,7 @@ import VersoBlueprint.Resident
 import VersoBlueprint.RenderingResolution
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Graph
+import VersoBlueprint.Commands.Stats
 import VersoBlueprint.Git
 import VersoBlueprint.Html
 import VersoBlueprint.HtmlDocument
@@ -2900,6 +2901,18 @@ private def emitBlueprintHtml
   for step in extraSteps do
     step prepared
 
+/-- Extract `--no-stats-page`: it turns the automatic Project Stats page off. -/
+def parseStatsPageFlag (statsPage? : Option Informal.Commands.StatsPageData) (args : List String) :
+    Option Informal.Commands.StatsPageData × List String :=
+  let flag := Informal.Commands.noStatsPageFlag
+  ((if args.contains flag then none else statsPage?), args.filter (· != flag))
+
+/-- The stats page's data for a generator: its sidebar links, when it has a sidebar. -/
+def statsPageData? (statsPage : Bool) (sidebar? : Option Informal.Sidebar.Config) :
+    Option Informal.Commands.StatsPageData :=
+  if !statsPage then none
+  else some { links := (sidebar?.map (·.links)).getD #[] |>.map fun l => { label := l.label, href := l.href } }
+
 private def blueprintMainCore (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
@@ -2908,12 +2921,18 @@ private def blueprintMainCore (text : Part Manual)
     (pdfOptions : PdfOptions := {})
     (previewConfig? : Option Informal.ExternalMarkupRender.Config := none)
     (reproducibility : ReproducibilityOptions := {})
-    (sideBySide : Bool := false) : IO UInt32 :=
+    (sideBySide : Bool := false)
+    (statsPage? : Option Informal.Commands.StatsPageData := some {}) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
     let extensionImpls ← read
     let (reproducibility, options) := parseReproducibilityOptions reproducibility options
+    let (statsPage?, options) := parseStatsPageFlag statsPage? options
+    -- The stats page is a page of the HTML site only; TeX and word counts keep the document.
+    let htmlText := match statsPage? with
+      | some data => Informal.Commands.withStatsPage text data
+      | none => text
     let (sideBySideFlag, options) := parseSideBySideFlag options
     let sideBySide := sideBySide || sideBySideFlag
     let config := if sideBySide then withSideBySideDefaultStyle config else config
@@ -2928,8 +2947,10 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg text
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg text
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
+        htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
+        htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -2938,7 +2959,11 @@ where
         Informal.TeX.Pdf.compile pdfOptions cfg.toConfig
     Verso.runWithLogger (action.run extensionImpls)
 
-/-- Generate a document using semantic data captured after all generator imports. -/
+/-- Generate a document using semantic data captured after all generator imports.
+
+The HTML site gets a Project Stats page at the end of its table of contents
+(`Informal.Commands.withStatsPage`); `statsPage := false` or the `--no-stats-page` flag leaves it
+out. -/
 def blueprintMain (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
@@ -2948,7 +2973,8 @@ def blueprintMain (text : Part Manual)
     (model : RenderModel := by exact blueprint_render_model%)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
-    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
+    (sidebar? : Option Informal.Sidebar.Config := none)
+    (statsPage : Bool := true) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
   let model ← model.refreshStats
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
@@ -2957,7 +2983,10 @@ def blueprintMain (text : Part Manual)
     | none => config
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
     (reproducibility := reproducibility) (sideBySide := sideBySide)
+    (statsPage? := statsPageData? statsPage sidebar?)
 
+/-- `blueprintMain` with preview data files and the generator's command-line flags; it adds the
+Project Stats page the same way. -/
 def blueprintMainWithPreviewData
     (text : Part Manual)
     (options : List String)
@@ -2967,7 +2996,8 @@ def blueprintMainWithPreviewData
     (model : RenderModel := by exact blueprint_render_model%)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
-    (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
+    (sidebar? : Option Informal.Sidebar.Config := none)
+    (statsPage : Bool := true) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
   let model ← model.refreshStats
   let extensionImpls := model.withExtensions extensionImpls
@@ -2988,6 +3018,6 @@ def blueprintMainWithPreviewData
   blueprintMainCore text (extensionImpls := extensionImpls) (options := options) (config := config)
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
     (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
-    (sideBySide := sideBySide)
+    (sideBySide := sideBySide) (statsPage? := statsPageData? statsPage sidebar?)
 
 end Informal.PreviewManifest

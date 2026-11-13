@@ -1935,6 +1935,51 @@ This comparison is a summary for readers, not a verdict: `lake comparator`
 remains the authority (it also rechecks the solution with the kernel in a
 sandbox).
 
+### Project Stats page
+
+Every site that `blueprintMain` or `blueprintMainWithPreviewData` generates has
+an unnumbered "Project Stats" page at the end of its table of contents, so it
+is reached from the site's navigation like the summary and the dependency
+graph. It shows the project statistics on one page, in this order:
+
+1. **Identity**: the README's heading (or the document's title) and first
+   paragraph, the license (or "No license file"), the Lean version, the
+   packages the project requires directly with the revision it asked for and
+   the locked commit, and the generator's sidebar links.
+2. **Headline result**: a card per theorem of the Comparator challenge, with
+   its node, its statement and docstring as the challenge writes them, the
+   verdict ("Proved", "Same statement; the proof uses sorry", "Statement
+   differs", "Not in the solution") and the axioms of the solution's proof. A
+   project without a challenge gets one line saying that a challenge would add
+   a headline.
+3. **How far along**: the nodes by progress status as one bar with counts, a
+   legend, a link to the work-queue page when the site has one, and a table
+   with one row per chapter.
+4. **How big**: Lean files, lines (code, comment and blank), declarations by
+   kind, Blueprint nodes by kind, chapters and dependencies.
+5. **Does it build**: how many Lean files the site's build compiled, how many
+   declarations have a `sorry` of their own, and the Lean files on disk that
+   are in no build.
+6. **Trust**: the nodes whose declarations have a `sorry` (their own or through
+   a dependency), use axioms beyond Lean's standard three or trust compiled
+   code (`native_decide`), plus Lean names not found and references to no node.
+
+It ends with a link to the summary page for the detailed breakdown. The page
+is plain HTML and CSS: the bars use the shared status colour tokens, each
+status with its own pattern, and their counts are written out, so colour is
+never the only signal. It needs no script and holds no version-control data.
+
+To place the page elsewhere in the document, write the command where it
+should go; the generator then does not add a second one:
+
+```
+{blueprint_stats}
+```
+
+To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
+`blueprintMainWithPreviewData`, or run the generator with the flag
+`--no-stats-page`. TeX and PDF output never get the page.
+
 ### Bibliography page
 
 `blueprint_bibliography` renders the bibliography entries
