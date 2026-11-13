@@ -5,7 +5,10 @@ declaration chain a <- b <- c <- d with source occurrences and hover texts). The
 dependency graph's first view is drawn before the page scripts have run and is then laid out
 from build-time positions, the ego view around a declaration with its hop count, the node view's
 and the chapter entry's neighbourhood links, the highlighted source excerpt's hovers, the search
-box finding a declaration, and long module names wrapping in the sidebar.
+box finding a declaration, long module names wrapping in the sidebar, and the informal statements
+the data gives (`Demo.c` with math, a title and a proof; `Demo.d` with raw HTML and a script link):
+the node view shows the statement beside the Lean side with its math rendered, a node without one
+shows the Lean side alone, and a statement's HTML stays text.
 """
 
 import shutil
@@ -155,3 +158,38 @@ def test_long_module_names_wrap_in_the_sidebar(page: Page, code_site_url: str):
             return cell.scrollWidth <= cell.clientWidth + 1;
         }"""
     )
+
+
+def test_node_view_shows_the_statement_beside_lean(page: Page, code_site_url: str):
+    page.goto(code_site_url + "/Dependency-Graph/#node=Demo.c", wait_until="domcontentloaded")
+    page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+    view = page.locator(".bp_graph_preview .bp_node_view")
+    informal = view.locator(".bp_sbs_informal")
+    assert informal.count() == 1
+    assert "Gauss's sum" in informal.inner_text()
+    page.wait_for_function(
+        """() => document.querySelectorAll(".bp_graph_preview .bp_sbs_informal .katex").length >= 2""",
+        timeout=10000,
+    )
+    assert view.locator(".bp_sbs_informal .katex-error").count() == 0
+    assert view.locator(".bp_sbs_formal").count() == 1
+    assert view.locator(".bp_sbs_single").count() == 0
+    assert view.locator("details.bp_node_view_proof").count() == 1
+
+
+def test_node_view_without_a_statement_is_lean_only(page: Page, code_site_url: str):
+    page.goto(code_site_url + "/Dependency-Graph/#node=Demo.b", wait_until="domcontentloaded")
+    page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+    view = page.locator(".bp_graph_preview .bp_node_view")
+    assert view.locator(".bp_sbs_informal").count() == 0
+    assert view.locator(".bp_sbs_single").count() == 1
+    assert view.locator(".bp_sbs_formal").count() == 1
+
+
+def test_statement_html_stays_text(page: Page, code_site_url: str):
+    page.goto(code_site_url + "/Demo___Some___Very___Long___Module___Name___ForTheSidebar/", wait_until="load")
+    main = page.locator("main").inner_text()
+    assert "<script>window.__bpStatementRan = true</script>" in main
+    assert page.evaluate("window.__bpStatementRan === undefined")
+    assert page.locator("main a[href^='javascript:']").count() == 0
+    assert page.locator("main .katex").count() >= 1
