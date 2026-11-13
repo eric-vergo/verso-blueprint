@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import VersoBlueprint.Vbp
 import VersoBlueprint.VbpResident
+import VersoBlueprint.CodeSite.Main
 import Lake.CLI.Actions
 import Lake.Load.Workspace
 
@@ -21,7 +22,8 @@ private def mainCommandLines : List String := [
   "lake exe vbp discover",
   buildUsageLine,
   "lake exe vbp query [--site <dir>] <selector>",
-  "lake exe vbp check [--site <dir>]"
+  "lake exe vbp check [--site <dir>]",
+  "lake exe " ++ Informal.CodeSite.usage
 ]
 
 private def defaultHelpLines : List String := [
@@ -31,7 +33,8 @@ private def defaultHelpLines : List String := [
   "query and check read _out/site",
   "--serve serves the generated html-multi directory after a successful build",
   "--serve --port <n> serves on a fixed port",
-  "--resident keeps the generator loaded and rebuilds on each `build` line read from stdin"
+  "--resident keeps the generator loaded and rebuilds on each `build` line read from stdin",
+  "code-site generates a site from compiled-code data (doc/schemas/code-site.schema.json)"
 ]
 
 private def buildOptionLines : List String := [
@@ -518,6 +521,7 @@ def main (args : List String) : IO UInt32 := do
   | "build" :: rest => build rest
   | "query" :: rest => query rest
   | "check" :: rest => check rest
+  | "code-site" :: rest => Informal.CodeSite.main rest
   | cmd :: _ =>
       IO.eprintln s!"unknown command '{cmd}'"
       IO.eprintln helpText
