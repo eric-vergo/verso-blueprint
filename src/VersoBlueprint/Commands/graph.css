@@ -241,6 +241,27 @@
   white-space: nowrap;
 }
 
+/* The ego view's hop count (`graph.mjs`), shown while that view is open. */
+.bp_graph_ego_hops_label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bp_graph_ego_hops_label[hidden] {
+  display: none;
+}
+
+.bp_graph_ego_hops_label .bp_graph_ego_hops {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+/* The node an ego view is centred on. */
+.bp_graph_canvas g.node.bp_graph_ego_center > :is(path, polygon, ellipse) {
+  stroke: var(--bp-color-link, #1d4ed8);
+}
+
 .bp_graph_controls_select {
   min-width: 0;
   max-width: 100%;
