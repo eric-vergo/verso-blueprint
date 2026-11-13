@@ -256,4 +256,48 @@ A theorem.
   filled.subParts.size == text.subParts.size &&
     data.size == 1 && (data[0]!.compress.splitOn "example.org").length > 1
 
+private partial def freshRoot (name : String) : IO System.FilePath := do
+  let root := (← IO.currentDir) / ".lake" / "build" / "tmp" / name / toString (← IO.rand 0 1000000000000)
+  if ← root.pathExists then freshRoot name else pure root
+
+#docs (Manual) siteDoc "Stats Site" :=
+:::::::
+# Sums
+
+:::definition "site.base"
+A base definition.
+:::
+
+:::theorem "site.top" (uses := "site.base")
+A theorem.
+:::
+:::::::
+
+-- `blueprintMain` adds the page to the site's table of contents, with the chapter's progress row;
+-- `--no-stats-page` and `statsPage := false` leave it out.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let root ← freshRoot "verso-blueprint-stats-page-test"
+    let build (dir : String) (flags : List String) (statsPage : Bool) : IO UInt32 :=
+      Informal.PreviewManifest.blueprintMain siteDoc.toPart
+        (extensionImpls := by exact extension_impls%)
+        (options := ["--output", (root / dir).toString, "--without-html-single"] ++ flags)
+        (statsPage := statsPage)
+        (sidebar? := some { links := #[{ label := "Repository", href := "https://example.org/repo" }] })
+    let c1 ← build "on" [] true
+    let c2 ← build "flag" [noStatsPageFlag] true
+    let c3 ← build "off" [] false
+    let page := root / "on" / "html-multi" / "Project-Stats" / "index.html"
+    let html ← if ← page.pathExists then IO.FS.readFile page else pure ""
+    let index ← IO.FS.readFile (root / "on" / "html-multi" / "index.html")
+    pure (c1 == 0 && c2 == 0 && c3 == 0 &&
+      hasSubstr html "class=\"bp_project_stats\"" &&
+      hasSubstr html "data-bp-chapter=\"Sums\"" &&
+      hasSubstr html "<a href=\"https://example.org/repo\">Repository</a>" &&
+      hasSubstr index "Project-Stats" &&
+      !(← (root / "flag" / "html-multi" / "Project-Stats").pathExists) &&
+      !(← (root / "off" / "html-multi" / "Project-Stats").pathExists))
+
 end Verso.VersoBlueprintTests.BlueprintStatsPage
