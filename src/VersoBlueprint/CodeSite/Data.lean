@@ -49,6 +49,33 @@ structure Use where
   kind : String
 deriving Inhabited, Repr, BEq, ToJson, FromJson
 
+/-- An occurrence of a constant (of any package) in a declaration's source, as the module's
+`.ilean` file records it. -/
+structure Occurrence where
+  range : Range
+  name : Name
+  /-- The occurrence is the constant's own declaration (its name where it is declared). -/
+  isDef : Bool := false
+deriving Inhabited, Repr, BEq, ToJson
+
+instance : FromJson Occurrence where
+  fromJson? j := do
+    return { range := ← j.getObjValAs? Range "range", name := ← j.getObjValAs? Name "name",
+             isDef := ← (j.getObjValAs? Bool "isDef" <|> pure false) }
+
+/-- What a reader sees on pointing at a constant: its signature and its docstring. -/
+structure Hover where
+  name : Name
+  /-- The printed signature (`Nat.succ_le (n m : ℕ) : …`). -/
+  signature : String
+  doc : Option String := none
+deriving Inhabited, Repr, ToJson
+
+instance : FromJson Hover where
+  fromJson? j := do
+    return { name := ← j.getObjValAs? Name "name", signature := ← j.getObjValAs? String "signature",
+             doc := ← (j.getObjValAs? (Option String) "doc" <|> pure none) }
+
 /-- One declaration of the project. -/
 structure Declaration where
   /-- The constant's name; a private declaration keeps Lean's `_private` prefix. -/
@@ -76,6 +103,8 @@ structure Declaration where
   uses : Array Use := #[]
   /-- Constants of other packages it uses. -/
   external : Array Name := #[]
+  /-- The constants its source mentions, where; their hovers are `Project.hovers`. -/
+  occurrences : Array Occurrence := #[]
 deriving Inhabited, Repr, ToJson
 
 /-- The field `k` of `j`, or `d` when it is absent or `null`. -/
@@ -97,7 +126,7 @@ instance : FromJson Declaration where
       signature := ← fieldD j "signature" "", doc := ← fieldO j "doc"
       status := ← fieldD j "status" "proved", axioms := ← fieldD j "axioms" #[]
       attrs := ← fieldD j "attrs" #[], uses := ← fieldD j "uses" #[]
-      external := ← fieldD j "external" #[] }
+      external := ← fieldD j "external" #[], occurrences := ← fieldD j "occurrences" #[] }
 
 /-- The declarations of one module, in source order. -/
 structure Module where
@@ -131,6 +160,9 @@ structure Project where
   /-- Source modules without build output: their declarations are not in the data. -/
   unbuilt : Array Name := #[]
   skipped : Array Skipped := #[]
+  /-- The hover of each constant the declarations' sources mention (`Declaration.occurrences`),
+  each constant once. -/
+  hovers : Array Hover := #[]
 deriving Inhabited, Repr, ToJson
 
 instance : FromJson Project where
@@ -138,7 +170,8 @@ instance : FromJson Project where
     return {
       format := ← j.getObjValAs? String "format", title := ← fieldO j "title"
       toolchain := ← fieldO j "toolchain", modules := ← fieldD j "modules" #[]
-      unbuilt := ← fieldD j "unbuilt" #[], skipped := ← fieldD j "skipped" #[] }
+      unbuilt := ← fieldD j "unbuilt" #[], skipped := ← fieldD j "skipped" #[]
+      hovers := ← fieldD j "hovers" #[] }
 
 /-- Parse the input file's text. -/
 def Project.parse (text : String) : Except String Project := do

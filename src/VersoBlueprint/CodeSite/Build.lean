@@ -4,8 +4,14 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Eric Vergo
 -/
 
+import MD4Lean
 import VersoManual
+import VersoManual.Markdown
 import VersoBlueprint.CodeSite.Data
+import VersoBlueprint.CodeSite.Highlight
+import VersoBlueprint.CodeSite.Search
+import VersoBlueprint.Git
+import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.Commands.Stats
 import VersoBlueprint.Commands.Summary
@@ -31,8 +37,12 @@ The data becomes the same two things a written Blueprint gives its generator:
   declaration, the dependency graph and the summary page. Generators add the Project Stats page.
 
 Nodes have no informal statement: the node view and the chapter cards show the Lean side alone.
-Nothing here loads the project's environment; the source excerpts are read from the files under
-the project root.
+Each declaration's card is its module's API entry: the signature and the source excerpt
+highlighted (`Informal.CodeSite.Highlight`, with the hovers the data gives), the docstring
+rendered as Markdown, where it is defined (a link to the file on GitHub when the project is a
+GitHub checkout) and a link to its neighbourhood in the dependency graph. A chapter starts with
+the module's docstrings. Nothing here loads the project's environment; the source excerpts and
+module docstrings are read from the files under the project root.
 -/
 
 namespace Informal.CodeSite
@@ -64,15 +74,134 @@ def declarationRange (r : Range) : DeclarationRange where
   endPos := ⟨r.«end».line + 1, r.«end».character⟩
   endCharUtf16 := r.«end».character
 
+/-! ## Docstrings -/
+
+/-- Whether a link target is safe to keep in generated pages: a web or mail address, or a
+reference within the site (no scheme). -/
+def safeHref (href : String) : Bool :=
+  let h := href.trimAscii.toString.toLower
+  let scheme := (h.splitOn ":").head!
+  let hasScheme := (h.splitOn ":").length > 1 && !scheme.any (fun c => c == '/' || c == '?' || c == '#')
+  !hasScheme || scheme == "http" || scheme == "https" || scheme == "mailto"
+
+/-- `html` with every `href` and `src` that `safeHref` rejects replaced by `#`. -/
+def sanitizeLinks (html : String) : String := Id.run do
+  let mut out := html
+  for attr in ["href=\"", "src=\""] do
+    let parts := out.splitOn attr
+    let mut acc := parts.head!
+    for part in parts.tail! do
+      let value := (part.splitOn "\"").head!
+      let rest := (part.drop value.length).toString
+      acc := acc ++ attr ++ (if safeHref value then value else "#") ++ rest
+    out := acc
+  return out
+
+/-- A docstring as HTML: Markdown rendered by md4c, raw HTML in it shown as text, unsafe link
+targets dropped; the escaped text in a `pre` when it cannot be rendered. -/
+def docHtml (doc : String) : String :=
+  match MD4Lean.renderHtml doc with
+  | some html => sanitizeLinks html
+  | none => (Verso.Output.Html.tag "pre" #[] (.text true doc)).asString
+
+/-- The module docstrings (`/-! … -/`) of a source text, without their delimiters, in order. -/
+def moduleDocs (text : String) : Array String :=
+  (Highlight.lex text.toList.toArray ⟨0, 0⟩).filterMap fun lx =>
+    if lx.kind matches .docComment && lx.text.startsWith "/-!" then
+      let body := ((lx.text.drop 3).dropEnd 2).toString
+      some (dedent body).trimAscii.toString
+    else none
+where
+  dedent (s : String) : String :=
+    let lines := s.splitOn "\n"
+    let indents := lines.filterMap fun l =>
+      if l.trimAscii.isEmpty then none else some (l.length - l.trimAsciiStart.toString.length)
+    let k := indents.foldl min (indents.headD 0)
+    "\n".intercalate (lines.map fun l => (l.drop k).toString)
+
+/-- `inline` without links whose target `safeHref` rejects (their text stays). -/
+partial def safeInline : Inline Manual → Inline Manual
+  | .link inls href => if safeHref href then .link (inls.map safeInline) href
+      else .concat (inls.map safeInline)
+  | .emph inls => .emph (inls.map safeInline)
+  | .bold inls => .bold (inls.map safeInline)
+  | .concat inls => .concat (inls.map safeInline)
+  | i => i
+
+/-- `block` with `safeInline` applied to its text. -/
+partial def safeBlock : Block Manual → Block Manual
+  | .para inls => .para (inls.map safeInline)
+  | .blockquote bs => .blockquote (bs.map safeBlock)
+  | .ul items => .ul (items.map fun i => ⟨i.contents.map safeBlock⟩)
+  | .ol n items => .ol n (items.map fun i => ⟨i.contents.map safeBlock⟩)
+  | .concat bs => .concat (bs.map safeBlock)
+  | b => b
+
+/-- A module docstring as document blocks (Verso's Markdown reading: headers become bold or
+emphasised paragraphs), so it is rendered with the page's math and indexed by its search; the
+text in a code block when it has Markdown Verso does not read (tables, raw HTML, …). -/
+def moduleDocBlocks (doc : String) : Array (Block Manual) :=
+  let fallback : Array (Block Manual) := #[.code doc]
+  match MD4Lean.parse doc with
+  | none => fallback
+  | some md =>
+    match md.blocks.mapM (Verso.Genre.Manual.Markdown.blockFromMarkdown'
+        (handleHeaders := Verso.Genre.Manual.Markdown.strongEmphHeaders')) with
+    | .ok blocks => blocks.map safeBlock
+    | .error _ => fallback
+
 /-! ## The Blueprint state -/
 
+/-- What rendering the declarations needs besides their data. -/
+structure RenderContext where
+  /-- The hover of each constant the sources mention (`Project.hovers`). -/
+  hovers : Lean.NameMap Hover := {}
+  /-- The web address of the project root's files, ending in `/` (a GitHub checkout's
+  `https://github.com/<owner>/<repository>/blob/<commit>/<path>/`), when there is one. -/
+  sourceBase? : Option String := none
+  /-- The dependency graph's page, relative to a chapter page (the declarations' neighbourhood
+  links); `none` for no such links. -/
+  graphPage? : Option String := some "../Dependency-Graph/"
+deriving Inhabited
+
+/-- The web address of the project root's files, when the project is a Git checkout with a
+GitHub `origin` (as Blueprint source links are made). -/
+def sourceBaseOf? (root : System.FilePath) : IO (Option String) := do
+  let some top ← Git.toplevelAt? root | return none
+  let some info ← Git.repositoryInfoAtRoot? top | return none
+  let top ← (try IO.FS.realPath top catch _ => pure top)
+  let root ← (try IO.FS.realPath root catch _ => pure root)
+  let topText := top.toString ++ "/"
+  let rel := if root.toString ++ "/" == topText then ""
+    else if root.toString.startsWith topText then (root.toString.drop topText.length).toString ++ "/"
+    else ""
+  return some s!"{info.githubUrl}/blob/{info.commit}/{rel}"
+
 /-- The Lean declaration a node is attached to. -/
-def externalRef (m : Module) (decl : Declaration) (text? : Option String) : Data.ExternalRef :=
+def externalRef (m : Module) (decl : Declaration) (text? : Option String)
+    (ctx : RenderContext := {}) : Data.ExternalRef :=
   let kind := nodeKind decl.kind
   let line := decl.range.map (·.start.line + 1)
+  let endLine := decl.range.map (·.«end».line + 1)
+  let href? : Option String := do
+    let base ← ctx.sourceBase?
+    guard !m.source.isEmpty
+    let fragment := match line, endLine with
+      | some l, some e => if e > l then s!"#L{l}-L{e}" else s!"#L{l}"
+      | some l, none => s!"#L{l}"
+      | _, _ => ""
+    pure s!"{base}{m.source}{fragment}"
   let headerSource : Option ExternalDeclHeaderSource :=
     if m.source.isEmpty then none
-    else some { text := m.source ++ (line.map (s!":{·}")).getD "" }
+    else some { text := m.source ++ (line.map (s!":{·}")).getD "", href? }
+  let links : Array ExternalDeclHeaderLink := match ctx.graphPage? with
+    | some page => #[{ text := "Neighbourhood", className := "bp_external_decl_ego"
+                       href := page ++ "#ego=" ++ LeanSourceAnchor.percentEncode decl.name.toString
+                       title? := some "What it uses and what uses it, in the dependency graph" }]
+    | none => #[]
+  let source? := (excerpt? text? decl).map fun src =>
+    let start := (decl.range.map (·.start.line)).getD 0
+    Highlight.highlight src ⟨start, 0⟩ decl.occurrences ctx.hovers
   {
     written := decl.shownName
     canonical := decl.name
@@ -83,14 +212,14 @@ def externalRef (m : Module) (decl : Declaration) (text? : Option String) : Data
     range? := decl.range.map declarationRange
     selectionRange? := decl.selection.map declarationRange
     kind
-    render := .ok (renderPlainDecl decl.shownName decl.kind decl.signature decl.doc
-      (excerpt? text? decl) headerSource)
+    render := .ok (renderCodeDecl decl.shownName decl.kind (Highlight.highlightPlain decl.signature)
+      (decl.doc.map docHtml) source? headerSource links)
   }
 
 /-- The node of a declaration. Only uses of declarations in `known` become dependencies; a use
 that is a statement use is not repeated as a proof use. -/
-def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : NameSet) :
-    Data.Node :=
+def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : NameSet)
+    (ctx : RenderContext := {}) : Data.Node :=
   let useRef (u : Use) : Data.UseRef := { label := u.name, origin := .automatic }
   let uses := decl.uses.filter fun u => known.contains u.name && u.name != decl.name
   let statementUses := uses.filter (·.kind == "statement") |>.map useRef
@@ -104,12 +233,13 @@ def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : Na
     kindIsExplicit := true
     statement := some (body statementUses)
     proof := if kind.isTheoremLike || !proofUses.isEmpty then some (body proofUses) else none
-    externalRefs := #[externalRef m decl text?]
+    externalRefs := #[externalRef m decl text? ctx]
     parent := some (moduleGroup m.module)
   }
 
 /-- The Blueprint state of the data. `sources` gives a module's source text when it can be read. -/
-def stateOf (project : Project) (sources : Name → Option String) : Environment.State := Id.run do
+def stateOf (project : Project) (sources : Name → Option String) (ctx : RenderContext := {}) :
+    Environment.State := Id.run do
   let known : NameSet := project.modules.foldl (init := {}) fun acc m =>
     m.declarations.foldl (fun acc d => acc.insert d.name) acc
   let mut state : Environment.State := {}
@@ -118,7 +248,7 @@ def stateOf (project : Project) (sources : Name → Option String) : Environment
     state := { state with groups := state.groups.insert (moduleGroup m.module) m.module.toString }
     for decl in m.declarations do
       if state.data.contains decl.name then continue
-      let node := { nodeOf m decl (sources m.module) known with count }
+      let node := { nodeOf m decl (sources m.module) known ctx with count }
       state := { state with
         data := state.data.insert decl.name { toNode := node, origin := m.module,
                                               modules := #[m.module] }
@@ -247,15 +377,23 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
       ⟨#[para #[.code s.module.toString, .text s!": {s.reason}"]]⟩)
   return blocks
 
-/-- A node block for each declaration of a module. -/
-def moduleChapter (m : Module) : Part Manual :=
+/-- The search entries of a declaration (`Block.declSearch`): its name, signature and docstring. -/
+def declSearchBlock (d : Declaration) : Block Manual :=
+  let text := #[para #[.code d.shownName.toString], para #[.code d.signature]] ++
+    (d.doc.map fun doc => #[para #[.text doc]]).getD #[]
+  .other (Block.declSearch d.name) text
+
+/-- A module's page: where its source is, its module docstrings (`text?`, its source text), and
+for each declaration its search entries and its node block. -/
+def moduleChapter (m : Module) (text? : Option String := none) : Part Manual :=
   let intro := if m.source.isEmpty then #[] else #[para #[.text "Source: ", .code m.source]]
-  let nodes : Array (Block Manual) := m.declarations.map fun d =>
-    .other (Informal.Block.informal { label := d.name, count := 0 }) #[]
+  let docs := (text?.map moduleDocs).getD #[] |>.flatMap moduleDocBlocks
+  let nodes : Array (Block Manual) := m.declarations.flatMap fun d =>
+    #[declSearchBlock d, .other (Informal.Block.informal { label := d.name, count := 0 }) #[]]
   { title := #[.code m.module.toString]
     titleString := m.module.toString
     metadata := none
-    content := intro ++ nodes
+    content := intro ++ docs ++ nodes
     subParts := #[] }
 
 /-- An unnumbered page holding one block. -/
@@ -266,9 +404,10 @@ def pagePart (title : String) (block : Block Manual) : Part Manual :=
 /-- The document: the front page, a chapter per module that has declarations, the dependency
 graph (on its module view above `moduleViewThreshold` declarations, laid out while the site is
 built with the Graphviz program `layoutProgram` when one is given) and the summary page. -/
-def documentOf (title : String) (project : Project) (layoutProgram : Option String := none) :
-    Part Manual :=
-  let chapters := project.modules.filter (!·.declarations.isEmpty) |>.map moduleChapter
+def documentOf (title : String) (project : Project) (layoutProgram : Option String := none)
+    (sources : Name → Option String := fun _ => none) : Part Manual :=
+  let chapters := project.modules.filter (!·.declarations.isEmpty) |>.map fun m =>
+    moduleChapter m (sources m.module)
   let decls := project.modules.foldl (· + ·.declarations.size) 0
   let initialView := if decls > moduleViewThreshold then some Graph.groupVariantKey else none
   let graph := pagePart "Dependency Graph"

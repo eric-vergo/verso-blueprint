@@ -83,10 +83,12 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
   let root ← try IO.FS.realPath root catch _ => pure root
   let (project, sources) ← load data root
   let project := { project with title := title? <|> project.title }
-  let state := stateOf project sources.get?
+  let hovers : Lean.NameMap Hover := project.hovers.foldl (init := {}) fun acc h => acc.insert h.name h
+  let ctx : RenderContext := { hovers, sourceBase? := ← sourceBaseOf? root }
+  let state := stateOf project sources.get? ctx
   let model ← modelOf root project state
   let title := titleOf root project model.stats.identity
-  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project graphviz) args
+  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project graphviz sources.get?) args
     (extensionImpls := by exact extension_impls%) (model := model)
     -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
     (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
