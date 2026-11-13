@@ -123,6 +123,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintNodeView,
     `VersoBlueprintTests.BlueprintSideBySide,
     `VersoBlueprintTests.BlueprintSidebar,
+    `VersoBlueprintTests.BlueprintStats,
     `VersoBlueprintTests.BlueprintStatsRepo,
     `VersoBlueprintTests.BlueprintStatsSource,
     `VersoBlueprintTests.BlueprintSource,

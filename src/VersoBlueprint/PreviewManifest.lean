@@ -2950,6 +2950,7 @@ def blueprintMain (text : Part Manual)
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
+  let model ← model.refreshStats
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
@@ -2968,6 +2969,7 @@ def blueprintMainWithPreviewData
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
+  let model ← model.refreshStats
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
