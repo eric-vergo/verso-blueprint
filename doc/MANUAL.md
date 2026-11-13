@@ -1841,12 +1841,85 @@ form is described in `doc/schemas/project-stats.schema.json`.
   with axioms outside Lean's standard three, or with proofs that trust compiled
   code (`native_decide`), plus Lean names that are missing and labels nobody
   defines.
+- **Headline**: the theorems of the project's Comparator challenge, compared
+  with its solution (see below). A project without a challenge has no
+  headline, and `hasComparatorChallenge` is false.
 
 The statistics hold no version-control data, and every path in them is
 relative to the project root, so they do not change between `--reproducible`
 builds of the same files. The generator reads the project's files again when it
 runs, so README, license and source edits that no Lean module imports still
 reach the statistics without a rebuild of the generator.
+
+#### The headline: a Comparator challenge
+
+A Comparator challenge states a project's main results in a module of their
+own, the way `lake comparator` judges them: a challenge module states each
+theorem with `sorry`, together with every definition its statement needs, and a
+solution module declares the same theorems with the same statements and proves
+them. The two modules are named in `comparator.json` at the project root, the
+file `lake comparator` reads:
+
+```json
+{
+  "challenge_module": "Comparator.Challenge",
+  "solution_module": "Comparator.Solution",
+  "theorem_names": ["main_theorem"],
+  "definition_names": [],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+}
+```
+
+Without that file, a project whose sources contain `Comparator/Challenge.lean`
+has the challenge `Comparator.Challenge` and the solution `Comparator.Solution`;
+every theorem the challenge states is judged and no axiom list is stated. The
+challenge needs a library of its own in the Lake configuration, since nothing
+imports it (it declares the same names as the solution):
+
+```toml
+[[lean_lib]]
+name = "ComparatorChallenge"
+roots = ["Comparator.Challenge"]
+```
+
+The solution must be imported by the Blueprint (a chapter that presents the
+main theorem can import it), so that the environment the site is generated from
+has its declarations. The challenge is read from its compiled module without
+importing it; `lake exe vbp build` builds it first.
+
+For each theorem the headline records its name, its docstring and its
+statement as the challenge writes them (from the keyword to the end of the
+signature), and:
+
+- whether the solution has the **same statement**: the solution declares the
+  name as the same kind of declaration with the same universe parameters and
+  the same type, and every declaration of the challenge module that this type
+  uses, directly or through other such declarations, is declared identically by
+  the solution, type and value. A judged theorem and a definition hole (listed
+  in `definition_names`) only need the same type. Constants from imports count
+  as the same, since the challenge and the site have them from the same
+  compiled modules. Otherwise the first declaration that differs is named;
+- whether the solution's proof is free of `sorry`, directly or through what it
+  uses, and the axioms it depends on, sorted by class as in node views;
+- whether those axioms are all in `permitted_axioms`, when the file lists them;
+- **proved**: the same statement and no `sorry`;
+- the Blueprint node whose Lean declarations include the theorem.
+
+The other declarations the challenge introduces (its definitions) are listed
+with the same comparison. When no comparison can be made, `unavailable` says
+why and the theorems are listed without a verdict: `comparator.json` is
+invalid, the challenge has no compiled module or one that does not match its
+source (a theorem is not where the module was compiled from; Lake decides when
+it is rebuilt), the module cannot be read, or the site's environment lacks the
+solution module or a module the challenge imports. The headline is computed
+with the rest of the render model. A resident session (`vbp build --resident`)
+builds the challenge whenever it goes through Lake (when it starts, and on
+`build --full`); a challenge edited after that shows as out of date once the
+model is captured again.
+
+This comparison is a summary for readers, not a verdict: `lake comparator`
+remains the authority (it also rechecks the solution with the kernel in a
+sandbox).
 
 ### Bibliography page
 
@@ -2153,7 +2226,9 @@ lake exe vbp build --serve
 ```
 
 It discovers the generator, then uses Lake to build its imports and execute it;
-VBP can optionally serve the result. When a maintainer harness or advanced CI
+VBP can optionally serve the result. When the project has a Comparator
+challenge (see "Project statistics"), VBP builds the challenge module first; a
+challenge that fails to build is reported and the site is still generated. When a maintainer harness or advanced CI
 job cannot use `vbp`, the equivalent lower-level command is:
 
 ```bash
