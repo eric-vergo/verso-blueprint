@@ -56,16 +56,20 @@ private inductive Mode where
   | rawString (hashes : Nat)
 deriving Inhabited
 
-/-- Whether a character can end an identifier, so that a following `'` belongs to it. -/
-private def isIdentTail (c : Char) : Bool :=
-  c.isAlphanum || c == '_' || c == '\'' || c == '!' || c == '?' || c.toNat > 127
+/-- Whether a byte can end an identifier, so that a following `'` belongs to it. Every byte of
+a non-ASCII character counts, as Lean identifiers may hold such letters. -/
+private def isIdentTail (c : UInt8) : Bool :=
+  (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 ||
+    c == 39 || c == 33 || c == 63 || c >= 128
+
+/-- ASCII whitespace other than the newline. -/
+private def isSpace (c : UInt8) : Bool :=
+  c == 32 || c == 9 || c == 13 || c == 11 || c == 12
 
 private structure State where
   mode : Mode := .normal
   /-- The current line has something outside comments. -/
   lineCode : Bool := false
-  /-- The current line has comment text. -/
-  lineComment : Bool := false
   /-- The current line has any character other than whitespace. -/
   lineAny : Bool := false
   counts : LineCounts := {}
@@ -75,99 +79,112 @@ private def State.endLine (s : State) : State :=
     if !s.lineAny then { s.counts with blank := s.counts.blank + 1 }
     else if s.lineCode then { s.counts with code := s.counts.code + 1 }
     else { s.counts with comment := s.counts.comment + 1 }
-  { s with lineCode := false, lineComment := false, lineAny := false, counts }
+  { s with lineCode := false, lineAny := false, counts }
 
 private def State.markCode (s : State) : State := { s with lineCode := true, lineAny := true }
 
-private def State.markComment (s : State) : State := { s with lineComment := true, lineAny := true }
+private def State.markComment (s : State) : State := { s with lineAny := true }
 
-/-- The number of `#` characters at `i`. -/
-private def hashesAt (cs : Array Char) (i : Nat) : Nat := Id.run do
+/-- The byte at `i`, or `0` past the end. -/
+@[inline] private def at_ (bs : ByteArray) (i : Nat) : UInt8 :=
+  if h : i < bs.size then bs[i] else 0
+
+/-- The number of `#` bytes at `i`. -/
+private def hashesAt (bs : ByteArray) (i : Nat) : Nat := Id.run do
   let mut n := 0
-  while cs[i + n]? == some '#' do
+  while at_ bs (i + n) == 35 do
     n := n + 1
   return n
 
+/-- The length of the UTF-8 character whose first byte is `c`. -/
+private def utf8Length (c : UInt8) : Nat :=
+  if c < 0x80 then 1 else if c < 0xE0 then 2 else if c < 0xF0 then 3 else 4
+
 /-- The index just after a character literal starting at `i` (a `'`), if there is one. -/
-private def charLiteralEnd? (cs : Array Char) (i : Nat) : Option Nat :=
-  match cs[i + 1]? with
-  | some '\\' => Id.run do
+private def charLiteralEnd? (bs : ByteArray) (i : Nat) : Option Nat :=
+  let c := at_ bs (i + 1)
+  if c == 92 then Id.run do
     -- An escape: `'\n'`, `'\''`, `'\x41'`, `'\u{3B1}'`; the literal ends at the next `'`.
     let mut j := i + 3
-    while j < cs.size && j < i + 12 do
-      if cs[j]! == '\'' then return some (j + 1)
-      if cs[j]! == '\n' then return none
+    while j < bs.size && j < i + 12 do
+      if at_ bs j == 39 then return some (j + 1)
+      if at_ bs j == 10 then return none
       j := j + 1
     return none
-  | some c => if c != '\n' && cs[i + 2]? == some '\'' then some (i + 3) else none
-  | none => none
+  else if c == 10 || c == 0 then none
+  else
+    let close := i + 1 + utf8Length c
+    if at_ bs close == 39 then some (close + 1) else none
 
-/-- Classify every line of `text`. -/
+/-- Classify every line of `text`. The scan works on UTF-8 bytes: every marker it looks for is
+ASCII except `«` and `»`, which it matches by their two bytes. -/
 def run (text : String) : LineCounts := Id.run do
-  let cs := text.toList.toArray
+  let bs := text.toUTF8
   let mut s : State := {}
   let mut i := 0
-  while i < cs.size do
-    let c := cs[i]!
-    let next := cs[i + 1]?
-    if c == '\n' then
+  while i < bs.size do
+    let c := at_ bs i
+    let next := at_ bs (i + 1)
+    if c == 10 then
       s := s.endLine
       i := i + 1
       continue
     match s.mode with
     | .blockComment depth =>
-      if c == '/' && next == some '-' then
+      if c == 47 && next == 45 then
         s := { s.markComment with mode := .blockComment (depth + 1) }
         i := i + 2
-      else if c == '-' && next == some '/' then
+      else if c == 45 && next == 47 then
         s := { s.markComment with mode := if depth ≤ 1 then .normal else .blockComment (depth - 1) }
         i := i + 2
       else
-        if !c.isWhitespace then s := s.markComment
+        if !isSpace c then s := s.markComment
         i := i + 1
     | .string =>
-      if !c.isWhitespace then s := s.markCode
-      if c == '\\' && next != some '\n' then
+      if !isSpace c then s := s.markCode
+      if c == 92 && next != 10 then
         i := i + 2
       else
-        if c == '"' then s := { s with mode := .normal }
+        if c == 34 then s := { s with mode := .normal }
         i := i + 1
     | .rawString hashes =>
-      if !c.isWhitespace then s := s.markCode
-      if c == '"' && hashesAt cs (i + 1) ≥ hashes then
+      if !isSpace c then s := s.markCode
+      if c == 34 && hashesAt bs (i + 1) ≥ hashes then
         s := { s with mode := .normal }
         i := i + 1 + hashes
       else
         i := i + 1
     | .normal =>
-      let afterIdent := i > 0 && isIdentTail cs[i - 1]!
-      if c == '-' && next == some '-' then
+      let afterIdent := i > 0 && isIdentTail (at_ bs (i - 1))
+      if c == 45 && next == 45 then
+        -- `--`: the rest of the line is a comment.
         s := s.markComment
-        while i < cs.size && cs[i]! != '\n' do
+        while i < bs.size && at_ bs i != 10 do
           i := i + 1
-      else if c == '/' && next == some '-' then
+      else if c == 47 && next == 45 then
         s := { s.markComment with mode := .blockComment 1 }
         i := i + 2
-      else if c == '"' then
+      else if c == 34 then
         s := { s.markCode with mode := .string }
         i := i + 1
-      else if c == 'r' && !afterIdent && cs[i + 1 + hashesAt cs (i + 1)]? == some '"' then
-        let hashes := hashesAt cs (i + 1)
+      else if c == 114 && !afterIdent && at_ bs (i + 1 + hashesAt bs (i + 1)) == 34 then
+        let hashes := hashesAt bs (i + 1)
         s := { s.markCode with mode := .rawString hashes }
         i := i + 2 + hashes
-      else if c == '\'' && !afterIdent then
+      else if c == 39 && !afterIdent then
         s := s.markCode
-        i := (charLiteralEnd? cs i).getD (i + 1)
-      else if c == '«' then
+        i := (charLiteralEnd? bs i).getD (i + 1)
+      else if c == 0xC2 && next == 0xAB then
+        -- `«…»`: a quoted name, which may hold comment markers.
         s := s.markCode
-        i := i + 1
-        while i < cs.size && cs[i]! != '»' && cs[i]! != '\n' do
+        i := i + 2
+        while i < bs.size && at_ bs i != 10 && !(at_ bs i == 0xC2 && at_ bs (i + 1) == 0xBB) do
           i := i + 1
       else
-        if !c.isWhitespace then s := s.markCode
+        if !isSpace c then s := s.markCode
         i := i + 1
   -- A last line without a final newline still counts.
-  if s.lineAny || (cs.size > 0 && cs.back! != '\n') then
+  if s.lineAny || (bs.size > 0 && at_ bs (bs.size - 1) != 10) then
     s := s.endLine
   return s.counts
 

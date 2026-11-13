@@ -63,6 +63,12 @@ private def counts (text : String) : Nat × Nat × Nat :=
 #guard_msgs in
 #eval counts "def «a -- b» := 1\n"
 
+-- Non-ASCII character literals and names: a quote inside `'"'`-like literals of any width does
+-- not open a string.
+/-- info: (0, 1, 3) -/
+#guard_msgs in
+#eval counts "def a := ('α', '\"') -- pair\ndef «β -- γ» := 1\n-- note\ndef δ' := 'ε'\n"
+
 -- Windows line endings: the carriage return is whitespace.
 /-- info: (1, 1, 1) -/
 #guard_msgs in
