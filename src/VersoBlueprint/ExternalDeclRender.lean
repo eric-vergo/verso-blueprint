@@ -672,4 +672,32 @@ def renderDeclHtmlNodeDirect? (decl : Name) : MetaM (Option ExternalDeclHtml) :=
     logError m!"External declaration rendering failed for {decl}: {← ex.toMessageData.toString}"
     return none
 
+/--
+Render a declaration from text alone: its printed signature, its docstring and, when known, its
+source text. Generators that have no Lean environment, such as a site generated from data a tool
+read out of a project's build, use it; the markup is the one `renderDeclHtmlDirectFromInfoE`
+produces, without hovers. `kindMarker` is the declaration's keyword (`theorem`, `def`, …).
+-/
+def renderPlainDecl (decl : Name) (kindMarker signature : String) (doc? : Option String)
+    (source? : Option String := none)
+    (headerSource? : Option ExternalDeclHeaderSource := none) : ExternalDeclRenderedHtml :=
+  open Verso.Output.Html in
+  let signatureHtml : ExternalDeclHtml := {{
+    <div class="bp_external_decl_signature_wrap">
+      <pre class="signature hl lean block bp_plain_signature">{{.text true signature}}</pre>
+    </div>
+  }}
+  let sourceHtml : ExternalDeclHtml := match source? with
+    | some src => {{
+        <details class="bp_plain_decl_source">
+          <summary>"Source"</summary>
+          <pre class="hl lean block">{{.text true src}}</pre>
+        </details>
+      }}
+    | none => .empty
+  let body : ExternalDeclHtml := {{ {{docsHtml (plainDocstringHtml doc?)}} {{sourceHtml}} }}
+  let html := renderExternalDeclWrapper decl kindMarker kindMarker signatureHtml body
+    (headerSource? := headerSource?)
+  { html := html.asString, hoverPayloads := #[] }
+
 end Informal
