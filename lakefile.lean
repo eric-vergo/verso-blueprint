@@ -84,6 +84,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintImportedContributions.AuthorityForward,
     `VersoBlueprintTests.BlueprintImportedContributions.AuthorityReverse,
     `VersoBlueprintTests.BlueprintAutoDeps,
+    `VersoBlueprintTests.BlueprintAxioms,
     `VersoBlueprintTests.BlueprintAttribute,
     `VersoBlueprintTests.BlueprintAttribute.OrderRoundtrip,
     `VersoBlueprintTests.BlueprintAttributeRendering,

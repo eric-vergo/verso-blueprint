@@ -13,6 +13,7 @@ import Lean.Elab.InfoTree.Types
 
 import VersoManual
 
+import VersoBlueprint.Axioms
 import VersoBlueprint.Data
 import VersoBlueprint.ProvedStatus
 import VersoBlueprint.Process

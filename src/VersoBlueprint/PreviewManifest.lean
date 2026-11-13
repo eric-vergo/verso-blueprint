@@ -2516,11 +2516,21 @@ private def fragmentIsBlank (html : String) : Bool := Id.run do
 private def nodeViewLinks (entries : Array RelatedEntry) : Array Informal.NodeView.Link :=
   entries.map fun e => { label := e.label.toString, title := e.title, href? := e.href }
 
+/-- The axioms a node's Lean declarations depend on, together; `none` when it has no
+declaration present in the environment (nothing is known about its axioms). -/
+private def nodeAxioms? (code? : Option Informal.BlockCodeData) : Option (Array Name) := do
+  let code ← code?
+  let external := code.externalDecls.filter (·.present)
+  let literate := code.literateDeclarations.declarations
+  if external.isEmpty && literate.isEmpty then none
+  some (external.flatMap (·.axioms) ++ literate.flatMap (·.axioms))
+
 /--
 Render the view of every dependency-graph node (`Informal.NodeView`): its
 statement and proof fragments from the HTML cache (none for a code-only node), its Lean
 declarations' highlighted source when `Informal.DeclarationSource` has it (else
-their signature rows), inline Lean code fragments, its status and its relations.
+their signature rows), inline Lean code fragments, its status, its relations and the
+axioms its declarations depend on.
 Lean hovers are registered in the cache's hover table `hoverState`.
 -/
 private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entry)
@@ -2564,6 +2574,7 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         proof?
         lean := sourceParts ++ inlineParts
         leanDecls := decls.map (·.canonical)
+        axioms? := nodeAxioms? entry.codeData
         uses := nodeViewLinks entry.uses
         usedBy := nodeViewLinks entry.usedBy
       }

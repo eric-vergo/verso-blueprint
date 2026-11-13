@@ -5,6 +5,7 @@ Author: Eric Vergo
 -/
 
 import VersoManual
+import VersoBlueprint.Axioms
 import VersoBlueprint.Informal.Block.Render
 import VersoBlueprint.LeanSourceAnchor
 
@@ -27,7 +28,10 @@ Layout rules:
 * the header carries the node's title (a link to the node in its chapter), its
   status glyph and status text; a footer lists the nodes it uses and the nodes
   that use it, each a link carrying `data-bp-node-link` so a viewer can switch
-  to that node's view in place.
+  to that node's view in place, and the axioms its declarations depend on,
+  each marked with its class (`Informal.Data.AxiomClass`): a `sorry`, an extra
+  axiom and a proof that trusts compiled code come first, the standard axioms
+  last, and "none" when the declarations use no axiom at all.
 
 The markup reuses the side-by-side classes (`bp_sbs`, `bp_sbs_grid`,
 `bp_sbs_informal`, `bp_sbs_formal`), so the view looks like a side-by-side node
@@ -67,8 +71,9 @@ structure NodeView where
   lean : Array Verso.Output.Html := #[]
   /-- The node's Lean declarations, in authoring order (`data-lean-decls`). -/
   leanDecls : Array Lean.Name := #[]
-  /-- Axioms the node's declarations depend on, when the generator knows them. -/
-  axioms : Array String := #[]
+  /-- Axioms the node's declarations depend on, when the generator knows them (`none`: unknown,
+  no row; `some #[]`: the row says none). -/
+  axioms? : Option (Array Lean.Name) := none
   /-- Nodes this node uses (statement and proof). -/
   uses : Array Link := #[]
   /-- Nodes that use this node. -/
@@ -90,11 +95,29 @@ private def relationRow (caption : String) (links : Array Link) : Verso.Output.H
   let items : Array Verso.Output.Html := links.map fun l => {{<li>{{linkHtml l}}</li>}}
   {{<div class="bp_node_view_relation"><span class="bp_node_view_relation_caption">{{caption}}</span><ul>{{items}}</ul></div>}}
 
-private def axiomsRow (axioms : Array String) : Verso.Output.Html :=
-  if axioms.isEmpty then .empty else
-  let items : Array Verso.Output.Html := axioms.map fun (a : String) =>
-    .tag "li" #[] (.tag "code" #[] (.text true a))
-  {{<div class="bp_node_view_relation bp_node_view_axioms"><span class="bp_node_view_relation_caption">"Axioms"</span><ul>{{items}}</ul></div>}}
+/-- The visible tag beside an axiom that limits trust; the standard axioms have none. -/
+private def axiomTag : Data.AxiomClass → Option String
+  | .standard => none
+  | .sorryAx => some "sorry"
+  | .compilerTrusted => some "trusts compiled code"
+  | .other => some "extra axiom"
+
+private def axiomItem (a : Lean.Name) : Verso.Output.Html :=
+  let cls := Data.AxiomClass.ofName a
+  let tag : Verso.Output.Html := match axiomTag cls with
+    | some t => .seq #[.text true " ", .tag "span" #[("class", "bp_axiom_tag")] (.text true t)]
+    | none => .empty
+  .tag "li" #[("class", s!"bp_axiom bp_axiom_{cls.token}"), ("data-bp-axiom-class", cls.token),
+      ("title", cls.description)]
+    (.seq #[.tag "code" #[] (.text true a.toString), tag])
+
+private def axiomsRow : Option (Array Lean.Name) → Verso.Output.Html
+  | none => .empty
+  | some axioms =>
+    let items : Array Verso.Output.Html := if axioms.isEmpty then
+        #[.tag "li" #[("class", "bp_axiom bp_axiom_none")] (.text true "none")]
+      else (Data.sortAxioms axioms).map axiomItem
+    {{<div class="bp_node_view_relation bp_node_view_axioms"><span class="bp_node_view_relation_caption">"Axioms"</span><ul>{{items}}</ul></div>}}
 
 /--
 Render a node view. `isBlank` decides whether the informal statement counts as
@@ -135,9 +158,9 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
   let declAttrs := if names.isEmpty then #[] else
     #[("data-lean-decls", String.intercalate " " names.toList)]
   let footer :=
-    if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms.isEmpty then .empty
+    if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone then .empty
     else {{<div class="bp_node_view_relations">{{relationRow "Uses" v.uses}}{{
-      relationRow "Used by" v.usedBy}}{{axiomsRow v.axioms}}</div>}}
+      relationRow "Used by" v.usedBy}}{{axiomsRow v.axioms?}}</div>}}
   .tag "article" (#[("class", "bp_node_view"), ("data-bp-node-view", v.label),
       ("data-bp-node-view-layout", layout)] ++ declAttrs)
     (.seq #[header,

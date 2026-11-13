@@ -71,15 +71,20 @@ private def view : NodeView.NodeView := {
       "data-bp-node-view-layout=\"lean\"" &&
     hasSubstr blank "data-bp-node-view-layout=\"both\""
 
--- No Lean declaration: the statement alone; axioms listed when the generator knows them.
+-- No Lean declaration: the statement alone; axioms listed when the generator knows them,
+-- "none" when it knows there are none, no row when it does not know.
 /-- info: true -/
 #guard_msgs in
 #eval
   let prose := { view with lean := #[], leanDecls := #[], uses := #[], usedBy := #[] }.render.asString
-  let axioms := { view with axioms := #["propext", "Classical.choice"] }.render.asString
+  let axioms := { view with axioms? := some #[``propext, ``Classical.choice] }.render.asString
+  let none' := { view with axioms? := some #[] }.render.asString
   hasSubstr prose "data-bp-node-view-layout=\"informal\"" && !hasSubstr prose "bp_sbs_formal" &&
     !hasSubstr prose "data-lean-decls" && !hasSubstr prose "bp_node_view_relations" &&
-    hasSubstr axioms ">Axioms<" && hasSubstr axioms "<code>Classical.choice</code>"
+    hasSubstr axioms ">Axioms<" && hasSubstr axioms "<code>Classical.choice</code>" &&
+    hasSubstr axioms "data-bp-axiom-class=\"standard\"" &&
+    !hasSubstr view.render.asString ">Axioms<" &&
+    hasSubstr none' ">Axioms<" && hasSubstr none' "bp_axiom_none"
 
 /-- A theorem stated in prose and in Lean. -/
 theorem nodeViewTheorem : True := by

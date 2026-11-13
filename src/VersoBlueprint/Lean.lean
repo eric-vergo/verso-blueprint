@@ -18,6 +18,7 @@ import VersoManual.InlineLean.LongLines
 import VersoManual.InlineLean.Outputs
 import VersoManual.InlineLean.Scopes
 
+import VersoBlueprint.Axioms
 import VersoBlueprint.Data
 import VersoBlueprint.ProvedStatus
 import VersoBlueprint.Profiling
@@ -193,6 +194,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
     let proofSorryRefs :=
       if hasGap then proofRefs else #[]
     let provedStatus := baseStatus.withDirectRefCounts typeSorryRefs.size proofSorryRefs.size
+    let axioms ← Data.declarationAxioms name
     match info with
     | .thmInfo _ =>
       theorems := theorems.push ({
@@ -201,6 +203,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
         commandIndex
         commandLines
         provedStatus
+        axioms
         typeSorryRefs
         proofSorryRefs
       } : LiterateThm)
@@ -211,6 +214,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
         commandIndex
         commandLines
         provedStatus
+        axioms
         typeSorryRefs
       } : LiterateDef)
   let cmpDef (a b : LiterateDef) :=
