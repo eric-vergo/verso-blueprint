@@ -71,7 +71,15 @@
   list-style: none;
 }
 
+.bp_stats_chips {
+  align-items: center;
+}
+
 .bp_stats_chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  line-height: 1.4;
   border: 1px solid var(--bp-color-border);
   border-radius: var(--bp-radius-pill);
   padding: 0.1rem 0.6rem;
