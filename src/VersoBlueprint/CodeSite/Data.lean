@@ -84,7 +84,7 @@ structure Statement where
   text : String
   /-- The informal proof. -/
   proof : Option String := none
-  /-- A short name for the result, shown before the statement. -/
+  /-- A short name for the result, shown before the statement (Markdown, as the text). -/
   title : Option String := none
   /-- Where the producer found it (for example `tex` or `docstring`); not shown. -/
   source : Option String := none

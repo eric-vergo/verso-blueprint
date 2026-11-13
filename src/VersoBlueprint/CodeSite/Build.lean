@@ -199,10 +199,16 @@ def statementTextBlocks (text : String) (prelude : String := "") : Array (Block 
     | .ok blocks => blocks.map fun b => bpMathBlock prelude (safeBlock b)
     | .error _ => fallback
 
-/-- The blocks of a declaration's informal statement: its title in bold, then the text. -/
+/-- The blocks of a declaration's informal statement: its title in bold (Markdown, as the
+text), then the text. -/
 def statementBlocks (s : Statement) (prelude : String := "") : Array (Block Manual) :=
   let title : Array (Block Manual) := match s.title with
-    | some t => if t.trimAscii.isEmpty then #[] else #[.para #[.bold #[.text t.trimAscii.toString]]]
+    | some t =>
+      if t.trimAscii.isEmpty then #[] else
+      let inls := (statementTextBlocks t prelude).foldl (init := #[]) fun acc b => match b with
+        | .para xs => acc ++ (if acc.isEmpty then #[] else #[.text " "]) ++ xs
+        | _ => acc
+      #[.para #[.bold (if inls.isEmpty then #[.text t.trimAscii.toString] else inls)]]
     | none => #[]
   title ++ statementTextBlocks s.text prelude
 

@@ -86,7 +86,7 @@
       "properties": {
         "text": { "type": "string" },
         "proof": { "description": "The informal proof, in the same form.", "type": ["string", "null"] },
-        "title": { "description": "A short name for the result, shown before the statement.", "type": ["string", "null"] },
+        "title": { "description": "A short name for the result, shown before the statement (Markdown, as the text).", "type": ["string", "null"] },
         "source": { "description": "Where the producer found it (for example tex or docstring); not shown.", "type": ["string", "null"] }
       }
     }
