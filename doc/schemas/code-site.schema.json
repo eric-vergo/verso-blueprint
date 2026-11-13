@@ -26,7 +26,8 @@
         "type": "object", "required": ["name", "signature"],
         "properties": { "name": { "type": "string" }, "signature": { "type": "string" }, "doc": { "type": ["string", "null"] } }
       }
-    }
+    },
+    "texPrelude": { "description": "TeX definitions (\\newcommand lines) put before every formula of the statements, as a written Blueprint's tex_prelude.", "type": "string" }
   },
   "$defs": {
     "position": {
@@ -75,7 +76,18 @@
             "type": "object", "required": ["range", "name"],
             "properties": { "range": { "$ref": "#/$defs/range" }, "name": { "type": "string" }, "isDef": { "type": "boolean" } }
           }
-        }
+        },
+        "statement": { "oneOf": [{ "$ref": "#/$defs/statement" }, { "type": "null" }] }
+      }
+    },
+    "statement": {
+      "description": "A declaration's informal statement as the producer found it (a LaTeX blueprint, a docstring, ...). The texts are Markdown with TeX math between $...$ (inline) and $$...$$ (display); raw HTML in them is shown as text.",
+      "type": "object", "required": ["text"],
+      "properties": {
+        "text": { "type": "string" },
+        "proof": { "description": "The informal proof, in the same form.", "type": ["string", "null"] },
+        "title": { "description": "A short name for the result, shown before the statement.", "type": ["string", "null"] },
+        "source": { "description": "Where the producer found it (for example tex or docstring); not shown.", "type": ["string", "null"] }
       }
     }
   }
