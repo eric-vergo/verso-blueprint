@@ -18,6 +18,14 @@
         "type": "object", "required": ["module", "reason"],
         "properties": { "module": { "type": "string" }, "reason": { "type": "string" } }
       }
+    },
+    "hovers": {
+      "description": "What a reader sees on pointing at a constant the declarations' sources mention: its printed signature and docstring, each constant once.",
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["name", "signature"],
+        "properties": { "name": { "type": "string" }, "signature": { "type": "string" }, "doc": { "type": ["string", "null"] } }
+      }
     }
   },
   "$defs": {
@@ -59,7 +67,15 @@
             "properties": { "name": { "type": "string" }, "kind": { "enum": ["statement", "proof"] } }
           }
         },
-        "external": { "description": "Constants of other packages it uses.", "type": "array", "items": { "type": "string" } }
+        "external": { "description": "Constants of other packages it uses.", "type": "array", "items": { "type": "string" } },
+        "occurrences": {
+          "description": "The constants its source mentions, where (as the module's .ilean file records them); isDef marks the constant's own declaration.",
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["range", "name"],
+            "properties": { "range": { "$ref": "#/$defs/range" }, "name": { "type": "string" }, "isDef": { "type": "boolean" } }
+          }
+        }
       }
     }
   }
