@@ -323,6 +323,60 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     hasComparatorChallenge := challenge.isSome
   }
 
+/-- The compiled-module directories of the project at `root`: its own build, its packages'
+(`.lake/packages/*`) and those `layout` names. -/
+def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
+    IO System.SearchPath := do
+  let mut path : System.SearchPath := layout.libraryDirs.toList.map fun dir : String => root / dir
+  let own := root / ".lake" / "build" / "lib" / "lean"
+  if ← own.isDir then path := path ++ [own]
+  let packages := root / ".lake" / "packages"
+  if ← packages.isDir then
+    for entry in (← packages.readDir).qsort (·.fileName < ·.fileName) do
+      let lib := entry.path / ".lake" / "build" / "lib" / "lean"
+      if ← lib.isDir then path := path ++ [lib]
+  return path
+
+/-- The headline of the project's Comparator challenge, compared as a Blueprint site compares it
+(`Stats.Headline.compute`): the solution module and the challenge's imports are imported from the
+project's build for the comparison alone (only when the project has a challenge), and each judged
+theorem's node is its declaration's. `none` without a challenge; a headline saying why when the
+comparison cannot be made (the challenge not built, the solution's environment not loadable, …).
+-/
+def headlineOf? (root : System.FilePath) (project : Project) (known : NameSet) :
+    IO (Option Stats.Headline) := do
+  let layout ← layoutOf root project
+  let some found ← Stats.ChallengeConfig.find? root layout.sourceDirs | return none
+  let .ok config := found | return none  -- `statsOf` reports an invalid configuration
+  let base : Stats.Headline := {
+    challengeModule := config.challengeModule, solutionModule := config.solutionModule
+    config := config.configFile, permittedAxioms := config.permittedAxioms }
+  let unavailable (why : Stats.Unavailable) (detail : String) : Stats.Headline :=
+    { base with unavailable := some why, unavailableDetail := some detail }
+  let libraryPath ← libraryPathOf root layout
+  let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
+    | return some (unavailable .challengeNotBuilt config.challengeModule.toString)
+  let imports ← match ← (Stats.ChallengeModule.read olean).toBaseIO with
+    | .ok challenge => pure challenge.imports
+    | .error e => return some (unavailable .challengeUnreadable (toString e))
+  let env ← try
+      let sysroot ← match ← IO.getEnv "LEAN_SYSROOT" with
+        | some dir => pure (System.FilePath.mk dir)
+        | none => Lean.findSysroot
+      Lean.initSearchPath sysroot libraryPath
+      let wanted := (#[config.solutionModule] ++ imports).foldl (init := #[]) fun acc m =>
+        if acc.contains m then acc else acc.push m
+      importModules (wanted.map ({ module := · })) {} (loadExts := false)
+    catch e =>
+      return some (unavailable .importsNotAvailable s!"the solution could not be loaded: {e}")
+  let ctx : Core.Context := { fileName := "<code-site>", fileMap := default, maxHeartbeats := 0 }
+  let computed ← ((Stats.Headline.compute config root layout libraryPath).toIO ctx { env }).toBaseIO
+  match computed with
+  | .error e => return some (unavailable .importsNotAvailable (toString e))
+  | .ok (headline, _) =>
+    return some { headline with theorems := headline.theorems.map fun t =>
+      { t with node := t.node <|> if known.contains t.name then some t.name else none } }
+
 /-- The render model of the data's Blueprint state, as `RenderModel.captureJson` captures a
 written Blueprint's. -/
 def modelOf (root : System.FilePath) (project : Project) (state : Environment.State)
