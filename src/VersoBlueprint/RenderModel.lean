@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.Commands.Summary
+import VersoBlueprint.Stats.Collect
 
 open Lean Verso Doc
 open Verso.Genre (Manual)
@@ -21,12 +22,15 @@ structure RenderModel where
   nodes : Array RenderNode := #[]
   graph : Graph.GraphModel := {}
   summary : Commands.Summary := {}
+  /-- What the project is, how big, how far along and what its proofs rest on. -/
+  stats : Stats.ProjectStats := {}
 deriving Inhabited
 
 def RenderModel.fromJsonString! (serialized : String) : RenderModel := Id.run do
-  match Json.parse serialized >>= fromJson? (α := Array RenderNode × Graph.GraphModel × Commands.Summary) with
+  match Json.parse serialized >>=
+      fromJson? (α := Array RenderNode × Graph.GraphModel × Commands.Summary × Stats.ProjectStats) with
   | .error error => panic! s!"Invalid Blueprint render model: {error}"
-  | .ok (nodes, graph, summary) => return { nodes, graph, summary }
+  | .ok (nodes, graph, summary, stats) => return { nodes, graph, summary, stats }
 
 /--
 The serialized render model of the Blueprint state in the current environment: what
@@ -38,7 +42,8 @@ def RenderModel.captureJson : CoreM String := do
   let nodes := TraversalIndex.Nodes.capture state
   let graph := Graph.buildModel state (state.data.toArray.map (·.1)) (groupTitles := state.groups.toArray)
   let summary ← Commands.buildSummary
-  return (toJson (nodes, graph, summary)).compress
+  let stats ← Stats.ProjectStats.capture graph
+  return (toJson (nodes, graph, summary, stats)).compress
 
 /-- Capture runtime data without carrying a Lean environment into the generator. -/
 elab "blueprint_render_model%" : term => do
@@ -50,7 +55,16 @@ elab "blueprint_render_model%" : term => do
 def RenderModel.install (model : RenderModel) (state : TraverseState) : TraverseState :=
   let state := TraversalIndex.Nodes.install state model.nodes
   let state := TraversalIndex.RenderOverviews.saveData state `graph model.graph
-  TraversalIndex.RenderOverviews.saveData state `summary model.summary
+  let state := TraversalIndex.RenderOverviews.saveData state `summary model.summary
+  TraversalIndex.RenderOverviews.saveData state `stats model.stats
+
+/--
+Read the project's files again for the statistics (`Stats.ProjectStats.refreshWorkspace`): the
+model is captured when the generator is compiled, and Lake does not rebuild it when only files
+no Lean module imports change, such as the README or a module the Blueprint does not use.
+-/
+def RenderModel.refreshStats (model : RenderModel) : IO RenderModel := do
+  return { model with stats := ← model.stats.refreshWorkspace }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/
 def RenderModel.withExtensions (model : RenderModel) (impls : ExtensionImpls) : ExtensionImpls :=

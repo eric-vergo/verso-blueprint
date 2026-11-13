@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project-stats.schema.json",
+  "title": "Blueprint project statistics",
+  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 1. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
+  "type": "object",
+  "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
+    "progress", "chapters", "graph", "trust", "headline"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "identity": { "$ref": "#/$defs/identity" },
+    "layout": {
+      "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
+      "type": "object",
+      "required": ["sourceDirs", "libraryDirs"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceDirs": { "$ref": "#/$defs/sortedPaths" },
+        "libraryDirs": { "$ref": "#/$defs/sortedPaths" }
+      }
+    },
+    "modules": {
+      "description": "The project's modules in the checked environment, sorted by name.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "declarations"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "$ref": "#/$defs/name" },
+          "path": { "$ref": "#/$defs/path" },
+          "declarations": { "$ref": "#/$defs/count" }
+        }
+      }
+    },
+    "declarations": {
+      "description": "Declarations of the project's modules by kind; declarations Lean generates (constructors, recursors, projections, equation lemmas, matchers, internal names) are not counted.",
+      "type": "object",
+      "required": ["theorems", "definitions", "instances", "structures", "classes", "inductives",
+        "axioms", "opaques"],
+      "additionalProperties": false,
+      "properties": {
+        "theorems": { "$ref": "#/$defs/count" },
+        "definitions": { "$ref": "#/$defs/count" },
+        "instances": { "$ref": "#/$defs/count" },
+        "structures": { "$ref": "#/$defs/count" },
+        "classes": { "$ref": "#/$defs/count" },
+        "inductives": { "$ref": "#/$defs/count" },
+        "axioms": { "$ref": "#/$defs/count" },
+        "opaques": { "$ref": "#/$defs/count" }
+      }
+    },
+    "sources": {
+      "description": "Every .lean file under the project root outside hidden directories (such as .lake), sorted by path, and the sum of their lines.",
+      "type": "object",
+      "required": ["files", "lines"],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "lines", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "$ref": "#/$defs/path" },
+              "lines": { "$ref": "#/$defs/lineCounts" },
+              "status": {
+                "description": "imported: a module of the environment the site was generated from; compiled: not imported, but a library directory holds its .olean; notBuilt: neither.",
+                "enum": ["imported", "compiled", "notBuilt"]
+              }
+            }
+          }
+        },
+        "lines": { "$ref": "#/$defs/lineCounts" }
+      }
+    },
+    "progress": { "$ref": "#/$defs/progress" },
+    "chapters": {
+      "description": "Progress by chapter (the first directory of the nodes' page addresses), in order of first appearance. Empty until the site's pages are known.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["chapter", "progress"],
+        "additionalProperties": false,
+        "properties": {
+          "chapter": { "type": "string" },
+          "progress": { "$ref": "#/$defs/progress" }
+        }
+      }
+    },
+    "graph": {
+      "description": "The size of the dependency graph; placeholders for unknown references are not nodes.",
+      "type": "object",
+      "required": ["nodes", "statementEdges", "proofEdges", "edges", "groups", "byKind"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": { "$ref": "#/$defs/count" },
+        "statementEdges": { "$ref": "#/$defs/count" },
+        "proofEdges": { "$ref": "#/$defs/count" },
+        "edges": { "description": "Distinct dependent-dependency pairs on either axis.", "$ref": "#/$defs/count" },
+        "groups": { "$ref": "#/$defs/count" },
+        "byKind": {
+          "description": "[kind, count] pairs in the order definition, proposition, lemma, theorem, corollary; kinds without nodes are left out.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "enum": ["definition", "proposition", "lemma", "theorem", "corollary"] },
+              { "$ref": "#/$defs/count" }
+            ],
+            "items": false,
+            "minItems": 2
+          }
+        }
+      }
+    },
+    "trust": {
+      "description": "What the proofs rest on beyond Lean's standard axioms (propext, Classical.choice, Quot.sound), node by node. Lists are sorted by label, then declaration.",
+      "type": "object",
+      "required": ["sorryDirect", "sorryThroughDependency", "extraAxioms", "compilerTrusted",
+        "missingDeclarations", "unknownReferences"],
+      "additionalProperties": false,
+      "properties": {
+        "sorryDirect": { "$ref": "#/$defs/trustEntries" },
+        "sorryThroughDependency": { "$ref": "#/$defs/trustEntries" },
+        "extraAxioms": { "$ref": "#/$defs/trustEntries" },
+        "compilerTrusted": { "$ref": "#/$defs/trustEntries" },
+        "missingDeclarations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "declaration"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "$ref": "#/$defs/name" },
+              "declaration": { "$ref": "#/$defs/name" }
+            }
+          }
+        },
+        "unknownReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "referencedBy"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "$ref": "#/$defs/name" },
+              "referencedBy": { "type": "array", "items": { "$ref": "#/$defs/name" } }
+            }
+          }
+        }
+      }
+    },
+    "headline": {
+      "description": "The project's headline result when one is selected; its shape belongs to the rule that selects it.",
+      "type": ["object", "null"]
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "name": { "description": "A Lean name as Lean prints it, with « » around components that need them.", "type": "string" },
+    "path": { "type": "string", "pattern": "^[^/]" },
+    "sortedPaths": { "type": "array", "items": { "type": "string", "pattern": "^[^/]" } },
+    "nullableString": { "type": ["string", "null"] },
+    "lineCounts": {
+      "description": "Physical lines: whitespace only (blank), comment text only (comment: line comments, nested block comments, docstrings) or anything else (code).",
+      "type": "object",
+      "required": ["blank", "comment", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "blank": { "$ref": "#/$defs/count" },
+        "comment": { "$ref": "#/$defs/count" },
+        "code": { "$ref": "#/$defs/count" }
+      }
+    },
+    "progress": {
+      "description": "Nodes by the dependency graph's fill status.",
+      "type": "object",
+      "required": ["notReady", "ready", "incomplete", "formalized", "formalizedWithAncestors"],
+      "additionalProperties": false,
+      "properties": {
+        "notReady": { "$ref": "#/$defs/count" },
+        "ready": { "$ref": "#/$defs/count" },
+        "incomplete": { "$ref": "#/$defs/count" },
+        "formalized": { "$ref": "#/$defs/count" },
+        "formalizedWithAncestors": { "$ref": "#/$defs/count" }
+      }
+    },
+    "trustEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "declaration", "axioms"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "$ref": "#/$defs/name" },
+          "declaration": { "$ref": "#/$defs/name" },
+          "axioms": {
+            "description": "The axioms that put the declaration on this row.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/name" }
+          }
+        }
+      }
+    },
+    "identity": {
+      "description": "What the files at the project root say: the root package name in lake-manifest.json, the README's first heading and first prose paragraph (plain text), the license file with an SPDX guess (null: no license file), lean-toolchain and the locked packages in manifest order.",
+      "type": "object",
+      "required": ["name", "readme", "title", "description", "license", "toolchain", "packages"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/nullableString" },
+        "readme": { "$ref": "#/$defs/nullableString" },
+        "title": { "$ref": "#/$defs/nullableString" },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "license": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["file", "spdx"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "$ref": "#/$defs/path" },
+                "spdx": { "$ref": "#/$defs/nullableString" }
+              }
+            }
+          ]
+        },
+        "toolchain": { "$ref": "#/$defs/nullableString" },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "source", "rev", "inputRev", "url", "dir", "inherited"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "source": { "enum": ["git", "path"] },
+              "rev": { "$ref": "#/$defs/nullableString" },
+              "inputRev": { "$ref": "#/$defs/nullableString" },
+              "url": { "description": "Without any user name or password.", "$ref": "#/$defs/nullableString" },
+              "dir": { "$ref": "#/$defs/nullableString" },
+              "inherited": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
