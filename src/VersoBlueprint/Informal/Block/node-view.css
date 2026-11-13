@@ -79,6 +79,33 @@ a.bp_node_view_title:hover {
   text-decoration: none;
 }
 
+/* An axiom the node depends on; the ones that limit trust carry a tag. */
+.bp_node_view_axioms code {
+  font-size: 0.95em;
+}
+
+.bp_axiom_none {
+  color: var(--bp-color-text-faint);
+}
+
+.bp_axiom_tag {
+  padding: 0 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.bp_axiom_sorry .bp_axiom_tag {
+  color: var(--bp-color-status-error-text);
+  background: var(--bp-color-tint-error);
+}
+
+.bp_axiom_compiler-trusted .bp_axiom_tag,
+.bp_axiom_other .bp_axiom_tag {
+  color: var(--bp-color-status-warning-text);
+  background: var(--bp-color-tint-warning);
+}
+
 a.bp_node_view_link:hover {
   text-decoration: underline;
 }

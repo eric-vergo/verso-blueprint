@@ -167,4 +167,39 @@ private def capturedAxioms? (label : String) : Option (Array Name) := do
     capturedAxioms? "thm:ax.standard" == some #[``propext, ``Classical.choice, ``Quot.sound] &&
     capturedAxioms? "thm:ax.free" == some #[]
 
+private def viewOf (files : PreviewManifest.Files) (label : String) : String :=
+  ((files.nodeViews.entries.find? (·.label == label)).map (·.html)).getD ""
+
+-- The node views list the axioms with their classes, what limits trust first.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let files ← buildManualPreviewDataFiles manualImpls axiomsDoc
+    let project := viewOf files "«thm:ax.project»"
+    let admittedView := viewOf files "«thm:ax.sorry»"
+    let native := viewOf files "«thm:ax.native»"
+    let standard := viewOf files "«thm:ax.standard»"
+    let free := viewOf files "«thm:ax.free»"
+    let inline := viewOf files "«thm:ax.inline»"
+    let prose := viewOf files "«lem:ax.prose»"
+    pure (
+      hasSubstr project ">Axioms<" &&
+      hasSubstr project "data-bp-axiom-class=\"other\"" &&
+      hasSubstr project "<code>Verso.VersoBlueprintTests.BlueprintAxioms.projectAxiom</code>" &&
+      hasSubstr project "extra axiom" &&
+      hasSubstr admittedView "data-bp-axiom-class=\"sorry\"" && hasSubstr admittedView "<code>sorryAx</code>" &&
+      hasSubstr native "data-bp-axiom-class=\"compiler-trusted\"" &&
+      hasSubstr native "._native.native_decide.ax_" && hasSubstr native "trusts compiled code" &&
+      hasSubstr standard "data-bp-axiom-class=\"standard\"" &&
+      !hasSubstr standard "bp_axiom_tag" &&
+      appearsBefore standard "<code>Classical.choice</code>" "<code>Quot.sound</code>" &&
+      appearsBefore standard "<code>Quot.sound</code>" "<code>propext</code>" &&
+      hasSubstr free ">Axioms<" && hasSubstr free "bp_axiom_none" &&
+      -- a literate declaration counts as the node's own
+      hasSubstr inline "data-bp-axiom-class=\"other\"" &&
+      -- no Lean declaration: nothing is known, no row
+      !hasSubstr prose ">Axioms<"
+    )
+
 end Verso.VersoBlueprintTests.BlueprintAxioms
