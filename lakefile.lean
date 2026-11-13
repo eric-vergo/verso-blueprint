@@ -149,6 +149,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintSideBySide,
     `VersoBlueprintTests.BlueprintSidebar,
     `VersoBlueprintTests.BlueprintStats,
+    `VersoBlueprintTests.BlueprintStatsPage,
     `VersoBlueprintTests.BlueprintStatsRepo,
     `VersoBlueprintTests.BlueprintStatsSource,
     `VersoBlueprintTests.BlueprintSource,
