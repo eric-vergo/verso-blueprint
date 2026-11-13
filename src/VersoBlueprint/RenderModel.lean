@@ -6,7 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.Commands.Summary
-import VersoBlueprint.Stats.Collect
+import VersoBlueprint.Stats.Comparator
 
 open Lean Verso Doc
 open Verso.Genre (Manual)
@@ -42,7 +42,7 @@ def RenderModel.captureJson : CoreM String := do
   let nodes := TraversalIndex.Nodes.capture state
   let graph := Graph.buildModel state (state.data.toArray.map (·.1)) (groupTitles := state.groups.toArray)
   let summary ← Commands.buildSummary
-  let stats ← Stats.ProjectStats.capture graph
+  let stats ← (← Stats.ProjectStats.capture graph).withHeadline
   return (toJson (nodes, graph, summary, stats)).compress
 
 /-- Capture runtime data without carrying a Lean environment into the generator. -/

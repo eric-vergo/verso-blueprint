@@ -405,6 +405,7 @@ private def generateSite (opts : BuildOptions) : IO UInt32 := do
       if opts.resident then
         Resident.run context.workspace context.generatorFile (generatorMainArgs opts).toList
       else
+        buildComparatorChallenge context.workspace
         runGenerator context (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts)
 
 private def serveScript : String := String.intercalate "\n" [

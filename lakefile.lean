@@ -65,9 +65,33 @@ lean_exe «vbp» where
   srcDir := "src"
   supportInterpreter := true
 
+-- Comparator challenges and solutions of the headline tests. Nothing imports a challenge (it
+-- declares the same names as its solution); `BlueprintComparator` reads their compiled modules.
+lean_lib VersoBlueprintComparatorFixtures where
+  srcDir := "tests"
+  roots := #[
+    `VersoBlueprintTests.ComparatorFixtures.Match.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Match.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Sorry.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Sorry.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Statement.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Statement.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Definition.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Definition.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Hole.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Hole.Solution
+  ]
+
 @[default_target, test_driver]
 lean_lib VersoBlueprintTests where
   srcDir := "tests"
+  needs := #[
+    `+VersoBlueprintTests.ComparatorFixtures.Match.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Sorry.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Statement.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Definition.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Hole.Challenge:leanArts
+  ]
   roots := #[
     `VersoBlueprintTests.Blueprint.Support,
     `VersoBlueprintTests.BlueprintAssets,
@@ -85,6 +109,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintImportedContributions.AuthorityReverse,
     `VersoBlueprintTests.BlueprintAutoDeps,
     `VersoBlueprintTests.BlueprintAxioms,
+    `VersoBlueprintTests.BlueprintComparator,
     `VersoBlueprintTests.BlueprintAttribute,
     `VersoBlueprintTests.BlueprintAttribute.OrderRoundtrip,
     `VersoBlueprintTests.BlueprintAttributeRendering,

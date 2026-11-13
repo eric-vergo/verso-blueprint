@@ -23,7 +23,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 1
+def projectStatsSchemaVersion : Nat := 2
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -185,6 +185,99 @@ structure WorkspaceLayout where
   libraryDirs : Array String := #[]
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
+/-- How a declaration of a Comparator challenge compares with the declaration of the same name
+in the solution. -/
+inductive Correspondence where
+  /-- The same declaration: for a theorem the same statement, for anything else the same
+  declaration including its value, and the same for everything its statement uses that the
+  challenge declares. -/
+  | same
+  /-- A definition hole of the challenge (`definition_names`): the solution has the same type and
+  supplies its own value. -/
+  | hole
+  /-- The solution declares it differently (`HeadlineTheorem.difference` says where). -/
+  | differs
+  /-- The solution has no declaration of that name. -/
+  | missing
+  /-- The comparison could not be made (`Headline.unavailable` says why). -/
+  | notCompared
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- Why a Comparator challenge could not be compared with its solution. -/
+inductive Unavailable where
+  /-- `comparator.json` could not be read or does not have the fields `lake comparator` needs. -/
+  | configInvalid
+  /-- No compiled challenge module was found (`lake build` the library that holds it). -/
+  | challengeNotBuilt
+  /-- The compiled challenge module does not match its source (a theorem is not where it was
+  compiled from). -/
+  | challengeOutOfDate
+  /-- The compiled challenge module could not be read. -/
+  | challengeUnreadable
+  /-- The environment the site is generated from does not contain the solution module, so its
+  declarations and their axioms are not known. -/
+  | solutionNotImported
+  /-- The challenge imports a module that the environment of the site does not contain. -/
+  | importsNotAvailable
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- A theorem a Comparator challenge states, and what the solution does with it. -/
+structure HeadlineTheorem where
+  name : Name
+  /-- The docstring the challenge gives the theorem, as written. -/
+  docstring : Option String := none
+  /-- The theorem's statement as written in the challenge source, from its keyword to the end of
+  its signature (`theorem name binders : type`). Empty when the source is not available. -/
+  statement : String := ""
+  solution : Correspondence := .notCompared
+  /-- When `solution` is `differs`: the first declaration found to differ, which is the theorem
+  itself or a declaration of the challenge that its statement uses. -/
+  differingDeclaration : Option Name := none
+  /-- When `solution` is `differs`: how, in a few words. -/
+  difference : Option String := none
+  /-- Whether the solution's declaration is free of `sorry`, directly or through what it uses;
+  unknown when the solution has none. -/
+  sorryFree : Option Bool := none
+  /-- The axioms the solution's declaration depends on (`Data.sortAxioms` order). -/
+  axioms : Array Name := #[]
+  /-- Whether every axiom is in the challenge's permitted list, when it states one. -/
+  axiomsPermitted : Option Bool := none
+  /-- The same statement, proved without `sorry`. -/
+  proved : Bool := false
+  /-- The Blueprint node whose Lean declarations include the theorem. -/
+  node : Option Name := none
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- A declaration a Comparator challenge introduces other than its theorems. -/
+structure HeadlineDefinition where
+  name : Name
+  solution : Correspondence := .notCompared
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The project's headline result: the theorems its Comparator challenge states, compared with the
+solution. The challenge and solution modules follow `lake comparator`: they are named by
+`comparator.json` at the project root, or are `Comparator.Challenge` and `Comparator.Solution`. -/
+structure Headline where
+  challengeModule : Name
+  solutionModule : Name
+  /-- The challenge's source file, relative to the project root, when it was found. -/
+  challengeFile : Option String := none
+  /-- The solution's source file, relative to the project root, when it was found. -/
+  solutionFile : Option String := none
+  /-- `comparator.json` when the challenge is configured by it; none for the default modules. -/
+  config : Option String := none
+  /-- The axioms the challenge permits (`permitted_axioms`), when it states them. -/
+  permittedAxioms : Option (Array Name) := none
+  /-- Why nothing could be compared, when that is so. -/
+  unavailable : Option Unavailable := none
+  /-- The details of `unavailable`: a module name or an error message. -/
+  unavailableDetail : Option String := none
+  /-- The theorems the challenge states, in source order. -/
+  theorems : Array HeadlineTheorem := #[]
+  /-- The other declarations the challenge introduces, in source order. -/
+  definitions : Array HeadlineDefinition := #[]
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
 /-- The statistics of one Blueprint project. -/
 structure ProjectStats where
   schemaVersion : Nat := projectStatsSchemaVersion
@@ -200,9 +293,11 @@ structure ProjectStats where
   chapters : Array ChapterProgress := #[]
   graph : GraphSize := {}
   trust : TrustLedger := {}
-  /-- The project's headline result, when one is selected; its shape belongs to the rule
-  that selects it. -/
-  headline : Option Json := none
+  /-- The project's headline result: its Comparator challenge, when it has one. -/
+  headline : Option Headline := none
+  /-- Whether the project has a Comparator challenge. Pages use it to say, without one, that a
+  challenge would add a headline. -/
+  hasComparatorChallenge : Bool := false
 deriving Inhabited, ToJson, FromJson
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give

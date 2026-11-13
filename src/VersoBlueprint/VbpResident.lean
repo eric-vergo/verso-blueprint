@@ -13,6 +13,7 @@ import Lake.Load.Workspace
 import VersoBlueprint
 import VersoBlueprint.PreviewManifest
 import VersoBlueprint.Resident
+import VersoBlueprint.VbpComparator
 
 /-!
 # Resident build session (`vbp build --resident`)
@@ -362,8 +363,10 @@ def scan (ws : Lake.Workspace) (generatorFile : FilePath) (imports : Array Name)
   let config ← (configFiles ws).mapM fun file => return (file, ← fileHash? file)
   return { generatorHash, modules, config }
 
-/-- Lake builds the generator's imports; load them and the generator. -/
+/-- Lake builds the generator's imports and the Comparator challenge; load the imports and the
+generator. -/
 def load (s : Session) : IO Session := do
+  VersoBlueprint.Vbp.buildComparatorChallenge s.ws
   let setup ← generatorSetup s.ws s.generatorFile
   loadForeignNative s.ws setup
   let generator ← elaborateFile s.generatorFile setup
