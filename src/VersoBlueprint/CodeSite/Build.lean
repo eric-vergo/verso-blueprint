@@ -17,6 +17,7 @@ import VersoBlueprint.Commands.Stats
 import VersoBlueprint.Commands.Summary
 import VersoBlueprint.ExternalDeclRender
 import VersoBlueprint.Informal.Block
+import VersoBlueprint.Math
 import VersoBlueprint.RenderModel
 import VersoBlueprint.Stats.Collect
 import VersoBlueprint.Stats.Comparator
@@ -36,8 +37,10 @@ The data becomes the same two things a written Blueprint gives its generator:
 * a **document** (`documentOf`): a front page, one chapter per module with a node block per
   declaration, the dependency graph and the summary page. Generators add the Project Stats page.
 
-Nodes have no informal statement: the node view and the chapter cards show the Lean side alone.
-Each declaration's card is its module's API entry: the signature and the source excerpt
+A declaration with an informal statement in the data (`Declaration.statement`: Markdown with TeX
+math, from a LaTeX blueprint, a docstring, …) gets it as the node's statement, its informal proof
+below it, so the node view and the chapter card show it beside the Lean side as on a written
+Blueprint; a declaration without one shows the Lean side alone. Each declaration's card is its module's API entry: the signature and the source excerpt
 highlighted (`Informal.CodeSite.Highlight`, with the hovers the data gives), the docstring
 rendered as Markdown, where it is defined (a link to the file on GitHub when the project is a
 GitHub checkout) and a link to its neighbourhood in the dependency graph. A chapter starts with
@@ -150,6 +153,65 @@ def moduleDocBlocks (doc : String) : Array (Block Manual) :=
     | .ok blocks => blocks.map safeBlock
     | .error _ => fallback
 
+/-! ## Informal statements -/
+
+/-- How a statement's Markdown is read: CommonMark with TeX math spans (`$…$`, `$$…$$`), raw
+HTML as text. -/
+def statementFlags : UInt32 :=
+  MD4Lean.MD_DIALECT_COMMONMARK ||| MD4Lean.MD_FLAG_LATEXMATHSPANS ||| MD4Lean.MD_FLAG_NOHTML
+
+/-- The TeX prelude as it goes into the pages' script: angle brackets written as `\lt` and `\gt`,
+so no text in it can end the script element it is embedded in. -/
+def safePrelude (prelude : String) : String :=
+  prelude.foldl (init := "") fun acc c =>
+    if c == '<' then acc ++ "\\lt{}" else if c == '>' then acc ++ "\\gt{}" else acc.push c
+
+/-- `inline` with each formula as Blueprint math (`Informal.Math.Inline.bpMath`, rendered by the
+pages' KaTeX after `prelude`, also in the dependency graph's node view). -/
+partial def bpMathInline (prelude : String) : Inline Manual → Inline Manual
+  | .math mode source =>
+    .other (Informal.Math.Inline.bpMath { mode, source, texPrelude := safePrelude prelude }) #[]
+  | .link inls href => .link (inls.map (bpMathInline prelude)) href
+  | .emph inls => .emph (inls.map (bpMathInline prelude))
+  | .bold inls => .bold (inls.map (bpMathInline prelude))
+  | .concat inls => .concat (inls.map (bpMathInline prelude))
+  | i => i
+
+/-- `block` with `bpMathInline` applied to its text. -/
+partial def bpMathBlock (prelude : String) : Block Manual → Block Manual
+  | .para inls => .para (inls.map (bpMathInline prelude))
+  | .blockquote bs => .blockquote (bs.map (bpMathBlock prelude))
+  | .ul items => .ul (items.map fun i => ⟨i.contents.map (bpMathBlock prelude)⟩)
+  | .ol n items => .ol n (items.map fun i => ⟨i.contents.map (bpMathBlock prelude)⟩)
+  | .concat bs => .concat (bs.map (bpMathBlock prelude))
+  | b => b
+
+/-- A statement's Markdown text as document blocks, so the page renders its math (after the TeX
+definitions `prelude`) and its search indexes it; the text in a code block when it has Markdown
+that Verso does not read (tables, …). -/
+def statementTextBlocks (text : String) (prelude : String := "") : Array (Block Manual) :=
+  let fallback : Array (Block Manual) := #[.code text]
+  match MD4Lean.parse text statementFlags with
+  | none => fallback
+  | some md =>
+    match md.blocks.mapM (Verso.Genre.Manual.Markdown.blockFromMarkdown'
+        (handleHeaders := Verso.Genre.Manual.Markdown.strongEmphHeaders')) with
+    | .ok blocks => blocks.map fun b => bpMathBlock prelude (safeBlock b)
+    | .error _ => fallback
+
+/-- The blocks of a declaration's informal statement: its title in bold, then the text. -/
+def statementBlocks (s : Statement) (prelude : String := "") : Array (Block Manual) :=
+  let title : Array (Block Manual) := match s.title with
+    | some t => if t.trimAscii.isEmpty then #[] else #[.para #[.bold #[.text t.trimAscii.toString]]]
+    | none => #[]
+  title ++ statementTextBlocks s.text prelude
+
+/-- The blocks of a declaration's informal proof, if it has one. -/
+def proofBlocks? (s : Statement) (prelude : String := "") : Option (Array (Block Manual)) := do
+  let p ← s.proof
+  guard !p.trimAscii.isEmpty
+  return statementTextBlocks p prelude
+
 /-! ## The Blueprint state -/
 
 /-- What rendering the declarations needs besides their data. -/
@@ -219,20 +281,23 @@ def externalRef (m : Module) (decl : Declaration) (text? : Option String)
 /-- The node of a declaration. Only uses of declarations in `known` become dependencies; a use
 that is a statement use is not repeated as a proof use. -/
 def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : NameSet)
-    (ctx : RenderContext := {}) : Data.Node :=
+    (ctx : RenderContext := {}) (prelude : String := "") : Data.Node :=
   let useRef (u : Use) : Data.UseRef := { label := u.name, origin := .automatic }
   let uses := decl.uses.filter fun u => known.contains u.name && u.name != decl.name
   let statementUses := uses.filter (·.kind == "statement") |>.map useRef
   let proofUses := uses.filter (·.kind != "statement") |>.map useRef
     |>.filter fun u => !statementUses.any (·.label == u.label)
   let kind := nodeKind decl.kind
-  let body (deps : Array Data.UseRef) : Data.InformalData :=
-    { stx := .missing, useDeclarations := deps }
+  let body (deps : Array Data.UseRef) (blocks : Array (Block Manual) := #[]) : Data.InformalData :=
+    { stx := .missing, previewBlocks := blocks, useDeclarations := deps }
+  let proofText? := decl.statement.bind (proofBlocks? · prelude)
   {
     kind
     kindIsExplicit := true
-    statement := some (body statementUses)
-    proof := if kind.isTheoremLike || !proofUses.isEmpty then some (body proofUses) else none
+    statement := some (body statementUses ((decl.statement.map (statementBlocks · prelude)).getD #[]))
+    proof := if kind.isTheoremLike || !proofUses.isEmpty || proofText?.isSome then
+        some (body proofUses (proofText?.getD #[]))
+      else none
     externalRefs := #[externalRef m decl text? ctx]
     parent := some (moduleGroup m.module)
   }
@@ -248,7 +313,7 @@ def stateOf (project : Project) (sources : Name → Option String) (ctx : Render
     state := { state with groups := state.groups.insert (moduleGroup m.module) m.module.toString }
     for decl in m.declarations do
       if state.data.contains decl.name then continue
-      let node := { nodeOf m decl (sources m.module) known ctx with count }
+      let node := { nodeOf m decl (sources m.module) known ctx project.texPrelude with count }
       state := { state with
         data := state.data.insert decl.name { toNode := node, origin := m.module,
                                               modules := #[m.module] }
@@ -414,11 +479,19 @@ private def moduleList (modules : Array Name) : Block Manual :=
 /-- The front page: what the site is, and what it leaves out. -/
 def frontMatter (project : Project) : Array (Block Manual) := Id.run do
   let decls := project.modules.foldl (·  + ·.declarations.size) 0
+  let stated := project.modules.foldl (init := 0) fun n m =>
+    n + (m.declarations.filter (·.statement.isSome)).size
+  let statements := if stated == 0 then
+      "; there are no informal statements, so every node shows its Lean side."
+    else if stated == decls then
+      "; every node shows its informal statement beside its Lean side."
+    else
+      s!"; {stated} of them have an informal statement, shown beside the Lean side, the \
+        others show their Lean side alone."
   let mut blocks := #[
     para #[.text s!"This site was generated from the compiled Lean code: {decls} declarations \
       in {project.modules.size} modules, one chapter per module. Each declaration is a node \
-      of the ", .link #[.text "dependency graph"] "Dependency-Graph/",
-      .text "; there are no informal statements, so every node shows its Lean side."]]
+      of the ", .link #[.text "dependency graph"] "Dependency-Graph/", .text statements]]
   if let some toolchain := project.toolchain then
     blocks := blocks.push (para #[.text "Toolchain: ", .code toolchain])
   unless project.unbuilt.isEmpty do
@@ -431,19 +504,30 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
       ⟨#[para #[.code s.module.toString, .text s!": {s.reason}"]]⟩)
   return blocks
 
-/-- The search entries of a declaration (`Block.declSearch`): its name, signature and docstring. -/
+/-- The search entries of a declaration (`Block.declSearch`): its name, signature, docstring and
+informal statement. -/
 def declSearchBlock (d : Declaration) : Block Manual :=
   let text := #[para #[.code d.shownName.toString], para #[.code d.signature]] ++
-    (d.doc.map fun doc => #[para #[.text doc]]).getD #[]
+    (d.doc.map fun doc => #[para #[.text doc]]).getD #[] ++
+    (d.statement.map fun s => #[para #[.text s.text]]).getD #[]
   .other (Block.declSearch d.name) text
 
+/-- A declaration's node blocks: the statement block (its informal statement as contents, empty
+without one) and, when the statement has an informal proof, the proof block. -/
+def nodeBlocks (d : Declaration) (prelude : String := "") : Array (Block Manual) :=
+  let statement := (d.statement.map (statementBlocks · prelude)).getD #[]
+  let proof := (d.statement.bind (proofBlocks? · prelude)).map fun blocks =>
+    #[.other (Informal.Block.informal { label := d.name, count := 0, isProof := true }) blocks]
+  #[.other (Informal.Block.informal { label := d.name, count := 0 }) statement] ++ proof.getD #[]
+
 /-- A module's page: where its source is, its module docstrings (`text?`, its source text), and
-for each declaration its search entries and its node block. -/
-def moduleChapter (m : Module) (text? : Option String := none) : Part Manual :=
+for each declaration its search entries and its node blocks (formulas after `prelude`). -/
+def moduleChapter (m : Module) (text? : Option String := none) (prelude : String := "") :
+    Part Manual :=
   let intro := if m.source.isEmpty then #[] else #[para #[.text "Source: ", .code m.source]]
   let docs := (text?.map moduleDocs).getD #[] |>.flatMap moduleDocBlocks
   let nodes : Array (Block Manual) := m.declarations.flatMap fun d =>
-    #[declSearchBlock d, .other (Informal.Block.informal { label := d.name, count := 0 }) #[]]
+    #[declSearchBlock d] ++ nodeBlocks d prelude
   { title := #[.code m.module.toString]
     titleString := m.module.toString
     metadata := none
@@ -461,7 +545,7 @@ built with the Graphviz program `layoutProgram` when one is given) and the summa
 def documentOf (title : String) (project : Project) (layoutProgram : Option String := none)
     (sources : Name → Option String := fun _ => none) : Part Manual :=
   let chapters := project.modules.filter (!·.declarations.isEmpty) |>.map fun m =>
-    moduleChapter m (sources m.module)
+    moduleChapter m (sources m.module) project.texPrelude
   let decls := project.modules.foldl (· + ·.declarations.size) 0
   let initialView := if decls > moduleViewThreshold then some Graph.groupVariantKey else none
   let graph := pagePart "Dependency Graph"
