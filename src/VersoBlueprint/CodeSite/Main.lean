@@ -13,11 +13,14 @@ import VersoBlueprint.PreviewManifest
 
 ```
 vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>]
+              [--graphviz <program> | --no-graph-layout]
               [--no-stats-page] [--reproducible] [--verbose]
 ```
 
 `--root` is the project the data describes (default: the working directory): the source
-excerpts and the Project Stats page read its files. The site is written as a generator writes
+excerpts and the Project Stats page read its files. The dependency graph's views are laid out
+while the site is built with Graphviz's `dot` (`--graphviz` names another program; without one
+on the `PATH`, or with `--no-graph-layout`, the page lays them out). The site is written as a generator writes
 it (`<output>/html-multi`, default `_out/site`), with the left navigation bar and side-by-side
 node cards.
 -/
@@ -31,6 +34,9 @@ structure Options where
   data : Option FilePath := none
   root : Option FilePath := none
   title : Option String := none
+  /-- The Graphviz program the graph is laid out with while the site is built (`none`: the page
+  lays it out). -/
+  graphviz : Option String := some "dot"
   /-- Everything else, passed on to the generator (`--output`, `--no-stats-page`, …). -/
   rest : Array String := #[]
 deriving Inhabited
@@ -38,7 +44,7 @@ deriving Inhabited
 /-- The usage line. -/
 def usage : String :=
   "vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>] " ++
-  "[--no-stats-page] [--reproducible] [--verbose]"
+  "[--graphviz <program> | --no-graph-layout] [--no-stats-page] [--reproducible] [--verbose]"
 
 /-- Parse the command line. -/
 partial def parseOptions : List String → Options → Except String Options
@@ -46,10 +52,13 @@ partial def parseOptions : List String → Options → Except String Options
   | "--data" :: file :: args, opts => parseOptions args { opts with data := some file }
   | "--root" :: dir :: args, opts => parseOptions args { opts with root := some dir }
   | "--title" :: text :: args, opts => parseOptions args { opts with title := some text }
+  | "--graphviz" :: program :: args, opts =>
+    parseOptions args { opts with graphviz := some program }
+  | "--no-graph-layout" :: args, opts => parseOptions args { opts with graphviz := none }
   | "--output" :: dir :: args, opts =>
     parseOptions args { opts with rest := opts.rest ++ #["--output", dir] }
   | flag :: args, opts =>
-    if flag ∈ ["--data", "--root", "--title", "--output"] then .error s!"missing value after {flag}"
+    if flag ∈ ["--data", "--root", "--title", "--output", "--graphviz"] then .error s!"missing value after {flag}"
     else if flag ∈ [Informal.Commands.noStatsPageFlag, Informal.PreviewManifest.reproducibleFlag,
         "--verbose"] then
       parseOptions args { opts with rest := opts.rest.push flag }
@@ -69,14 +78,15 @@ def load (data root : FilePath) : IO (Project × Std.HashMap Lean.Name String) :
 
 /-- Generate the site of the data at `data` for the project at `root`; `args` are the
 generator's own flags. -/
-def generate (data root : FilePath) (title? : Option String) (args : List String) : IO UInt32 := do
+def generate (data root : FilePath) (title? : Option String) (args : List String)
+    (graphviz : Option String := some "dot") : IO UInt32 := do
   let root ← try IO.FS.realPath root catch _ => pure root
   let (project, sources) ← load data root
   let project := { project with title := title? <|> project.title }
   let state := stateOf project sources.get?
   let model ← modelOf root project state
   let title := titleOf root project model.stats.identity
-  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project) args
+  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project graphviz) args
     (extensionImpls := by exact extension_impls%) (model := model)
     -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
     (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
@@ -90,9 +100,9 @@ def main (args : List String) : IO UInt32 := do
   match parseOptions args {} with
   | .error e => IO.eprintln e; IO.eprintln usage; return 2
   | .ok { data := none, .. } => IO.eprintln "missing --data <file>"; IO.eprintln usage; return 2
-  | .ok { data := some data, root, title, rest } =>
+  | .ok { data := some data, root, title, graphviz, rest } =>
     let root := root.getD (← IO.currentDir)
-    try generate data root title rest.toList
+    try generate data root title rest.toList graphviz
     catch e => IO.eprintln s!"vbp code-site: {e}"; return 1
 
 end Informal.CodeSite

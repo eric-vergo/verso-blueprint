@@ -12,6 +12,7 @@ import VersoBlueprint.Commands.SerializedExtension
 import VersoBlueprint.Environment
 import VersoBlueprint.Graph
 import VersoBlueprint.GraphApi
+import VersoBlueprint.GraphLayout
 import VersoBlueprint.Lib.HoverRender
 import VersoBlueprint.Lib.HtmlId
 import VersoBlueprint.Lib.ExtensionDecode
@@ -54,6 +55,9 @@ structure GraphBlockData where
   previewPlacement : Informal.HoverRender.PreviewPlacement := .docked
   /-- The view shown first (a variant key such as `group`), when it is not the full graph. -/
   initialView : Option String := none
+  /-- Lay every view out while the site is built, with this Graphviz `dot` program
+  (`Informal.GraphLayout`); `none` leaves the layout to the page. -/
+  layoutProgram : Option String := none
 deriving Inhabited, FromJson, ToJson
 
 /-- Custom graphs supply a model; project graphs use the initialized rendering registry. -/
@@ -109,6 +113,18 @@ private def graphToHtml
           Verso.reportError message
           pure none
       let some publicGraphData := publicGraphData? | pure .empty
+      let publicGraphData ← match graphData.layoutProgram with
+        | none => pure publicGraphData
+        | some program => do
+          if !(← Informal.GraphLayout.available program) then
+            Verso.reportWarning s!"Blueprint graph: no Graphviz `{program}`; the page lays the graph out"
+            pure publicGraphData
+          else
+            let (layouts, skipped) ←
+              Informal.GraphLayout.layoutVariants { program } publicGraphData.variants
+            for why in skipped do
+              Verso.reportWarning s!"Blueprint graph: left to the page's layout: {why}"
+            pure (publicGraphData.withLayouts layouts)
       let publicGraphDataJson : String := Lean.Json.compress (toJson publicGraphData)
       let graphVariants := publicGraphData.variants
       let hasGroupVariant := graphVariants.any (fun variant => variant.key == groupVariantKey)
