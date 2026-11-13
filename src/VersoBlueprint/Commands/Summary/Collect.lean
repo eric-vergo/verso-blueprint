@@ -701,20 +701,16 @@ private def collectTagRollups (ctx : SummaryBuildContext) : List TagRollupItem :
       }
   (sortTagRollupItems (rollups.toArray.map fun pair => pair.2)).toList
 
-def buildSummary : CoreM Summary := do
-  reportImportedConflicts
-  let showDebugDiagnostics :=
-    (← getOptions).get
-      verso.blueprint.summary.debugDiagnostics.name
-      verso.blueprint.summary.debugDiagnostics.defValue
-  let env ← getEnv
-  let state := informalExt.getState env
+/-- The summary of a Blueprint state. Generators that assemble a state without a Lean
+environment (a site generated from compiled code) use it directly; `buildSummary` reads the
+state of the current environment. -/
+def summaryOfState (state : Environment.State) (showDebugDiagnostics : Bool := false) : Summary :=
   let ctx := mkSummaryBuildContext state
   let summary := collectSummaryOverview ctx
   let actionableItems := collectActionableItems ctx
   let actionablePriorities := actionableItems.filter (·.downstreamUses > 0)
   let metadataAudit := collectMetadataAudit ctx
-  return {
+  {
     summary with
       showDebugDiagnostics := showDebugDiagnostics
       theoremLikeByParent := collectTheoremLikeByParent ctx
@@ -736,5 +732,14 @@ def buildSummary : CoreM Summary := do
       missingEffort := metadataAudit.sortedMissingEffort
       untaggedEntries := metadataAudit.sortedUntaggedEntries
   }
+
+/-- The summary of the Blueprint state of the current environment. -/
+def buildSummary : CoreM Summary := do
+  reportImportedConflicts
+  let showDebugDiagnostics :=
+    (← getOptions).get
+      verso.blueprint.summary.debugDiagnostics.name
+      verso.blueprint.summary.debugDiagnostics.defValue
+  return summaryOfState (informalExt.getState (← getEnv)) showDebugDiagnostics
 
 end Informal.Commands
