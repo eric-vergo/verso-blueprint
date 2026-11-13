@@ -1816,6 +1816,38 @@ says which stage is next, shows the beginning of the node's statement (about
 three lines), and lists under "needs:" the direct dependencies of that stage
 that are not formalized yet.
 
+### Project statistics
+
+Every render model carries project statistics (`Informal.Stats.ProjectStats`),
+the numbers a first-time reader of a project looks for. They are captured with
+the rest of the model and saved as the traversal's `stats` overview; their JSON
+form is described in `doc/schemas/project-stats.schema.json`.
+
+- **Identity**: the root package name from `lake-manifest.json`, the first
+  heading and first prose paragraph of the README, the license file with a
+  guess of its SPDX identifier (no license file: the field is empty), the
+  `lean-toolchain` and the locked package revisions.
+- **Size**: the project's modules (environment modules whose source lies under
+  the project root and outside `.lake`), their declarations by kind (theorems,
+  definitions, instances, structures, classes, inductives, axioms, opaques;
+  generated declarations are not counted), and every `.lean` file under the
+  root with its blank, comment and code lines. Comments include nested block
+  comments and docstrings.
+- **Build**: each file is either imported by the generator, compiled by
+  another build target, or in no build.
+- **Progress**: nodes by the dependency graph's fill status, for the whole
+  project and per chapter (the first directory of the nodes' page addresses).
+- **Trust**: declarations with a `sorry` of their own or through a dependency,
+  with axioms outside Lean's standard three, or with proofs that trust compiled
+  code (`native_decide`), plus Lean names that are missing and labels nobody
+  defines.
+
+The statistics hold no version-control data, and every path in them is
+relative to the project root, so they do not change between `--reproducible`
+builds of the same files. The generator reads the project's files again when it
+runs, so README, license and source edits that no Lean module imports still
+reach the statistics without a rebuild of the generator.
+
 ### Bibliography page
 
 `blueprint_bibliography` renders the bibliography entries

@@ -307,4 +307,52 @@ info: [("Two", 1, 1, 2), ("One", 0, 1, 1)]
       (c.chapter, c.progress.formalizedWithAncestors, c.progress.total - c.progress.formalizedWithAncestors,
         c.progress.total)
 
+-- The written schema (`doc/schemas/project-stats.schema.json`) names exactly the fields the
+-- JSON has, at every level of a filled-in example, and the same version.
+
+/-- `s` with a local `$ref` resolved against `root`. -/
+private def resolveRef (root s : Json) : Json :=
+  match s.getObjValAs? String "$ref" with
+  | .ok ref =>
+    (ref.drop 2).copy.splitOn "/" |>.foldl (init := root) fun j key => (j.getObjVal? key).toOption.getD .null
+  | .error _ => s
+
+/-- Check that every object of `v` has exactly the `required` fields of its schema `s`. -/
+private partial def schemaFieldsAgree (root s v : Json) (at_ : String := "") : Except String Unit := do
+  let s := resolveRef root s
+  if let .ok (.arr alternatives) := s.getObjVal? "oneOf" then
+    if alternatives.any (fun alt => (schemaFieldsAgree root alt v at_).toBool) then return
+    throw s!"{at_}: no alternative fits"
+  match v with
+  | .obj fields =>
+    let some props := (s.getObjVal? "properties").toOption | return
+    let required ← match s.getObjVal? "required" with
+      | .ok (.arr names) => names.mapM fun n => match n with
+        | .str n => pure n
+        | _ => throw s!"{at_}: bad required"
+      | _ => throw s!"{at_}: no required list"
+    let keys := fields.toArray.map (·.1)
+    unless keys.qsort (· < ·) == required.qsort (· < ·) do
+      throw s!"{at_}: fields {keys} but the schema requires {required}"
+    for (key, value) in fields do
+      schemaFieldsAgree root ((props.getObjVal? key).toOption.getD .null) value s!"{at_}.{key}"
+  | .arr items =>
+    if let .ok item := s.getObjVal? "items" then
+      for value in items do schemaFieldsAgree root item value s!"{at_}[]"
+  | _ => return
+
+/-- info: (true, true) -/
+#guard_msgs in
+#eval show IO _ from do
+  let schema ← IO.ofExcept <| Json.parse (← IO.FS.readFile "doc/schemas/project-stats.schema.json")
+  let sample := stats.withChapters #[graphNode "a" (some "/One/#a") .ready]
+  let sample := { sample with
+    identity := { sample.identity with license := some { file := "LICENSE", spdx := some "MIT" } }
+    trust := { sample.trust with missingDeclarations := #[{ label := `l, declaration := `d }] } }
+  let version := (schema.getObjVal? "properties" >>= (·.getObjVal? "schemaVersion") >>=
+    (·.getObjValAs? Nat "const")).toOption
+  let agree := (schemaFieldsAgree schema schema (toJson sample)).toBool &&
+    (schemaFieldsAgree schema schema (toJson ({} : ProjectStats))).toBool
+  return (agree, version == some projectStatsSchemaVersion)
+
 end Verso.VersoBlueprintTests.BlueprintStats
