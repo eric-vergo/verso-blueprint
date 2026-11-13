@@ -76,7 +76,28 @@ structure Declaration where
   uses : Array Use := #[]
   /-- Constants of other packages it uses. -/
   external : Array Name := #[]
-deriving Inhabited, Repr, ToJson, FromJson
+deriving Inhabited, Repr, ToJson
+
+/-- The field `k` of `j`, or `d` when it is absent or `null`. -/
+def fieldD [FromJson α] (j : Json) (k : String) (d : α) : Except String α :=
+  match j.getObjVal? k with
+  | .ok .null | .error _ => pure d
+  | .ok v => fromJson? v |>.mapError (s!"{k}: " ++ ·)
+
+/-- An optional field of `j`. -/
+def fieldO [FromJson α] (j : Json) (k : String) : Except String (Option α) :=
+  fieldD j k none
+
+instance : FromJson Declaration where
+  fromJson? j := do
+    return {
+      name := ← j.getObjValAs? Name "name", kind := ← j.getObjValAs? String "kind"
+      display := ← fieldO j "display", isPrivate := ← fieldD j "isPrivate" false
+      range := ← fieldO j "range", selection := ← fieldO j "selection"
+      signature := ← fieldD j "signature" "", doc := ← fieldO j "doc"
+      status := ← fieldD j "status" "proved", axioms := ← fieldD j "axioms" #[]
+      attrs := ← fieldD j "attrs" #[], uses := ← fieldD j "uses" #[]
+      external := ← fieldD j "external" #[] }
 
 /-- The declarations of one module, in source order. -/
 structure Module where
@@ -84,7 +105,14 @@ structure Module where
   /-- The module's source file relative to the project root (empty when unknown). -/
   source : String := ""
   declarations : Array Declaration := #[]
-deriving Inhabited, Repr, ToJson, FromJson
+deriving Inhabited, Repr, ToJson
+
+instance : FromJson Module where
+  fromJson? j := do
+    let module ← j.getObjValAs? Name "module"
+    let declarations ← (fieldD j "declarations" #[] : Except String (Array Declaration))
+      |>.mapError (s!"{module}: " ++ ·)
+    return { module, source := ← fieldD j "source" "", declarations }
 
 /-- A module left out of the data, with the reason. -/
 structure Skipped where
@@ -103,15 +131,22 @@ structure Project where
   /-- Source modules without build output: their declarations are not in the data. -/
   unbuilt : Array Name := #[]
   skipped : Array Skipped := #[]
-deriving Inhabited, Repr, ToJson, FromJson
+deriving Inhabited, Repr, ToJson
+
+instance : FromJson Project where
+  fromJson? j := do
+    return {
+      format := ← j.getObjValAs? String "format", title := ← fieldO j "title"
+      toolchain := ← fieldO j "toolchain", modules := ← fieldD j "modules" #[]
+      unbuilt := ← fieldD j "unbuilt" #[], skipped := ← fieldD j "skipped" #[] }
 
 /-- Parse the input file's text. -/
 def Project.parse (text : String) : Except String Project := do
   let json ← Json.parse text
-  let project ← fromJson? (α := Project) json
-  unless project.format == formatTag do
-    throw s!"expected format {formatTag}, found {project.format}"
-  return project
+  let format ← json.getObjValAs? String "format"
+  unless format == formatTag do
+    throw s!"expected format {formatTag}, found {format}"
+  fromJson? (α := Project) json
 
 /-! ## How declarations become nodes -/
 
