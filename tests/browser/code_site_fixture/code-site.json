@@ -1,0 +1,184 @@
+{
+ "format": "verso-blueprint-code-1",
+ "title": "Code site fixture",
+ "modules": [
+  {
+   "module": "Demo.A",
+   "source": "Demo/A.lean",
+   "declarations": [
+    {
+     "name": "Demo.a",
+     "display": "a",
+     "kind": "def",
+     "signature": "def Demo.a : Nat",
+     "doc": "The constant `a`.",
+     "range": {
+      "start": {
+       "line": 4,
+       "character": 0
+      },
+      "end": {
+       "line": 5,
+       "character": 16
+      }
+     },
+     "selection": {
+      "start": {
+       "line": 5,
+       "character": 4
+      },
+      "end": {
+       "line": 5,
+       "character": 5
+      }
+     },
+     "occurrences": [
+      {
+       "range": {
+        "start": {
+         "line": 5,
+         "character": 8
+        },
+        "end": {
+         "line": 5,
+         "character": 11
+        }
+       },
+       "name": "Nat"
+      },
+      {
+       "range": {
+        "start": {
+         "line": 5,
+         "character": 4
+        },
+        "end": {
+         "line": 5,
+         "character": 5
+        }
+       },
+       "name": "Demo.a",
+       "isDef": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "module": "Demo.B",
+   "source": "Demo/B.lean",
+   "declarations": [
+    {
+     "name": "Demo.b",
+     "kind": "theorem",
+     "signature": "theorem Demo.b : Demo.a = Demo.a",
+     "range": {
+      "start": {
+       "line": 0,
+       "character": 0
+      },
+      "end": {
+       "line": 0,
+       "character": 24
+      }
+     },
+     "uses": [
+      {
+       "name": "Demo.a",
+       "kind": "statement"
+      }
+     ],
+     "occurrences": [
+      {
+       "range": {
+        "start": {
+         "line": 0,
+         "character": 12
+        },
+        "end": {
+         "line": 0,
+         "character": 13
+        }
+       },
+       "name": "Demo.a"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "module": "Demo.C",
+   "source": "Demo/C.lean",
+   "declarations": [
+    {
+     "name": "Demo.c",
+     "kind": "theorem",
+     "signature": "theorem Demo.c : Demo.a = Demo.a",
+     "range": {
+      "start": {
+       "line": 0,
+       "character": 0
+      },
+      "end": {
+       "line": 0,
+       "character": 23
+      }
+     },
+     "uses": [
+      {
+       "name": "Demo.a",
+       "kind": "statement"
+      },
+      {
+       "name": "Demo.b",
+       "kind": "proof"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "module": "Demo.Some.Very.Long.Module.Name.ForTheSidebar",
+   "source": "Demo/Some/Very/Long/Module/Name/ForTheSidebar.lean",
+   "declarations": [
+    {
+     "name": "Demo.d",
+     "kind": "theorem",
+     "signature": "theorem Demo.d : Demo.a = Demo.a",
+     "range": {
+      "start": {
+       "line": 0,
+       "character": 0
+      },
+      "end": {
+       "line": 0,
+       "character": 23
+      }
+     },
+     "uses": [
+      {
+       "name": "Demo.a",
+       "kind": "statement"
+      },
+      {
+       "name": "Demo.c",
+       "kind": "proof"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "hovers": [
+  {
+   "name": "Nat",
+   "signature": "Nat : Type",
+   "doc": "The natural numbers."
+  },
+  {
+   "name": "Demo.a",
+   "signature": "Demo.a : Nat",
+   "doc": "The constant `a`."
+  }
+ ]
+}
