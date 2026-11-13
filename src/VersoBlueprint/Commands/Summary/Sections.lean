@@ -40,11 +40,13 @@ private def summaryOverviewSection (data : Summary) (rows : SummaryRows) : Outpu
         {{summaryCard
             "Ready now"
             (toString data.coverageSplit.readyToFormalize)
-            (Option.some actionableEntryDescription)}}
+            (Option.some actionableEntryDescription)
+            (accent? := StatusColors.readyBorder)}}
         {{summaryCard
             "Fully closed"
             (toString data.coverageSplit.fullyClosed)
-            (Option.some "Local code and prerequisite closure are both complete.")}}
+            (Option.some "Local code and prerequisite closure are both complete.")
+            (accent? := StatusColors.formalizedWithAncestors)}}
         {{summaryCard
             "Actionable priorities"
             (toString data.actionablePriorities.length)
@@ -330,22 +332,26 @@ private def summaryStructureSection (data : Summary) (rows : SummaryRows) : Outp
               (data.coverageSplit.readyToFormalize > 0)
               "Ready to formalize"
               (toString data.coverageSplit.readyToFormalize)
-              (Option.some actionableEntryDescription)}}
+              (Option.some actionableEntryDescription)
+              (accent? := StatusColors.readyBorder)}}
           {{summaryOptionalCard
               (data.coverageSplit.formalizedWithoutAncestors > 0)
               "Formalized, ancestors open"
               (toString data.coverageSplit.formalizedWithoutAncestors)
-              (Option.some "Local Lean work is done, but prerequisite closure is still open.")}}
+              (Option.some "Local Lean work is done, but prerequisite closure is still open.")
+              (accent? := StatusColors.formalizedBorder)}}
           {{summaryOptionalCard
               (data.coverageSplit.fullyClosed > 0)
               "Fully closed"
               (toString data.coverageSplit.fullyClosed)
-              (Option.some "Local code and ancestor closure are both complete.")}}
+              (Option.some "Local code and ancestor closure are both complete.")
+              (accent? := StatusColors.formalizedWithAncestors)}}
           {{summaryOptionalWarnCard
               (data.coverageSplit.blockedOrIncomplete > 0)
               "Blocked or incomplete"
               (toString data.coverageSplit.blockedOrIncomplete)
-              (Option.some "Entries not covered by the highlighted readiness buckets above.")}}
+              (Option.some "Entries not covered by the highlighted readiness buckets above.")
+              (accent? := StatusColors.blockedBorder)}}
         </div>
         {{summaryOptionalCappedDetailsList
             showHeaviestPrerequisites

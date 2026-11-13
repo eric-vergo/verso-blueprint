@@ -115,3 +115,90 @@ class TestDarkThemeRuntime:
         link = measure(page, "#toc a")
         assert link["bgLum"] < 0.05, link
         assert link["ratio"] >= MIN_CONTRAST, link
+
+
+# Per rendered status node of the dependency graph: its fill, border and label colours, the
+# status tokens they should come from, and the label's contrast against the fill. Status classes
+# name their tokens: `bp_graph_status_ready` -> `--bp-color-status-ready`,
+# `bp_graph_statement_ready` -> `--bp-color-status-ready-border`.
+GRAPH_NODE_REPORTS = """
+() => {
+""" + COLOR_HELPERS + """
+  const probe = document.createElement('span');
+  document.body.appendChild(probe);
+  const tokenColor = (name) => {
+    probe.style.color = 'var(' + name + ')';
+    return parse(getComputedStyle(probe).color);
+  };
+  const graphBg = document.querySelector('.bp_graph_canvas svg g.graph > polygon');
+  const bg = graphBg ? parse(getComputedStyle(graphBg).fill) : null;
+  const out = [];
+  for (const node of document.querySelectorAll('.bp_graph_canvas svg g.node')) {
+    const fillClass = [...node.classList].find((c) => c.startsWith('bp_graph_status_'));
+    if (!fillClass) continue;
+    const borderClass = [...node.classList].find((c) => c.startsWith('bp_graph_statement_'));
+    const shape = node.querySelector('ellipse, polygon, path');
+    const text = node.querySelector('text');
+    if (!shape || !text) continue;
+    const fill = parse(getComputedStyle(shape).fill);
+    const stroke = parse(getComputedStyle(shape).stroke);
+    const ink = parse(getComputedStyle(text).fill);
+    const fillToken = '--bp-color-status-' + fillClass.slice('bp_graph_status_'.length).replace(/_/g, '-');
+    const borderToken = borderClass
+      ? '--bp-color-status-' + borderClass.slice('bp_graph_statement_'.length).replace(/_/g, '-') + '-border'
+      : fillToken + '-border';
+    out.push({
+      node: node.id, fillClass, borderClass, fill, stroke, ink, bg,
+      fillToken: tokenColor(fillToken), borderToken: tokenColor(borderToken),
+      labelRatio: contrast(ink, fill), borderRatio: bg ? contrast(stroke, bg) : null,
+    });
+  }
+  probe.remove();
+  return out;
+}
+"""
+
+MIN_BORDER_CONTRAST = 3.0
+
+
+def same_rgb(a: dict, b: dict) -> bool:
+    return all(abs(a[k] - b[k]) < 1 for k in ("r", "g", "b"))
+
+
+def graph_node_reports(page: Page, server: str, scheme: str) -> list[dict]:
+    page.emulate_media(color_scheme=scheme)
+    page.goto(server + "/Dependency-Graph/", wait_until="domcontentloaded", timeout=60000)
+    page.wait_for_function(
+        "() => document.querySelectorAll('.bp_graph_canvas svg g.node[class*=\"bp_graph_status_\"]').length > 0",
+        timeout=60000,
+    )
+    return page.evaluate(GRAPH_NODE_REPORTS)
+
+
+class TestGraphStatusColours:
+    def test_light_graph_nodes_use_the_status_tokens(self, server: str, page: Page):
+        reports = graph_node_reports(page, server, "light")
+        assert reports
+        assert reports[0]["bg"] and lum_of(reports[0]["bg"]) > 0.8, reports[0]
+        for r in reports:
+            assert same_rgb(r["fill"], r["fillToken"]), r
+            assert same_rgb(r["stroke"], r["borderToken"]), r
+            assert r["labelRatio"] >= MIN_CONTRAST, r
+
+    def test_dark_graph_nodes_use_the_status_tokens(self, server: str, page: Page):
+        reports = graph_node_reports(page, server, "dark")
+        assert reports
+        assert reports[0]["bg"] and lum_of(reports[0]["bg"]) < 0.05, reports[0]
+        for r in reports:
+            assert same_rgb(r["fill"], r["fillToken"]), r
+            assert same_rgb(r["stroke"], r["borderToken"]), r
+            assert r["labelRatio"] >= MIN_CONTRAST, r
+            assert r["borderRatio"] >= MIN_BORDER_CONTRAST, r
+
+
+def lum_of(c: dict) -> float:
+    def f(v: float) -> float:
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * f(c["r"]) + 0.7152 * f(c["g"]) + 0.0722 * f(c["b"])

@@ -307,3 +307,8 @@ html[data-bp-style="bold"] .bp_summary_subsection {
   border-radius: 0.7rem;
   background: var(--bp-color-surface);
 }
+
+/* A card about one status carries that status's colour, as the dependency graph draws it. */
+.bp_summary_grid > .bp_summary_card.bp_summary_card_status {
+  border-left: 0.3rem solid var(--bp-summary-status);
+}

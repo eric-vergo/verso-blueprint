@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean.Data.Options
+import VersoBlueprint.StatusColors
 
 namespace Informal.Commands
 
@@ -15,9 +16,12 @@ register_option verso.blueprint.debug.commands : Bool := {
   descr := "Emit debug info logs for blueprint graph, summary, and bibliography commands"
 }
 
-def blueprintLightTokensCss : String := r##"
-:root {
-  --bp-color-surface: #ffffff;
+/-- Light values of the `--bp-*` tokens, with the status colours of `Informal.StatusColors`
+first. -/
+def blueprintLightTokensCss : String :=
+  "\n:root {\n" ++
+  String.join (StatusColors.all.map fun token => s!"  {token.name}: {token.light};\n") ++
+  r##"  --bp-color-surface: #ffffff;
   --bp-color-surface-muted: #f8fafc;
   --bp-color-surface-subtle: #f9fafb;
   --bp-color-surface-modern: #f8fbff;
@@ -140,9 +144,9 @@ def blueprintLightTokensCss : String := r##"
 }
 "##
 
-/-- Dark values for the `--bp-*` tokens above plus the Verso base variables, as `(name, value)`
-pairs. This single list renders both dark triggers (`blueprintDarkTokensCss`); radii are
-theme-independent and have no dark value. `--bp-color-link` and the `--bp-code-*` tokens have no
+/-- Dark values for the `--bp-*` tokens above (the status colours last) plus the Verso base
+variables, as `(name, value)` pairs. This single list renders both dark triggers
+(`blueprintDarkTokensCss`); radii are theme-independent and have no dark value. `--bp-color-link` and the `--bp-code-*` tokens have no
 light value here (consumers fall back to their own default). -/
 def darkTokens : List (String × String) := [
   ("color-scheme", "dark"),
@@ -299,7 +303,7 @@ def darkTokens : List (String × String) := [
   ("--verso-border-color", "#334155"),
   ("--verso-muted-color", "#a3b1c6"),
   ("background-color", "var(--bp-color-surface)")
-]
+] ++ StatusColors.all.map fun token => (token.name, token.dark)
 
 /-- Page-level rules that Verso's `book.css` hard-codes rather than routing through variables:
 `(selector below html, declarations)`. An empty selector means `html` itself. -/
