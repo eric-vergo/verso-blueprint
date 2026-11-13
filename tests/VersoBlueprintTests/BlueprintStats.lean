@@ -266,6 +266,16 @@ info: (#[("A.lean", Informal.Stats.FileStatus.imported, 2), ("Local/Sub/B.lean",
   let sources ← SourceStats.read root layout #[{ name := `A, path := "A.lean" }]
   return (sources.files.map fun f => (f.path, f.status, f.lines.total), sources.lines.total)
 
+-- A file run as a script has no module name; it counts by its file name.
+/-- info: (#[(`scripts.Gen, "scripts/Gen.lean", true)], #["."]) -/
+#guard_msgs in
+#eval show CoreM _ from do
+  let env ← getEnv
+  withScratch fun root => do
+    write (root / "scripts/Gen.lean") "def main : IO Unit := pure ()\n"
+    let (modules, dirs) ← projectModules env root { sourceDirs := #["."] } (some "scripts/Gen.lean")
+    return (modules.map fun (m, _) => (m.name, m.path, decide (m.declarations ≥ 11)), dirs)
+
 -- Refreshing reads the files again in the same project, and changes nothing elsewhere.
 /-- info: (2, 1) -/
 #guard_msgs in

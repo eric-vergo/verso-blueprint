@@ -174,8 +174,10 @@ def countDeclarations (env : Environment) (infos : Array ConstantInfo) : Declara
 /-- The project's modules of `env` with their source paths and declaration counts, sorted by
 name, and the source directories of `layout` that hold them, sorted. A module is the project's
 when its source file is in one of the source directories. The module being elaborated counts
-too, with the declarations it has so far. -/
-def projectModules (env : Environment) (root : System.FilePath) (layout : WorkspaceLayout) :
+too, with the declarations it has so far; `currentFile?` is its source path relative to the
+root, for a file elaborated without a module name. -/
+def projectModules (env : Environment) (root : System.FilePath) (layout : WorkspaceLayout)
+    (currentFile? : Option String := none) :
     IO (Array (ModuleStats × DeclarationCounts) × Array String) := do
   -- The top-level names in each source directory, so that most modules need no file check.
   let mut tops : Array (String × Array String) := #[]
@@ -198,14 +200,21 @@ def projectModules (env : Environment) (root : System.FilePath) (layout : Worksp
     let infos := (env.header.moduleData[idx]?.map (·.constants)).getD #[]
     let counts := countDeclarations env infos
     out := out.push ({ name := module, path, declarations := counts.total }, counts)
+  -- The file being elaborated: found by its module name, or, when it runs as a script
+  -- (`lean --run`, which names no module), by its file name.
   let main := env.mainModule
   if !env.header.moduleNames.contains main then
-    if let some (dir, path) ← sourceOf? main then
-      if !used.contains dir then used := used.push dir
-      let infos := env.constants.foldStage2
-        (fun (acc : Array ConstantInfo) _ info => acc.push info) #[]
-      let counts := countDeclarations env infos
-      out := out.push ({ name := main, path, declarations := counts.total }, counts)
+    let found ← match ← sourceOf? main with
+      | some (dir, path) => pure (some (dir, path, main))
+      | none => pure <| currentFile?.map fun path =>
+        (".", path, (path.dropEnd ".lean".length).copy.splitOn "/" |>.foldl Name.str .anonymous)
+    if let some (dir, path, name) := found then
+      unless out.any (·.1.path == path) do
+        if !used.contains dir then used := used.push dir
+        let infos := env.constants.foldStage2
+          (fun (acc : Array ConstantInfo) _ info => acc.push info) #[]
+        let counts := countDeclarations env infos
+        out := out.push ({ name, path, declarations := counts.total }, counts)
   return (out.qsort (·.1.name.toString < ·.1.name.toString), used.qsort (· < ·))
 
 /-! ## Files -/
@@ -354,13 +363,22 @@ def trustLedgerOf (state : Environment.State) (graph : Graph.GraphModel) : Trust
 
 /-! ## Capture -/
 
+/-- A file name as an absolute path with symbolic links resolved, relative to the working
+directory. -/
+private def resolve (file : String) : IO System.FilePath := do
+  let path : System.FilePath := file
+  let cwd ← IO.currentDir
+  let path := if path.isAbsolute then path else cwd / path
+  try IO.FS.realPath path catch _ => pure path
+
 /-- The project statistics of the current environment, Blueprint state and graph, with the
 project's files read from the working directory. -/
 def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
   let env ← getEnv
   let root ← projectRoot
   let layout ← WorkspaceLayout.current root
-  let (modules, sourceDirs) ← projectModules env root layout
+  let currentFile? := (relativeTo? root (← resolve (← getFileName))).filter (·.endsWith ".lean")
+  let (modules, sourceDirs) ← projectModules env root layout currentFile?
   let layout := { layout with sourceDirs }
   let declarations := modules.foldl (init := {}) fun acc (_, counts) => acc + counts
   let modules := modules.map (·.1)
