@@ -150,7 +150,7 @@ def card (ctx : RenderContext) : Option ExternalDeclRenderedHtml := do
     hasSubstr r.html "keyword token" && hasSubstr r.html "const token" &&
       r.hoverPayloads.any (hasSubstr ·.html "The natural numbers.") &&
       hasSubstr r.html "<code>n</code>" && hasSubstr r.html "href=\"https://example.org\"" &&
-      hasSubstr r.html "href=\"../Dependency-Graph/#ego=Demo.double\"" &&
+      hasSubstr r.html "href=\"Dependency-Graph/#ego=Demo.double\"" &&
       hasSubstr r.html "href=\"https://github.com/o/r/blob/abc/Demo/Basic.lean#L4-L5\""
   | none => false
 

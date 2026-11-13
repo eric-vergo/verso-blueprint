@@ -159,9 +159,9 @@ structure RenderContext where
   /-- The web address of the project root's files, ending in `/` (a GitHub checkout's
   `https://github.com/<owner>/<repository>/blob/<commit>/<path>/`), when there is one. -/
   sourceBase? : Option String := none
-  /-- The dependency graph's page, relative to a chapter page (the declarations' neighbourhood
-  links); `none` for no such links. -/
-  graphPage? : Option String := some "../Dependency-Graph/"
+  /-- The dependency graph's page, relative to the site root as the pages' links are (the
+  declarations' neighbourhood links); `none` for no such links. -/
+  graphPage? : Option String := some "Dependency-Graph/"
 deriving Inhabited
 
 /-- The web address of the project root's files, when the project is a Git checkout with a

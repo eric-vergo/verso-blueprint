@@ -82,7 +82,8 @@ structure NodeView where
 deriving Inhabited
 
 /-- The link to a node's neighbourhood on the dependency graph's page (its ego view):
-`#ego=<label>`, the label percent-encoded. -/
+`#ego=<label>`, the label percent-encoded. The graph page shows node views and points the link
+at itself. -/
 def egoHref (label : String) : String :=
   "#ego=" ++ LeanSourceAnchor.percentEncode label
 

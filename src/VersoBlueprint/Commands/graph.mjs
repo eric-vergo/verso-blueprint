@@ -468,6 +468,16 @@ async function bindNodeViewHovers(root) {
   });
 }
 
+// A node view's neighbourhood link names its node's ego view by fragment (`#ego=<label>`); pages
+// resolve links against the site root, so the link is pointed at this graph page.
+function pointEgoLinksHere(root) {
+  if (!(root instanceof Element)) return;
+  const base = String(window.location.href).split("#")[0];
+  root.querySelectorAll("a[data-bp-ego-link]").forEach(function (a) {
+    a.setAttribute("href", base + egoFragment(a.getAttribute("data-bp-ego-link") || "", 1));
+  });
+}
+
 function nodeViewLabelFromLocation() {
   const hash = String(window.location.hash || "");
   if (!hash.startsWith("#" + nodeViewFragmentPrefix)) return "";
@@ -533,6 +543,7 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
         anchor: graphState.previewActiveNode
       });
       bindNodeViewHovers(previewController.body);
+      pointEgoLinksHere(previewController.body);
       setNodeViewLocation(nodeLabel);
       return;
     }
