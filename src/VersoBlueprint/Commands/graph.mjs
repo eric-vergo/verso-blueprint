@@ -872,7 +872,11 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         });
       }
 
-      let activeKey = variantsByKey.has("full") ? "full" : variants[0].key;
+      // A generator may name the view shown first (`initialView`, such as the group view
+      // of a graph too large to read at once); the full graph otherwise.
+      const initialView = graphContainer.attr("data-bp-graph-initial-view") || "";
+      let activeKey = variantsByKey.has(initialView) ? initialView
+        : variantsByKey.has("full") ? "full" : variants[0].key;
       if (selector && variantsByKey.has(selector.value)) {
         activeKey = selector.value;
       }

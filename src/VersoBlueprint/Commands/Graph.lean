@@ -52,6 +52,8 @@ structure GraphBlockData where
   options : GraphOptions := {}
   previewMode : Informal.HoverRender.PreviewMode := .pinned
   previewPlacement : Informal.HoverRender.PreviewPlacement := .docked
+  /-- The view shown first (a variant key such as `group`), when it is not the full graph. -/
+  initialView : Option String := none
 deriving Inhabited, FromJson, ToJson
 
 /-- Custom graphs supply a model; project graphs use the initialized rendering registry. -/
@@ -319,6 +321,7 @@ private def graphToHtml
             class="bp_graph_canvas"
             "data-bp-graph-direction"={{graphData.options.direction.rankdir}}
             "data-bp-graph-pack"={{graphPackDefault}}
+            "data-bp-graph-initial-view"={{graphData.initialView.getD ""}}
           >
             <script type="application/json" class="bp-graph-data">
               {{.text false s!"{publicGraphDataJson}"}}
