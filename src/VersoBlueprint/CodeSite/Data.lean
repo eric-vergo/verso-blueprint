@@ -76,6 +76,20 @@ instance : FromJson Hover where
     return { name := ← j.getObjValAs? Name "name", signature := ← j.getObjValAs? String "signature",
              doc := ← (j.getObjValAs? (Option String) "doc" <|> pure none) }
 
+/-- A declaration's informal statement, as the tool that wrote the data found it: in a LaTeX
+blueprint, a docstring, an attribute, … The texts are Markdown with TeX math between `$…$`
+(inline) and `$$…$$` (display); raw HTML in them is shown as text. -/
+structure Statement where
+  /-- The statement. -/
+  text : String
+  /-- The informal proof. -/
+  proof : Option String := none
+  /-- A short name for the result, shown before the statement (Markdown, as the text). -/
+  title : Option String := none
+  /-- Where the producer found it (for example `tex` or `docstring`); not shown. -/
+  source : Option String := none
+deriving Inhabited, Repr, BEq, ToJson
+
 /-- One declaration of the project. -/
 structure Declaration where
   /-- The constant's name; a private declaration keeps Lean's `_private` prefix. -/
@@ -105,6 +119,8 @@ structure Declaration where
   external : Array Name := #[]
   /-- The constants its source mentions, where; their hovers are `Project.hovers`. -/
   occurrences : Array Occurrence := #[]
+  /-- Its informal statement, when the producer found one. -/
+  statement : Option Statement := none
 deriving Inhabited, Repr, ToJson
 
 /-- The field `k` of `j`, or `d` when it is absent or `null`. -/
@@ -117,6 +133,11 @@ def fieldD [FromJson α] (j : Json) (k : String) (d : α) : Except String α :=
 def fieldO [FromJson α] (j : Json) (k : String) : Except String (Option α) :=
   fieldD j k none
 
+instance : FromJson Statement where
+  fromJson? j := do
+    return { text := ← j.getObjValAs? String "text", proof := ← fieldO j "proof"
+             title := ← fieldO j "title", source := ← fieldO j "source" }
+
 instance : FromJson Declaration where
   fromJson? j := do
     return {
@@ -126,7 +147,8 @@ instance : FromJson Declaration where
       signature := ← fieldD j "signature" "", doc := ← fieldO j "doc"
       status := ← fieldD j "status" "proved", axioms := ← fieldD j "axioms" #[]
       attrs := ← fieldD j "attrs" #[], uses := ← fieldD j "uses" #[]
-      external := ← fieldD j "external" #[], occurrences := ← fieldD j "occurrences" #[] }
+      external := ← fieldD j "external" #[], occurrences := ← fieldD j "occurrences" #[]
+      statement := ← fieldO j "statement" }
 
 /-- The declarations of one module, in source order. -/
 structure Module where
@@ -163,6 +185,9 @@ structure Project where
   /-- The hover of each constant the declarations' sources mention (`Declaration.occurrences`),
   each constant once. -/
   hovers : Array Hover := #[]
+  /-- TeX definitions (`\newcommand` lines) put before every formula of the statements, as a
+  written Blueprint's `tex_prelude`. -/
+  texPrelude : String := ""
 deriving Inhabited, Repr, ToJson
 
 instance : FromJson Project where
@@ -171,7 +196,7 @@ instance : FromJson Project where
       format := ← j.getObjValAs? String "format", title := ← fieldO j "title"
       toolchain := ← fieldO j "toolchain", modules := ← fieldD j "modules" #[]
       unbuilt := ← fieldD j "unbuilt" #[], skipped := ← fieldD j "skipped" #[]
-      hovers := ← fieldD j "hovers" #[] }
+      hovers := ← fieldD j "hovers" #[], texPrelude := ← fieldD j "texPrelude" "" }
 
 /-- Parse the input file's text. -/
 def Project.parse (text : String) : Except String Project := do

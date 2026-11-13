@@ -134,6 +134,91 @@ def graphInitialView (p : Project) : Option String := do
   let many : Project := { fixture with modules := #[{ module := `Big, declarations := decls }] }
   graphInitialView fixture == none && graphInitialView many == some "group"
 
+/-- The fixture with an informal statement on `Demo.double_eq` (title, math, proof) and a
+hostile one on `Demo.hard` (raw HTML, a script link). -/
+def statedFixture : Project :=
+  let stated : Statement := { text := "For all $n$, $$2n = n + n.$$", proof := some "Unfold $2n$."
+                              title := some "Doubling", source := some "tex" }
+  let hostile : Statement :=
+    { text := "<script>alert(1)</script> [x](javascript:alert(1)) and $a$", source := some "docstring" }
+  let set (d : CodeSite.Declaration) : CodeSite.Declaration :=
+    if d.name == `Demo.double_eq then { d with statement := some stated }
+    else if d.name == `Demo.hard then { d with statement := some hostile } else d
+  { fixture with modules := fixture.modules.map fun m => { m with declarations := m.declarations.map set }
+                 texPrelude := "\\newcommand{\\twice}{2}</script><i id=\"prelude-escaped\">" }
+
+-- The statement field is read from the data, and its absence is no statement.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let j := "{\"format\":\"verso-blueprint-code-1\",\"modules\":[{\"module\":\"M\",\"declarations\":[
+    {\"name\":\"M.a\",\"kind\":\"theorem\",\"statement\":{\"text\":\"$x$\",\"proof\":\"p\",
+      \"title\":\"T\",\"source\":\"tex\"}},
+    {\"name\":\"M.b\",\"kind\":\"def\",\"statement\":null},
+    {\"name\":\"M.c\",\"kind\":\"def\"}]}]}"
+  match Project.parse j with
+  | .ok p =>
+    let ds := p.modules[0]!.declarations
+    ds[0]!.statement == some ({ text := "$x$", proof := some "p", title := some "T"
+                                source := some "tex" } : Statement) &&
+      ds[1]!.statement.isNone && ds[2]!.statement.isNone
+  | .error _ => false
+
+-- A statement becomes the node's statement body (math as Blueprint math), its proof the proof body; a node
+-- without one keeps empty bodies.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let s := stateOf statedFixture fun _ => none
+  let mathIn (d : Option Data.InformalData) : Bool := (d.map fun d => d.previewBlocks.any fun
+    | .para inls => inls.any fun
+      | .other i _ => i.name == ``Informal.Math.Inline.bpMath
+      | _ => false
+    | _ => false).getD false
+  match s.data.find? `Demo.double_eq, s.data.find? `Demo.double with
+  | some n, some plain =>
+    mathIn n.statement && mathIn n.proof &&
+      (n.statement.map (fun (d : Data.InformalData) => d.previewBlocks.size)) == some 2 &&
+      plain.statement.any (fun (d : Data.InformalData) => d.previewBlocks.isEmpty) &&
+      plain.proof.isNone
+  | _, _ => false
+
+-- The chapter: a statement block per declaration, a proof block after a stated proof.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let doc := documentOf "Demo" statedFixture
+  let blocks := doc.subParts[0]!.content.filter isNodeBlock
+  let proofs := blocks.filter fun
+    | .other b _ => (fromJson? (α := Informal.BlockOccurrence) b.data).toOption.any (·.isProof)
+    | _ => false
+  blocks.size == 4 && proofs.size == 1
+
+-- The front page says how many nodes have a statement.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let text (p : Project) : String := (frontMatter p).foldl (init := "") fun acc b => match b with
+    | .para inls => inls.foldl (init := acc) fun acc i => match i with
+      | .text t => acc ++ t
+      | _ => acc
+    | _ => acc
+  hasSubstr (text statedFixture) "2 of them have an informal statement" &&
+    hasSubstr (text fixture) "there are no informal statements"
+
+-- Raw HTML in a statement is text, a script link keeps its text and loses its target.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let blocks := statementTextBlocks "<b>x</b> [y](javascript:alert(1)) [z](https://lean-lang.org)"
+  let links := blocks.foldl (init := #[]) fun acc b => match b with
+    | .para inls => acc ++ inls.filterMap fun | .link _ h => some h | _ => none
+    | _ => acc
+  links == #["https://lean-lang.org"] &&
+    blocks.all fun b => match b with
+      | .para inls => inls.any fun | .text t => hasSubstr t "<b>" | _ => false
+      | _ => false
+
 /-- A scratch project root with the module sources and a README. -/
 def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   let root := System.FilePath.mk s!"/tmp/vbp-code-site-test-{← IO.monoNanosNow}"
@@ -160,6 +245,35 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     hasSubstr views "lean:decl/Demo.double_eq" &&
     hasSubstr stats "Project Stats" && hasSubstr chapter "Demo.double_eq" &&
     (← (html / "Dependency-Graph" / "index.html").pathExists)
+
+-- A site with statements: the node view shows the informal column beside the Lean one, with the
+-- math for the page's renderer (after the TeX prelude, whose angle brackets cannot end a script)
+-- and the proof folded; a node without a statement shows Lean alone; a hostile statement's HTML
+-- is escaped.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "code.json") (toJson statedFixture).compress
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"]
+  let html := root / "_out" / "html-multi"
+  let views ← IO.FS.readFile (html / "-verso-data" / "blueprint-node-views.json")
+  let some entries := (Json.parse views).toOption.bind
+      (fun j => (j.getObjValAs? (Array Json) "entries").toOption) | return false
+  let viewOf (l : String) : String := (entries.findSome? fun e =>
+    if (e.getObjValAs? String "label").toOption == some l then (e.getObjValAs? String "html").toOption
+    else none).getD ""
+  let stated := viewOf "Demo.double_eq"
+  let plain := viewOf "Demo.double"
+  let hostile := viewOf "Demo.hard"
+  let graph ← IO.FS.readFile (html / "Dependency-Graph" / "index.html")
+  return code == 0 && hasSubstr stated "bp_sbs_informal" && hasSubstr stated "bp_math display" &&
+    hasSubstr stated "data-bp-tex-prelude-id=\"default\"" &&
+    !hasSubstr graph "<i id=\"prelude-escaped\">" &&
+    hasSubstr stated "Doubling" && hasSubstr stated "bp_node_view_proof" &&
+    !hasSubstr plain "bp_sbs_informal" && hasSubstr plain "bp_sbs_single" &&
+    hasSubstr hostile "&lt;script&gt;" && !hasSubstr hostile "<script>" &&
+    !hasSubstr hostile "javascript:"
 
 -- `--no-stats-page` leaves the page out.
 /-- info: true -/
