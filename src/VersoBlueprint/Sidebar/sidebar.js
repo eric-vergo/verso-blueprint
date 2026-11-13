@@ -9,6 +9,9 @@
  * Page controls that would otherwise float over the page (the Blueprint style
  * switcher, a status legend with class "bp_status_legend") move into the
  * sidebar foot.
+ * Long dotted names in entries (module names such as A.B.LongName) may wrap
+ * after each dot, and an entry whose text is cut off shows it whole as its
+ * tooltip.
  */
 (function () {
   const themeKey = "verso-theme";
@@ -163,6 +166,35 @@
     if (window.ResizeObserver) new ResizeObserver(update).observe(header);
   }
 
+  // Let the dotted names of `root`'s entries wrap after their dots.
+  function wrapDottedNames(root) {
+    root.querySelectorAll("tr > td > a code, tr > td > a").forEach(function (el) {
+      if (el.querySelector("code")) return;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const texts = [];
+      while (walker.nextNode()) texts.push(walker.currentNode);
+      texts.forEach(function (node) {
+        const text = node.nodeValue || "";
+        if (text.indexOf(".") < 0 || text.length < 20) return;
+        const frag = document.createDocumentFragment();
+        text.split(".").forEach(function (part, i, parts) {
+          frag.appendChild(document.createTextNode(i < parts.length - 1 ? part + "." : part));
+          if (i < parts.length - 1) frag.appendChild(document.createElement("wbr"));
+        });
+        node.parentNode.replaceChild(frag, node);
+      });
+    });
+  }
+
+  // An entry still cut off (a name without dots, a narrow sidebar) gets its text as tooltip.
+  function titleCutEntries(root) {
+    root.querySelectorAll("tr > td > a").forEach(function (a) {
+      const cell = a.closest("td");
+      const cut = a.scrollWidth > a.clientWidth + 1 || (cell && cell.scrollWidth > cell.clientWidth + 1);
+      if (cut && !a.hasAttribute("title")) a.setAttribute("title", (a.textContent || "").trim());
+    });
+  }
+
   function install() {
     const config = readConfig();
     const toc = document.getElementById("toc");
@@ -197,6 +229,8 @@
         });
       }
       nestSections(toc, body);
+      wrapDottedNames(body);
+      titleCutEntries(body);
     }
     adoptControls(installFoot(toc));
     trackHeader();

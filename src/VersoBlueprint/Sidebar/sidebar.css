@@ -73,6 +73,14 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td {
   line-height: 1.25;
 }
 
+/* Titles wrap (the sidebar script lets dotted names break after their dots). */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td:not(.num),
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td:not(.num) code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr > td.num {
   flex: 0 0 auto;
   min-width: 1.4rem;
