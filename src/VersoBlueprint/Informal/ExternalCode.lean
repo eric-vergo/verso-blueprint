@@ -550,8 +550,9 @@ private def renderDeclarationSourcePartsWith [Monad m] [MonadLiftT IO m]
         seen := seen.push key
         parts := parts.push (← renderDeclarationSourceCardWith renderHtml item src)
     | none =>
+      -- the signature rows, with the editor link the highlighted card has in its heading
       let rows ← renderExternalDeclRowsWith (externalDeclRenderedWith renderHtml) #[item]
-      parts := parts.push (renderExternalDeclList rows)
+      parts := parts.push (.seq #[renderLeanJumpLinks #[decl], renderExternalDeclList rows])
   pure parts
 
 def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]

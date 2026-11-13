@@ -156,6 +156,7 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
   return code == 0 && hasSubstr index "Demo project" && hasSubstr index "Demo.Later" &&
     hasSubstr views "Demo.uses_hard" && hasSubstr views "data-lean-decls" &&
+    hasSubstr views "lean:decl/Demo.double_eq" &&
     hasSubstr stats "Project Stats" && hasSubstr chapter "Demo.double_eq" &&
     (← (html / "Dependency-Graph" / "index.html").pathExists)
 
