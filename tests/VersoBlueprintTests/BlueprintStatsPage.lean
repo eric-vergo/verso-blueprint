@@ -49,6 +49,15 @@ set_option doc.verso true
     (headlineVerdict differs).2 == "Statement differs: the statement differs (main)" &&
     (headlineVerdict { name := `main, solution := .missing }).1 == "missing"
 
+-- Chapters follow their numbers, the unnumbered ones last, in the order they came in.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let rows : Array StatsChapterRow := #[
+    { title := "Five", number := some "5" }, { title := "Appendix" }, { title := "Ten", number := some "10" },
+    { title := "Two", number := some "2" }, { title := "Notes" }]
+  (sortChapterRows rows).map (·.title) == #["Two", "Five", "Ten", "Appendix", "Notes"]
+
 -- A view
 
 private def rokickiLike : ProjectStats := {

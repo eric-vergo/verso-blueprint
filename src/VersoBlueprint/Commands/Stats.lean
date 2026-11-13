@@ -577,6 +577,20 @@ private def nodeTitle (state : TraverseState) (node : Graph.NodeData) : String :
   | some display => display.title
   | Option.none => node.displayLabel
 
+/-- A section number as numbers: `"4.2"` gives `[4, 2]`. -/
+def sectionNumberKey (number : String) : List Nat :=
+  (number.splitOn ".").filterMap (·.trimAscii.copy.toNat?)
+
+/-- Chapter rows in the order of their numbers, the unnumbered ones after them, each group in
+the order it came in. -/
+def sortChapterRows (rows : Array StatsChapterRow) : Array StatsChapterRow :=
+  let lt (a b : StatsChapterRow) : Bool :=
+    match a.number.map sectionNumberKey, b.number.map sectionNumberKey with
+    | some x, some y => x < y
+    | some _, Option.none => true
+    | _, _ => false
+  rows.insertionSort lt
+
 /-- Gather what the page shows. -/
 def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : Graph.GraphModel)
     (page : StatsPageData) : StatsPageView :=
@@ -591,6 +605,7 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
                   progress := c.progress }
     | Option.none => { title := c.chapter, progress := c.progress }
   let stats := stats.withChapters graphNodes
+  let chapters := sortChapterRows chapters
   {
     stats, page, chapters, nodes
     workQueueSize := (workQueue graph).size
