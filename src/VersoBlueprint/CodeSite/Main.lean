@@ -13,7 +13,8 @@ import VersoBlueprint.PreviewManifest
 
 ```
 vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>]
-              [--graphviz <program> | --no-graph-layout] [--no-comparator]
+              [--graphviz <program> | --no-graph-layout]
+              [--no-comparator | --challenge-not-built <reason>]
               [--no-stats-page] [--reproducible] [--verbose]
 ```
 
@@ -23,7 +24,9 @@ while the site is built with Graphviz's `dot` (`--graphviz` names another progra
 on the `PATH`, or with `--no-graph-layout`, the page lays them out). When the project has a
 Comparator challenge, the Project Stats page's headline compares it with its solution as a
 Blueprint site does; the solution's modules are imported from the project's build for that
-(`--no-comparator` leaves the headline out). The site is written as a generator writes
+(`--no-comparator` leaves the comparison out; `--challenge-not-built <reason>` leaves it out and
+the headline says the challenge module was not built, with the reason, for a caller that tried to
+build it first). The site is written as a generator writes
 it (`<output>/html-multi`, default `_out/site`), with the left navigation bar and side-by-side
 node cards.
 -/
@@ -42,6 +45,8 @@ structure Options where
   graphviz : Option String := some "dot"
   /-- Compare the project's Comparator challenge for the headline (it imports the solution). -/
   compare : Bool := true
+  /-- The caller could not build the challenge (why): the headline says so, nothing is compared. -/
+  challengeNotBuilt : Option String := none
   /-- Everything else, passed on to the generator (`--output`, `--no-stats-page`, …). -/
   rest : Array String := #[]
 deriving Inhabited
@@ -49,7 +54,8 @@ deriving Inhabited
 /-- The usage line. -/
 def usage : String :=
   "vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>] " ++
-  "[--graphviz <program> | --no-graph-layout] [--no-comparator] [--no-stats-page] " ++
+  "[--graphviz <program> | --no-graph-layout] " ++
+  "[--no-comparator | --challenge-not-built <reason>] [--no-stats-page] " ++
   "[--reproducible] [--verbose]"
 
 /-- Parse the command line. -/
@@ -62,10 +68,13 @@ partial def parseOptions : List String → Options → Except String Options
     parseOptions args { opts with graphviz := some program }
   | "--no-graph-layout" :: args, opts => parseOptions args { opts with graphviz := none }
   | "--no-comparator" :: args, opts => parseOptions args { opts with compare := false }
+  | "--challenge-not-built" :: why :: args, opts =>
+    parseOptions args { opts with challengeNotBuilt := some why }
   | "--output" :: dir :: args, opts =>
     parseOptions args { opts with rest := opts.rest ++ #["--output", dir] }
   | flag :: args, opts =>
-    if flag ∈ ["--data", "--root", "--title", "--output", "--graphviz"] then .error s!"missing value after {flag}"
+    if flag ∈ ["--data", "--root", "--title", "--output", "--graphviz", "--challenge-not-built"] then
+      .error s!"missing value after {flag}"
     else if flag ∈ [Informal.Commands.noStatsPageFlag, Informal.PreviewManifest.reproducibleFlag,
         "--verbose"] then
       parseOptions args { opts with rest := opts.rest.push flag }
@@ -84,9 +93,11 @@ def load (data root : FilePath) : IO (Project × Std.HashMap Lean.Name String) :
   return (project, sources)
 
 /-- Generate the site of the data at `data` for the project at `root`; `args` are the
-generator's own flags. -/
+generator's own flags. Without `compare` the headline's comparison is left out; with
+`challengeNotBuilt?` too, and the headline says why (`headlineOf?`). -/
 def generate (data root : FilePath) (title? : Option String) (args : List String)
-    (graphviz : Option String := some "dot") (compare : Bool := true) : IO UInt32 := do
+    (graphviz : Option String := some "dot") (compare : Bool := true)
+    (challengeNotBuilt? : Option String := none) : IO UInt32 := do
   let root ← try IO.FS.realPath root catch _ => pure root
   let (project, sources) ← load data root
   let project := { project with title := title? <|> project.title }
@@ -95,7 +106,9 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
   let state := stateOf project sources.get? ctx
   let known : Lean.NameSet := project.modules.foldl (init := {}) fun acc m =>
     m.declarations.foldl (fun acc d => acc.insert d.name) acc
-  let headline? ← if compare then headlineOf? root project known else pure none
+  let headline? ← match challengeNotBuilt? with
+    | some why => headlineOf? root project known (notBuilt? := some why)
+    | none => if compare then headlineOf? root project known else pure none
   let model ← modelOf root project state headline?
   let title := titleOf root project model.stats.identity
   Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project graphviz sources.get?) args
@@ -112,9 +125,9 @@ def main (args : List String) : IO UInt32 := do
   match parseOptions args {} with
   | .error e => IO.eprintln e; IO.eprintln usage; return 2
   | .ok { data := none, .. } => IO.eprintln "missing --data <file>"; IO.eprintln usage; return 2
-  | .ok { data := some data, root, title, graphviz, compare, rest } =>
+  | .ok { data := some data, root, title, graphviz, compare, challengeNotBuilt, rest } =>
     let root := root.getD (← IO.currentDir)
-    try generate data root title rest.toList graphviz compare
+    try generate data root title rest.toList graphviz compare challengeNotBuilt
     catch e => IO.eprintln s!"vbp code-site: {e}"; return 1
 
 end Informal.CodeSite
