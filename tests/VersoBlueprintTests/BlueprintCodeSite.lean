@@ -275,13 +275,18 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     hasSubstr hostile "&lt;script&gt;" && !hasSubstr hostile "<script>" &&
     !hasSubstr hostile "javascript:"
 
--- `--no-stats-page` leaves the page out.
+-- `--no-stats-page` leaves the page out, also when an earlier build into the same folder wrote it.
 /-- info: true -/
 #guard_msgs in
 #eval withProject fun root => do
+  let out := (root / "_out").toString
+  let first ← generate (root / "code.json") root none ["--output", out, "--reproducible"]
+  let page := root / "_out" / "html-multi" / Informal.Commands.statsPageFolder
+  let before ← page.pathExists
   let code ← generate (root / "code.json") root none
-    ["--output", (root / "_out").toString, "--reproducible", "--no-stats-page"]
-  return code == 0 && !(← (root / "_out" / "html-multi" / "Project-Stats").pathExists)
+    ["--output", out, "--reproducible", "--no-stats-page"]
+  return first == 0 && before && code == 0 && Informal.Commands.statsPageFolder == "Project-Stats" &&
+    !(← page.pathExists) && (← (root / "_out" / "html-multi" / "index.html").pathExists)
 
 -- The command line.
 /-- info: true -/
