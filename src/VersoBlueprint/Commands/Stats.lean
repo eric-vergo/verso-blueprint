@@ -106,6 +106,9 @@ def workQueuePageTitle : String := "Ready to Prove"
 /-- Generator flag that turns the automatic stats page off. -/
 def noStatsPageFlag : String := "--no-stats-page"
 
+/-- The folder of the automatic stats page in a multi-page site: its title as a page slug. -/
+def statsPageFolder : String := (Verso.Multi.Slug.ofString statsPageTitle).toString
+
 /-! ## Formatting -/
 
 /-- A natural number with thousands separators: `13616` gives `"13,616"`. -/

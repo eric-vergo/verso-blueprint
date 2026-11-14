@@ -2941,6 +2941,11 @@ where
     let buildMetadata ← readBuildMetadata reproducibility
     let extraSteps := emitBuildMetadata buildMetadata :: extraSteps
 
+    -- A site built without the stats page has no page left from an earlier build either.
+    if statsPage?.isNone && !Informal.Commands.hasStatsPage text then
+      let page := cfg.destination / "html-multi" / Informal.Commands.statsPageFolder
+      if ← page.isDir then IO.FS.removeDirAll page
+
     let action : ReaderT ExtensionImpls (BuildLogT IO) Unit := do
       if cfg.emitTeX then
         withTimedBuildProgress cfg.verbose "TeX emission" <| do
@@ -2963,7 +2968,7 @@ where
 
 The HTML site gets a Project Stats page at the end of its table of contents
 (`Informal.Commands.withStatsPage`); `statsPage := false` or the `--no-stats-page` flag leaves it
-out. -/
+out, and removes the page an earlier build wrote (unless the document places the page itself). -/
 def blueprintMain (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
