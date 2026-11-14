@@ -219,6 +219,32 @@ def statedFixture : Project :=
       | .para inls => inls.any fun | .text t => hasSubstr t "<b>" | _ => false
       | _ => false
 
+/-- The text of the paragraphs of `blocks`, with each formula as `[mode:tex]`. -/
+def paraText (blocks : Array (Verso.Doc.Block Verso.Genre.Manual)) : String :=
+  blocks.foldl (init := "") fun acc b => match b with
+    | .para inls => inls.foldl (init := acc) fun acc i => match i with
+      | .text t => acc ++ t
+      | .math .display t => acc ++ s!"[display:{t}]"
+      | .math .inline t => acc ++ s!"[inline:{t}]"
+      | _ => acc
+    | _ => acc
+
+-- Module docstrings: raw HTML is shown as text, in paragraphs (not the code-block fallback).
+/-- info: true -/
+#guard_msgs in
+#eval
+  #["type List<Nat> here", "a <br> break", "a<b and c>d", "inline <b>bold</b> html"].all fun d =>
+    let blocks := moduleDocBlocks d
+    blocks.all (fun b => b matches .para _) && paraText blocks == d
+
+-- Module docstrings: Verso's docstring math and TeX math spans are formulas.
+/-- info: true -/
+#guard_msgs in
+#eval
+  paraText (moduleDocBlocks "Let $`y` be $$`x^2`, and $z$.") ==
+    "Let [inline:y] be [display:x^2], and [inline:z]." &&
+  paraText (moduleDocBlocks "costs `5` and $`a`") == "costs  and [inline:a]"
+
 /-- A scratch project root with the module sources and a README. -/
 def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   let root := System.FilePath.mk s!"/tmp/vbp-code-site-test-{← IO.monoNanosNow}"
@@ -274,6 +300,20 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     !hasSubstr plain "bp_sbs_informal" && hasSubstr plain "bp_sbs_single" &&
     hasSubstr hostile "&lt;script&gt;" && !hasSubstr hostile "<script>" &&
     !hasSubstr hostile "javascript:"
+
+-- Module docstrings on a chapter page: raw HTML as text, Verso's display math as a formula.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Basic.lean")
+    ("/-! Lists: type List<Nat> here, a <br> break, a<b and c>d, inline <b>bold</b> html.\n\n" ++
+      "The number is\n$$`\\rho = \\sum_k 2^{-k}`.\n-/\n" ++ basicSource)
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"]
+  let chapter ← IO.FS.readFile (root / "_out" / "html-multi" / "Demo___Basic" / "index.html")
+  return code == 0 && hasSubstr chapter "List&lt;Nat&gt;" && hasSubstr chapter "a&lt;b and c&gt;d" &&
+    !hasSubstr chapter "<b>bold</b>" && !hasSubstr chapter "$$<code>" &&
+    hasSubstr chapter "\\rho = \\sum_k"
 
 -- `--no-stats-page` leaves the page out.
 /-- info: true -/
