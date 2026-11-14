@@ -2463,7 +2463,8 @@ without changing the project and without loading its environment.
 
 ```
 lake exe vbp code-site --data code.json --root <project> [--output <dir>]
-    [--title <text>] [--graphviz <program> | --no-graph-layout] [--no-comparator]
+    [--title <text>] [--graphviz <program> | --no-graph-layout]
+    [--no-comparator | --challenge-not-built <reason>]
     [--no-stats-page] [--reproducible] [--verbose]
 ```
 
@@ -2516,7 +2517,10 @@ The site is an ordinary Blueprint site:
   build (`--root`'s `.lake` directories, with the Lean installation that
   `LEAN_SYSROOT` names or `lean` on the `PATH` finds) and the headline is
   compared as on a Blueprint site; when that is not possible the card says why.
-  Without a challenge there is no card;
+  `--no-comparator` leaves the comparison out; `--challenge-not-built <reason>`
+  is for a caller that tried to build the challenge first and could not:
+  nothing is compared and the card says the challenge module was not built,
+  with the reason. Without a challenge there is no card;
 - the left navigation bar and the side-by-side card style.
 
 What highlighting from data cannot give, compared with a Blueprint's

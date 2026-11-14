@@ -275,6 +275,22 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     hasSubstr hostile "&lt;script&gt;" && !hasSubstr hostile "<script>" &&
     !hasSubstr hostile "javascript:"
 
+-- `--challenge-not-built <reason>`: nothing is compared, and the headline says the challenge
+-- module was not built, with the reason.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "comparator.json")
+    ("{\"challenge_module\": \"Demo.Challenge\", \"solution_module\": \"Demo.Basic\", " ++
+      "\"theorem_names\": [\"Demo.double_eq\"], \"permitted_axioms\": [\"propext\"]}")
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"]
+    (challengeNotBuilt? := some "Demo.Challenge: lake build failed: exit 1")
+  let stats ← IO.FS.readFile (root / "_out" / "html-multi" / "Project-Stats" / "index.html")
+  return code == 0 && hasSubstr stats "bp_stats_headline_unavailable" &&
+    hasSubstr stats "Not compared: The challenge module has not been built. \
+      (Demo.Challenge: lake build failed: exit 1)"
+
 -- `--no-stats-page` leaves the page out.
 /-- info: true -/
 #guard_msgs in
@@ -291,6 +307,10 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     | .ok o => o.data == some "d.json" && o.root == some "r" &&
         o.rest == #["--output", "o", "--no-stats-page"]
     | .error _ => false) &&
+  (match parseOptions ["--challenge-not-built", "why"] {} with
+    | .ok o => o.challengeNotBuilt == some "why" && o.compare
+    | .error _ => false) &&
+  (parseOptions ["--challenge-not-built"] {} matches .error _) &&
   (parseOptions ["--bogus"] {} matches .error _) &&
   (parseOptions ["--data"] {} matches .error _)
 

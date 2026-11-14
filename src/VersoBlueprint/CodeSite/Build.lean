@@ -413,9 +413,11 @@ def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
 project's build for the comparison alone (only when the project has a challenge), and each judged
 theorem's node is its declaration's. `none` without a challenge; a headline saying why when the
 comparison cannot be made (the challenge not built, the solution's environment not loadable, …).
+With `notBuilt?` the caller could not build the challenge (the reason): nothing is imported, and the
+headline says the challenge was not built, with that reason.
 -/
-def headlineOf? (root : System.FilePath) (project : Project) (known : NameSet) :
-    IO (Option Stats.Headline) := do
+def headlineOf? (root : System.FilePath) (project : Project) (known : NameSet)
+    (notBuilt? : Option String := none) : IO (Option Stats.Headline) := do
   let layout ← layoutOf root project
   let some found ← Stats.ChallengeConfig.find? root layout.sourceDirs | return none
   let .ok config := found | return none  -- `statsOf` reports an invalid configuration
@@ -424,6 +426,8 @@ def headlineOf? (root : System.FilePath) (project : Project) (known : NameSet) :
     config := config.configFile, permittedAxioms := config.permittedAxioms }
   let unavailable (why : Stats.Unavailable) (detail : String) : Stats.Headline :=
     { base with unavailable := some why, unavailableDetail := some detail }
+  -- the caller could not build the challenge: nothing is compared, and the page says why
+  if let some why := notBuilt? then return some (unavailable .challengeNotBuilt why)
   let libraryPath ← libraryPathOf root layout
   let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
     | return some (unavailable .challengeNotBuilt config.challengeModule.toString)
