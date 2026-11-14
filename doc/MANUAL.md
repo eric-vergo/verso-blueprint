@@ -2005,8 +2005,9 @@ should go; the generator then does not add a second one:
 
 To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
 `blueprintMainWithPreviewData`, or run the generator with the flag
-`--no-stats-page` (`lake exe vbp build --no-stats-page` hands it on). TeX and
-PDF output never get the page.
+`--no-stats-page` (`lake exe vbp build --no-stats-page` hands it on). Such a
+build also removes the page an earlier build wrote into the same output folder.
+TeX and PDF output never get the page.
 
 ### Bibliography page
 
