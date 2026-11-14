@@ -2489,7 +2489,9 @@ lines) put before every formula of the statements, as a written Blueprint's
 The site is an ordinary Blueprint site:
 
 - one chapter per module, starting with the module's docstrings (`/-! … -/`,
-  read from its source as Markdown), with a node per declaration: theorems are
+  read from its source as Markdown with raw HTML shown as text, formulas between
+  `$…$` and `$$…$$` and in Verso's docstring syntax, `` $`…` `` and
+  `` $$`…` ``), with a node per declaration: theorems are
   theorems, everything else is a definition, numbered by chapter. A node with a
   statement in the data shows it as on a written Blueprint: in its chapter card
   and in the graph's node view, beside the Lean side, its title in bold, its

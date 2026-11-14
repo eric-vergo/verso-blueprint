@@ -140,25 +140,60 @@ partial def safeBlock : Block Manual → Block Manual
   | .concat bs => .concat (bs.map safeBlock)
   | b => b
 
-/-- A module docstring as document blocks (Verso's Markdown reading: headers become bold or
-emphasised paragraphs), so it is rendered with the page's math and indexed by its search; the
-text in a code block when it has Markdown Verso does not read (tables, raw HTML, …). -/
+/-- How docstring and statement Markdown is read: CommonMark with TeX math spans (`$…$`,
+`$$…$$`), raw HTML as text. -/
+def statementFlags : UInt32 :=
+  MD4Lean.MD_DIALECT_COMMONMARK ||| MD4Lean.MD_FLAG_LATEXMATHSPANS ||| MD4Lean.MD_FLAG_NOHTML
+
+/-- Verso's docstring math in a sequence of inlines: a text ending in `$$` or `$` directly
+followed by a code span is the span's TeX as display or inline math (`` $$`x^2` ``, `` $`x` ``),
+as a docstring written in Verso's syntax means it. -/
+partial def versoMath (inls : Array (Inline Manual)) : Array (Inline Manual) := Id.run do
+  let mut out : Array (Inline Manual) := #[]
+  let mut i := 0
+  while h : i < inls.size do
+    match inls[i], inls[i + 1]? with
+    | .text t, some (.code tex) =>
+      if t.endsWith "$" then
+        let display := t.endsWith "$$"
+        let before := (t.dropEnd (if display then 2 else 1)).toString
+        unless before.isEmpty do out := out.push (.text before)
+        out := out.push (.math (if display then .display else .inline) tex)
+        i := i + 2
+        continue
+      out := out.push (.text t)
+    | .emph xs, _ => out := out.push (.emph (versoMath xs))
+    | .bold xs, _ => out := out.push (.bold (versoMath xs))
+    | .link xs href, _ => out := out.push (.link (versoMath xs) href)
+    | .concat xs, _ => out := out.push (.concat (versoMath xs))
+    | x, _ => out := out.push x
+    i := i + 1
+  return out
+
+/-- `block` with `versoMath` applied to its text. -/
+partial def versoMathBlock : Block Manual → Block Manual
+  | .para inls => .para (versoMath inls)
+  | .blockquote bs => .blockquote (bs.map versoMathBlock)
+  | .ul items => .ul (items.map fun i => ⟨i.contents.map versoMathBlock⟩)
+  | .ol n items => .ol n (items.map fun i => ⟨i.contents.map versoMathBlock⟩)
+  | .concat bs => .concat (bs.map versoMathBlock)
+  | b => b
+
+/-- A module docstring as document blocks (Verso's Markdown reading, `statementFlags`: headers
+become bold or emphasised paragraphs, raw HTML is text, TeX math spans and Verso's docstring math
+are math), so it is rendered with the page's math and indexed by its search; the text in a code
+block when it has Markdown Verso does not read (tables, …). -/
 def moduleDocBlocks (doc : String) : Array (Block Manual) :=
   let fallback : Array (Block Manual) := #[.code doc]
-  match MD4Lean.parse doc with
+  match MD4Lean.parse doc statementFlags with
   | none => fallback
   | some md =>
     match md.blocks.mapM (Verso.Genre.Manual.Markdown.blockFromMarkdown'
         (handleHeaders := Verso.Genre.Manual.Markdown.strongEmphHeaders')) with
-    | .ok blocks => blocks.map safeBlock
+    | .ok blocks => blocks.map fun b => safeBlock (versoMathBlock b)
     | .error _ => fallback
 
 /-! ## Informal statements -/
-
-/-- How a statement's Markdown is read: CommonMark with TeX math spans (`$…$`, `$$…$$`), raw
-HTML as text. -/
-def statementFlags : UInt32 :=
-  MD4Lean.MD_DIALECT_COMMONMARK ||| MD4Lean.MD_FLAG_LATEXMATHSPANS ||| MD4Lean.MD_FLAG_NOHTML
 
 /-- The TeX prelude as it goes into the pages' script: angle brackets written as `\lt` and `\gt`,
 so no text in it can end the script element it is embedded in. -/
