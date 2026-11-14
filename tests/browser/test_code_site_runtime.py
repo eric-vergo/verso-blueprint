@@ -193,3 +193,17 @@ def test_statement_html_stays_text(page: Page, code_site_url: str):
     assert page.evaluate("window.__bpStatementRan === undefined")
     assert page.locator("main a[href^='javascript:']").count() == 0
     assert page.locator("main .katex").count() >= 1
+
+
+def test_contents_backdrop_closes_the_panel(page: Page, code_site_url: str):
+    page.set_viewport_size({"width": 600, "height": 800})
+    page.goto(code_site_url + "/Demo___A/", wait_until="load")
+    page.wait_for_function(
+        """() => { const b = document.querySelector(".toc-backdrop");
+                   return !!b && !b.hasAttribute("onclick"); }""",
+        timeout=10000,
+    )
+    page.locator("#toggle-toc-click").click()
+    assert page.evaluate("document.getElementById('toggle-toc').checked")
+    page.locator(".toc-backdrop").click(position={"x": 560, "y": 400})
+    assert not page.evaluate("document.getElementById('toggle-toc').checked")
