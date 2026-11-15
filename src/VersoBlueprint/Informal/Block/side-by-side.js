@@ -1,9 +1,12 @@
 /*
- * Side-by-side Blueprint nodes: move each proof that directly follows its
- * statement node (and the proof's Lean references panel, if any) into the
- * node's left column, so the statement, its folded proof and the Lean source
- * read as one unit, and show the legend of the status glyphs. Pages without
- * side-by-side nodes are left untouched.
+ * Side-by-side Blueprint nodes. The generator places each proof that directly
+ * follows its statement node in the node's left column; on pages built without
+ * that, this script moves the proof (and the proof's Lean references panel, if
+ * any) there. It also shows the legend of the status glyphs, and links each
+ * node's proof toggles: "Proof [show]" on the prose side opens and closes the
+ * prose proof and the node's Lean proofs together, with a short height
+ * animation. Without this script every proof keeps its own native toggle.
+ * Pages without side-by-side nodes are left untouched.
  */
 (function () {
   function attachProofs() {
@@ -19,12 +22,6 @@
         next.getAttribute("data-bp-node") === label
       ) {
         let after = next.nextElementSibling;
-        // Inside its node the proof needs no "for <statement>" in its caption.
-        const caption = next.querySelector(".bp_heading .bp_caption");
-        if (caption) {
-          caption.setAttribute("title", caption.textContent.trim());
-          caption.textContent = "Proof";
-        }
         column.appendChild(next);
         if (after && after.classList.contains("bp_code_panel_wrapper")) {
           const panel = after;
@@ -33,7 +30,159 @@
         }
         next = after;
       }
+      // Inside its node the proof needs no "for <statement>" in its caption.
+      column.querySelectorAll(':scope > [data-bp-facet="proof"] > .bp_heading .bp_caption').forEach(
+        function (caption) {
+          if (caption.textContent.trim() === "Proof") return;
+          caption.setAttribute("title", caption.textContent.trim());
+          caption.textContent = "Proof";
+        }
+      );
     });
+  }
+
+  // Proof toggles. A `<details>` opens and closes through `setOpen`, which
+  // animates its height from where it is now, so a second press reverses a
+  // running animation. Every animation takes `--bp-sbs-proof-duration`, so a
+  // node's proofs move in step and a long proof is no slower than a short one;
+  // with reduced motion the change is immediate.
+  const reducedMotion = window.matchMedia
+    ? window.matchMedia("(prefers-reduced-motion: reduce)")
+    : { matches: false };
+
+  function motionSettings(element) {
+    const style = window.getComputedStyle(element);
+    const durationText = style.getPropertyValue("--bp-sbs-proof-duration").trim();
+    let duration = parseFloat(durationText);
+    if (isNaN(duration)) duration = 200;
+    else if (!/ms$/.test(durationText)) duration *= 1000;
+    return {
+      duration: duration,
+      easing: style.getPropertyValue("--bp-sbs-proof-easing").trim() || "ease-out"
+    };
+  }
+
+  function finish(details) {
+    const animation = details._bpAnimation;
+    details._bpAnimation = null;
+    if (animation) animation.cancel();
+    details.removeAttribute("data-bp-animating");
+    details.removeAttribute("data-bp-closing");
+  }
+
+  // Whether the toggle is heading to open (a closing animation counts as closed).
+  function isOpening(details) {
+    return details.open && !details.hasAttribute("data-bp-closing");
+  }
+
+  function setOpen(details, open, animate) {
+    if (isOpening(details) === open) return;
+    const startHeight = details.getBoundingClientRect().height;
+    finish(details);
+    const settings = motionSettings(details);
+    const canAnimate =
+      animate && !reducedMotion.matches && settings.duration > 0 &&
+      typeof details.animate === "function";
+    if (!canAnimate) {
+      details.open = open;
+      return;
+    }
+    // The heights at both ends (a closed Lean proof whose toggle gives way takes no room).
+    details.open = false;
+    const closedHeight = details.getBoundingClientRect().height;
+    details.open = true;
+    const openHeight = details.getBoundingClientRect().height;
+    if (!open) details.setAttribute("data-bp-closing", "");
+    details.setAttribute("data-bp-animating", "");
+    const animation = details.animate(
+      [{ height: startHeight + "px" }, { height: (open ? openHeight : closedHeight) + "px" }],
+      { duration: settings.duration, easing: settings.easing }
+    );
+    details._bpAnimation = animation;
+    animation.onfinish = function () {
+      if (details._bpAnimation !== animation) return;
+      finish(details);
+      details.open = open;
+    };
+  }
+
+  function onToggleClick(summary, handler) {
+    summary.addEventListener("click", function (event) {
+      // Links and buttons inside the toggle keep their own behaviour.
+      const inner = event.target.closest("a, button, input, select, textarea");
+      if (inner && summary.contains(inner)) return;
+      event.preventDefault();
+      handler();
+    });
+  }
+
+  let nextProofId = 0;
+
+  function linkProofs(node) {
+    if (node.closest(".bp_node_view")) return;
+    const column = node.querySelector(":scope > .bp_sbs_grid > .bp_sbs_informal");
+    const formal = node.querySelector(":scope > .bp_sbs_grid > .bp_sbs_formal");
+    const prose = column
+      ? column.querySelectorAll(":scope > details.bp_kind_proof_wrapper")
+      : [];
+    const lean = formal ? formal.querySelectorAll("details.bp_decl_source_proof") : [];
+    const controller = prose[0];
+    const linked = Boolean(controller) && lean.length > 0;
+    // Each proof animates on its own toggle; the first prose proof also drives
+    // the node's Lean proofs.
+    const toggles = Array.prototype.slice.call(prose).concat(Array.prototype.slice.call(lean));
+    toggles.forEach(function (details) {
+      const summary = details.querySelector(":scope > summary");
+      if (!summary) return;
+      summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+      onToggleClick(summary, function () {
+        const open = !isOpening(details);
+        summary.setAttribute("aria-expanded", open ? "true" : "false");
+        setOpen(details, open, true);
+        if (linked && details === controller) {
+          lean.forEach(function (partner) {
+            setOpen(partner, open, true);
+          });
+        }
+      });
+      // Opened or closed another way (a link into the proof, find in page).
+      details.addEventListener("toggle", function () {
+        if (details._bpAnimation) return;
+        summary.setAttribute("aria-expanded", details.open ? "true" : "false");
+      });
+    });
+    if (!linked) return;
+    node.setAttribute("data-bp-proofs-linked", "");
+    const ids = Array.prototype.map.call(lean, function (details) {
+      if (!details.id) details.id = "bp-lean-proof-" + nextProofId++;
+      return details.id;
+    });
+    const summary = controller.querySelector(":scope > summary");
+    if (summary) summary.setAttribute("aria-controls", ids.join(" "));
+    // The Lean proofs follow the prose proof when it opens or closes another way.
+    controller.addEventListener("toggle", function () {
+      if (controller._bpAnimation) return;
+      lean.forEach(function (details) {
+        if (!details._bpAnimation) details.open = controller.open;
+      });
+    });
+  }
+
+  function installProofToggles() {
+    document.querySelectorAll(".bp_sbs[data-bp-node]").forEach(linkProofs);
+  }
+
+  // A link into a proof opens it (and, through the toggle link, its partners).
+  function openTarget() {
+    const id = decodeURIComponent((window.location.hash || "").slice(1));
+    if (!id) return;
+    const target = document.getElementById(id);
+    if (!target) return;
+    let details = target.closest("details");
+    while (details) {
+      if (!details.open) details.open = true;
+      details = details.parentElement ? details.parentElement.closest("details") : null;
+    }
   }
 
   // The status glyph legend ships as a template element with id
@@ -97,6 +246,9 @@
 
   function install() {
     attachProofs();
+    installProofToggles();
+    openTarget();
+    window.addEventListener("hashchange", openTarget);
     installLegend();
     installMathFitting();
   }

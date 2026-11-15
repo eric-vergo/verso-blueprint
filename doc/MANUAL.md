@@ -1429,7 +1429,28 @@ layout on:
   under `.lake/packages`, or modules that could not be highlighted) keep the
   signature-and-docstring row of the Lean code panel.
 - Proofs are folded ("Proof [show]") and placed in the left column of their
-  statement's node when they directly follow it on the page.
+  statement's node when they directly follow it on the page; the generator
+  places them, so this holds without scripts too.
+- Nodes have no card. Consecutive Blueprint blocks form a *run*
+  (`div.bp_sbs_run`); prose, a code block or a heading between two blocks ends
+  it. One hairline divider in the middle of the column gap runs through the
+  whole run; a statement without Lean declarations takes the full width and
+  interrupts it. The node a link lands on (its statement, its proof or one of
+  its declarations) is tinted.
+- With the page script, "Proof [show]" on the prose side opens and closes the
+  prose proof and the node's Lean proofs together, and the Lean proofs' own
+  toggles are hidden; a node with Lean proofs but no prose proof keeps
+  "Lean proof [show]". Opening and closing animate the height, a second press
+  reverses a running animation, and `prefers-reduced-motion` makes the change
+  immediate. A link into a proof opens it. Without scripts each proof keeps its
+  own native toggle.
+- The look is set by CSS custom properties a project stylesheet can override
+  on `:root`: `--bp-sbs-column-gap` (2.25rem), `--bp-sbs-divider-width` (1px),
+  `--bp-sbs-divider-color` (the soft border colour), `--bp-sbs-node-gap`
+  (space between the nodes of a run, 2rem), `--bp-sbs-run-margin` (around a
+  run, 1.5rem), `--bp-sbs-target-surface` and `--bp-sbs-target-bleed` (the
+  tint of a linked node), `--bp-sbs-proof-duration` (200ms, the length of every
+  opening and closing, long proofs included) and `--bp-sbs-proof-easing`.
 - The node title carries a status glyph: ✓ the Lean declarations are complete,
   ◐ the statement is formalized but a proof is incomplete, ⚠ the statement
   depends on `sorry`, an axiom, or unverified code, ✗ a declaration is missing,
@@ -1441,12 +1462,14 @@ layout on:
   zero are hidden.
 - In the Lean column the code comes first, its first line on the baseline of
   the node title; the module path (a link to the source when the repository is
-  on GitHub) and the "Lean proof [show]" toggle form a caption row below it.
+  on GitHub) and, where it is shown, the "Lean proof [show]" toggle form a
+  caption row below it.
   Long lines wrap with a hanging indent of four columns beyond their own
   indentation, without horizontal scrolling.
 - `sbs` ("side by side") becomes the site's default style in the style
   switcher; choosing another style stacks the two columns. Nodes also stack
-  when their container is narrower than about 760 pixels, and when printing.
+  when their container is narrower than about 760 pixels, and when printing;
+  stacked nodes have no column divider.
 - Typography of the `sbs` style: one serif text face for reading text (chapter
   prose, node headings, statements and proofs), by default the KaTeX text face
   so that text and formulas match, with upright statements (italics are left to

@@ -179,4 +179,122 @@ private def fakeModule : SubVerso.Module.Module := {
       hasSubstr plain "Lean code for Theorem"
     )
 
+/-! Runs: consecutive Blueprint blocks share one `div.bp_sbs_run`. -/
+
+#docs (Genre.Manual) runsDoc "Runs Doc" :=
+:::::::
+:::theorem "thm:runA" (lean := "Nat.add")
+First statement.
+:::
+
+:::proof "thm:runA"
+First proof.
+:::
+
+:::definition "def:runB" (lean := "Nat.mul")
+Second statement.
+:::
+
+:::lemma_ "lem:runNoLean"
+A statement without Lean.
+:::
+
+Prose between the blocks.
+
+:::theorem "thm:runC" (lean := "Nat.sub")
+A block alone.
+:::
+:::::::
+
+/-- The text of `s` from the `n`-th (from 0) occurrence of `needle` up to the next one. -/
+private def segment (s needle : String) (n : Nat) : String :=
+  ((s.splitOn needle)[n + 1]?).getD ""
+
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let out ← DeclarationSource.withEnabled true <|
+      renderManualDocHtmlString manualImpls runsDoc (prepare := Informal.SideBySideRuns.groupRuns)
+    let ungrouped ← DeclarationSource.withEnabled true <| renderManualDocHtmlString manualImpls runsDoc
+    let run := "<div class=\"bp_sbs_run\">"
+    let first := segment out run 0
+    let second := segment out run 1
+    pure (
+      -- prose ends the first run; the block after it is a run of its own
+      countSubstr out run == 2 &&
+      hasSubstr first "data-bp-node=\"«thm:runA»\"" &&
+      hasSubstr first "data-bp-node=\"«def:runB»\"" &&
+      -- a statement without Lean stays in the run, in one column
+      hasSubstr first "class=\"bp_sbs bp_sbs_single\" data-bp-node=\"«lem:runNoLean»\"" &&
+      appearsBefore out "Prose between the blocks." run &&
+      -- the run element is closed before the prose: one more `</div>` than `<div` up to it
+      (let pre := (first.splitOn "Prose between the blocks.").headD ""
+       countSubstr pre "</div>" == countSubstr pre "<div" + 1) &&
+      hasSubstr second "data-bp-node=\"«thm:runC»\"" &&
+      -- the proof sits in its node's informal column, before the Lean column
+      appearsBefore first "First proof." "class=\"bp_sbs_formal\"" &&
+      -- without grouping (other layouts and renderers) nothing changes
+      !hasSubstr ungrouped "bp_sbs_run" &&
+      appearsBefore ungrouped "class=\"bp_sbs_formal\"" "First proof."
+    )
+
+open Verso.Output in
+/-- A side-by-side node and a proof of it, as rendered (attributes only). -/
+private def node (label : String) : Html :=
+  .tag "div" #[("class", "bp_sbs"), ("data-bp-node", label)] <|
+    .tag "div" #[("class", "bp_sbs_grid")] <| .seq #[
+      .tag "div" #[("class", "bp_sbs_informal")] (.text true "statement"),
+      .tag "div" #[("class", "bp_sbs_formal")] (.text true "lean")]
+
+open Verso.Output in
+private def proof (label : String) : Html :=
+  .tag "details" #[("data-bp-node", label), ("data-bp-facet", "proof")] (.text true s!"proof {label}")
+
+open Verso.Output in
+private def panel : Html := .tag "div" #[("class", "bp_wrapper bp_code_panel_wrapper")] .empty
+
+-- Proofs move into the node they directly follow, with their references panel; a proof of
+-- another node, or one after other content, stays where it is.
+/-- info: true -/
+#guard_msgs in
+#eval
+  open Verso.Output in
+  let out := Informal.SideBySideRuns.renderRun
+    #[node "a", .seq #[proof "a", panel], node "b", proof "c", .text true "x", proof "b"]
+  let s := out.asString
+  countSubstr s "<div class=\"bp_sbs_run\">" == 1 &&
+    appearsBefore s "proof a" "class=\"bp_sbs_formal\"" &&
+    appearsBefore s "bp_code_panel_wrapper" "data-bp-node=\"b\"" &&
+    appearsBefore s "data-bp-node=\"b\"" "proof c" &&
+    -- `b`'s proof follows other content, so it is not attached
+    appearsBefore s "proof c" "proof b" &&
+    appearsBefore (segment s "data-bp-node=\"b\"" 0) "class=\"bp_sbs_formal\"" "proof c"
+
+/-- A stand-in for a block of the given extension (only its name matters for grouping). -/
+private def blockOf (name : Name) (contents : Array (Doc.Block Genre.Manual) := #[]) :
+    Doc.Block Genre.Manual :=
+  .other { name } contents
+
+private def shape : Doc.Block Genre.Manual → String
+  | .other b contents =>
+    let inner := String.intercalate "," (contents.map shape).toList
+    if b.name == ``Informal.SideBySideRuns.Block.sideBySideRun then s!"run[{inner}]"
+    else if b.name == Informal.SideBySideRuns.informalBlockName then "n"
+    else if b.name == `Informal.Block.groupMetadata then "g"
+    else s!"o[{inner}]"
+  | .para _ => "p"
+  | _ => "?"
+
+-- Grouping: maximal runs; group metadata inside a run stays there, at its edges it stays
+-- outside; containers are searched for runs of their own.
+/-- info: "run[n,g,n],p,g,run[n],o[run[n,n]],run[n]" -/
+#guard_msgs in
+#eval
+  let n := blockOf Informal.SideBySideRuns.informalBlockName
+  let g := blockOf `Informal.Block.groupMetadata
+  let p : Doc.Block Genre.Manual := .para #[]
+  String.intercalate "," ((Informal.SideBySideRuns.groupBlocks
+    #[n, g, n, p, g, n, blockOf `Other #[n, n], .concat #[n]]).toList.map shape)
+
 end Verso.VersoBlueprintTests.BlueprintSideBySide

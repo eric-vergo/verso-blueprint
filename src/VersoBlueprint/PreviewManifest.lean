@@ -14,6 +14,7 @@ import VersoBlueprint.Cite
 import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Sidebar
 import VersoBlueprint.Informal.Block
+import VersoBlueprint.Informal.Block.Runs
 import VersoBlueprint.Informal.Uses
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Informal.Group
@@ -2936,6 +2937,8 @@ where
     let (sideBySideFlag, options) := parseSideBySideFlag options
     let sideBySide := sideBySide || sideBySideFlag
     let config := if sideBySide then withSideBySideDefaultStyle config else config
+    -- Consecutive Blueprint blocks form runs that share one column divider.
+    let htmlText := if sideBySide then Informal.SideBySideRuns.groupRuns htmlText else htmlText
     let cfg ← parseRenderConfigOptions (withBuildMetadataAssets config) options
     let cfg := if pdfOptions.enabled then { cfg with emitTeX := true } else cfg
     let buildMetadata ← readBuildMetadata reproducibility
