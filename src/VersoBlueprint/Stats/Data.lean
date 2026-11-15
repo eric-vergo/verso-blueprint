@@ -212,6 +212,11 @@ workspace's packages inside the project, and their compiled-module directories. 
 structure WorkspaceLayout where
   sourceDirs : Array String := #[]
   libraryDirs : Array String := #[]
+  /-- The project root as the Blueprint names it, relative to the working directory, when it is
+  not the working directory (the option `verso.blueprint.projectRoot`): a Blueprint that is a
+  package of its own inside the project it describes says `..`. The statistics are the
+  project's, and the Blueprint package's own files are not counted among them. -/
+  projectRoot : Option String := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- How a declaration of a Comparator challenge compares with the declaration of the same name

@@ -14,11 +14,12 @@
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
       "type": "object",
-      "required": ["sourceDirs", "libraryDirs"],
+      "required": ["sourceDirs", "libraryDirs", "projectRoot"],
       "additionalProperties": false,
       "properties": {
         "sourceDirs": { "$ref": "#/$defs/sortedPaths" },
-        "libraryDirs": { "$ref": "#/$defs/sortedPaths" }
+        "libraryDirs": { "$ref": "#/$defs/sortedPaths" },
+        "projectRoot": { "description": "The project root relative to the working directory, when the Blueprint names one (the option verso.blueprint.projectRoot); null when it is the working directory.", "$ref": "#/$defs/nullableString" }
       }
     },
     "modules": {

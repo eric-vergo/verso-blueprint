@@ -197,6 +197,24 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
   (json.splitOn "\"/").length == 1 && stats.sources.files.all (!·.path.startsWith "/") &&
     stats.layout.sourceDirs.contains "tests" && stats.layout.sourceDirs.contains "src"
 
+-- A Blueprint that is a package of its own inside the project it describes names the project's
+-- root; its own folder is then not part of the project's files.
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let cwd ← workingDirectory
+  let here ← projectRoot
+  let named ← projectRoot (some "tests")
+  let parent ← projectRoot (some "..")
+  return here == cwd && (← projectRoot (some " ")) == cwd &&
+    named.toString.endsWith "/tests" && (← blueprintFolder? cwd) == none &&
+    -- seen from the parent folder, the working directory is the Blueprint's own folder
+    (← blueprintFolder? parent) == cwd.fileName &&
+    insideFolder (some "blueprint") "blueprint" &&
+    insideFolder (some "blueprint") "blueprint/Chapter1.lean" &&
+    !insideFolder (some "blueprint") "blueprints/A.lean" && !insideFolder none "blueprint/A.lean" &&
+    stats.layout.projectRoot == none
+
 -- JSON round trip, and the schema version.
 /-- info: (true, 3) -/
 #guard_msgs in

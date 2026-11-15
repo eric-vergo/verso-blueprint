@@ -17,7 +17,9 @@ Collects `ProjectStats` from the checked environment, the Blueprint state, its d
 and the files of the project.
 
 The project root is the working directory, which is the workspace root when Lake builds or runs
-the generator. The project's modules are the modules of the environment whose source file lies
+the generator; a Blueprint that is a package of its own inside the project it describes names
+the project's root with the option `verso.blueprint.projectRoot`, and its own folder is then left
+out of the project's files. The project's modules are the modules of the environment whose source file lies
 inside the project root and outside its `.lake` directory, in a source directory of one of the
 workspace's packages there (`WorkspaceLayout.ofSearchPaths`). Every `.lean` file under the root
 is scanned; a file that is not one of those modules counts as compiled when a library directory
@@ -107,17 +109,51 @@ def WorkspaceLayout.ofSearchPaths (root : System.FilePath)
     if acc.contains d then acc else acc.push d
   return { sourceDirs := sourceDirs.qsort (· < ·), libraryDirs := libraryDirs.qsort (· < ·) }
 
+/-- The working directory, with symbolic links resolved. -/
+def workingDirectory : IO System.FilePath := do
+  let cwd ← IO.currentDir
+  try IO.FS.realPath cwd catch _ => pure cwd
+
+register_option verso.blueprint.projectRoot : String := {
+  defValue := ""
+  descr := "The root of the project the Blueprint describes, relative to the working directory \
+    (default: the working directory). A Blueprint that is a Lake package of its own inside the \
+    project sets `..`, so that the Project Stats page reports on the project: its README, \
+    license, sources and Comparator challenge."
+}
+
+/-- The project root: the working directory, or the folder `relative` names from there (the
+option `verso.blueprint.projectRoot`), with symbolic links resolved. -/
+def projectRoot (relative : Option String := none) : IO System.FilePath := do
+  let cwd ← workingDirectory
+  match relative.filter (!·.trimAscii.isEmpty) with
+  | none => pure cwd
+  | some rel =>
+    let root := cwd / rel.trimAscii.copy
+    try IO.FS.realPath root catch _ => pure root
+
+/-- The Blueprint package's own folder relative to `root`, when the working directory is a
+folder inside the project root and not the root itself: its files are the Blueprint's, not the
+project's. -/
+def blueprintFolder? (root : System.FilePath) : IO (Option String) := do
+  let cwd ← workingDirectory
+  return (relativeTo? root cwd).filter (· != ".")
+
+/-- Whether the path `rel` (relative to the project root) is `folder` or inside it. -/
+def insideFolder (folder : Option String) (rel : String) : Bool :=
+  folder.any fun f => rel == f || rel.startsWith (f ++ "/")
+
 /-- The layout of the running process's workspace, from `LEAN_SRC_PATH` and the library search
 path (`LEAN_PATH` and the one Lean was initialised with). -/
 def WorkspaceLayout.current (root : System.FilePath) : IO WorkspaceLayout := do
   let libPath := (← searchPathRef.get) ++
     ((← IO.getEnv "LEAN_PATH").map System.SearchPath.parse |>.getD [])
-  WorkspaceLayout.ofSearchPaths root (← getSrcSearchPath) libPath
-
-/-- The project root: the working directory, with symbolic links resolved. -/
-def projectRoot : IO System.FilePath := do
-  let cwd ← IO.currentDir
-  try IO.FS.realPath cwd catch _ => pure cwd
+  let layout ← WorkspaceLayout.ofSearchPaths root (← getSrcSearchPath) libPath
+  -- A Blueprint package inside the project is not part of the project it describes.
+  let own ← blueprintFolder? root
+  return { layout with
+    sourceDirs := layout.sourceDirs.filter (!insideFolder own ·)
+    libraryDirs := layout.libraryDirs.filter (!insideFolder own ·) }
 
 /-! ## Declarations -/
 
@@ -226,9 +262,11 @@ would be from one of the source directories, and not built otherwise. -/
 def SourceStats.read (root : System.FilePath) (layout : WorkspaceLayout)
     (modules : Array ModuleStats) : IO SourceStats := do
   let imported := modules.map (·.path)
+  let own ← blueprintFolder? root
   let mut files := #[]
   let mut total : LineCounts := {}
   for path in ← leanFilesUnder root do
+    if insideFolder own path then continue
     let lines := countLeanLines ((← try IO.FS.readFile (root / path) catch _ => pure ""))
     total := total + lines
     let status ←
@@ -393,11 +431,14 @@ private def resolve (file : String) : IO System.FilePath := do
 project's files read from the working directory. -/
 def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
   let env ← getEnv
-  let root ← projectRoot
+  let named := some (verso.blueprint.projectRoot.get (← getOptions)) |>.filter (!·.trimAscii.isEmpty)
+  let root ← projectRoot named
   let layout ← WorkspaceLayout.current root
-  let currentFile? := (relativeTo? root (← resolve (← getFileName))).filter (·.endsWith ".lean")
+  let own ← blueprintFolder? root
+  let currentFile? := (relativeTo? root (← resolve (← getFileName))).filter fun path =>
+    path.endsWith ".lean" && !insideFolder own path
   let (modules, sourceDirs) ← projectModules env root layout currentFile?
-  let layout := { layout with sourceDirs }
+  let layout := { layout with sourceDirs, projectRoot := named }
   let declarations := modules.foldl (init := {}) fun acc (_, counts) => acc + counts
   let modules := modules.map (·.1)
   let sources ← SourceStats.read root layout modules
@@ -416,7 +457,7 @@ def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
 the environment. Nothing changes when the working directory is not the captured project (its
 Lake manifest names another root package, or none while one was captured). -/
 def ProjectStats.refreshWorkspace (stats : ProjectStats) : IO ProjectStats := do
-  let root ← projectRoot
+  let root ← projectRoot stats.layout.projectRoot
   let identity ← ProjectIdentity.read root
   unless identity.name == stats.identity.name do
     return stats

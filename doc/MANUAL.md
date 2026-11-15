@@ -1932,6 +1932,19 @@ form is described in `doc/schemas/project-stats.schema.json`.
 - **Claims**: what the project's author says its Lean declarations state, from
   `informal-claims.json` (see "Author's claims" below).
 
+The project is the folder the generator runs in. A Blueprint that is a Lake
+package of its own inside the project it describes (a `blueprint/` folder with
+its own `lakefile`) names the project's root where its generator is defined,
+relative to that folder:
+
+```lean
+set_option verso.blueprint.projectRoot ".."
+```
+
+The statistics are then the project's (its README, license, sources and
+Comparator challenge), and the Blueprint package's own files are not counted
+among them.
+
 The statistics hold no version-control data, and every path in them is
 relative to the project root, so they do not change between `--reproducible`
 builds of the same files. The generator reads the project's files again when it

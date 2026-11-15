@@ -61,8 +61,8 @@ Elaboration, traversal, and rendering are standard, using {ref VersoManual} help
 -/
 
 /-- The author's claim about one of the block's Lean declarations, when the project supplies
-claims (`Informal.Stats.Claims`, captured with the project statistics). Only the claims are
-decoded, and only when the project has the file. -/
+claims (they are captured with the project statistics). Only the claims are decoded, and only
+when the project has the file. -/
 private def claimFor? (state : TraverseState) (data : BlockData) :
     Option Informal.ClaimView.ClaimView := do
   let code ← data.codeData
