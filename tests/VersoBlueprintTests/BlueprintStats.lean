@@ -198,7 +198,7 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
     stats.layout.sourceDirs.contains "tests" && stats.layout.sourceDirs.contains "src"
 
 -- JSON round trip, and the schema version.
-/-- info: (true, 2) -/
+/-- info: (true, 3) -/
 #guard_msgs in
 #eval
   match fromJson? (α := ProjectStats) (toJson stats) with

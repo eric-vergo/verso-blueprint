@@ -483,13 +483,22 @@ def proofStatusIncompleteText : String := "Lean code incomplete"
 def proofStatusFormalizedText : String := "locally formalized"
 def proofStatusFormalizedAncestorsText : String := "locally formalized + dependencies complete"
 
+/-! The status texts above are also values of the query interface (`StatementStatus.toText`,
+`ProofStatus.toText`) and stay as they are. What a page shows a reader is the wording below,
+which says what was looked at: the Lean code, for `sorry`. "Formalized" alone would say that an
+informal statement was turned into Lean, which no status knows. -/
+
+def statementStatusFormalizedLabel : String := "in Lean, no sorry"
+def proofStatusFormalizedLabel : String := "Lean code without sorry"
+def proofStatusFormalizedAncestorsLabel : String := "Lean code without sorry, dependencies too"
+
 def warningLeanOnlyText : String := "Lean code present but informal statement is missing"
 def warningMissingExternalText : String := "Associated Lean declaration is missing from the current environment"
 def warningHiddenInGroupViewText : String := "Warning markers are not shown individually in Group View"
 def edgeMixedText : String := "Thicker solid/dashed: statement + proof deps"
 def groupEdgeMixedText : String := "Thicker solid: statement + proof deps"
 def graphLegendFullViewNote : String :=
-  "Shape shows declaration kind, border shows statement status, fill shows proof status, and edge style separates statement from proof dependencies."
+  "Shape shows declaration kind, border shows the status of the Lean statement, fill shows the status of the Lean proof or definition, and edge style separates statement from proof dependencies. A status is about Lean code: no tool checks that a Lean statement says what its informal statement says."
 
 private def legendItem (label : String) (swatch? : Option LegendSwatch := none) : LegendItem :=
   { label, swatch? }
@@ -499,7 +508,7 @@ def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
     #[
       legendItem "Blocked" (some { borderColor := StatusColors.blockedBorder.cssVarOr }),
       legendItem "Ready to formalize" (some { borderColor := StatusColors.readyBorder.cssVarOr }),
-      legendItem "Formalized" (some { borderColor := StatusColors.formalizedBorder.cssVarOr })
+      legendItem "In Lean, no sorry" (some { borderColor := StatusColors.formalizedBorder.cssVarOr })
     ]
   let statementItems :=
     if includeMathlib then
@@ -530,8 +539,8 @@ def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
         legendItem proofStatusNoneText (some { background := StatusColors.notReady.cssVarOr }),
         legendItem proofStatusReadyText (some { background := StatusColors.ready.cssVarOr }),
         legendItem proofStatusIncompleteText (some { background := StatusColors.incomplete.cssVarOr }),
-        legendItem proofStatusFormalizedText (some { background := StatusColors.formalized.cssVarOr }),
-        legendItem proofStatusFormalizedAncestorsText
+        legendItem proofStatusFormalizedLabel (some { background := StatusColors.formalized.cssVarOr }),
+        legendItem proofStatusFormalizedAncestorsLabel
           (some {
             background := StatusColors.formalizedWithAncestors.cssVarOr
             borderColor := StatusColors.mathlibBorder.cssVarOr
@@ -785,6 +794,17 @@ def ProofStatus.toText : ProofStatus → String
   | .formalized => proofStatusFormalizedText
   | .formalizedWithAncestors => proofStatusFormalizedAncestorsText
 
+/-- The status as a page shows it (`statementStatusFormalizedLabel`). -/
+def StatementStatus.label : StatementStatus → String
+  | .formalized => statementStatusFormalizedLabel
+  | status => status.toText
+
+/-- The status as a page shows it (`proofStatusFormalizedLabel`). -/
+def ProofStatus.label : ProofStatus → String
+  | .formalized => proofStatusFormalizedLabel
+  | .formalizedWithAncestors => proofStatusFormalizedAncestorsLabel
+  | status => status.toText
+
 def warningTooltipParts (warnings : WarningFlags) : List String :=
   (if warnings.leanOnlyNoStatement then [warningLeanOnlyText] else []) ++
   (if warnings.missingExternalDecl then [warningMissingExternalText] else [])
@@ -825,7 +845,9 @@ def mkStyledNode (kind : Data.NodeKind) (label : Name) (deps proofDeps : Array N
     let styleTokens := styleTokensForWarnings warnings
     let style := String.intercalate "," styleTokens.toList
     let tooltipParts :=
-      [s!"Statement: {statement.toText}", s!"Proof: {proof.toText}"] ++ warningTooltipParts warnings
+      [s!"Lean statement: {statement.label}",
+        s!"{if kind.isTheoremLike then "Lean proof" else "Lean code"}: {proof.label}"] ++
+        warningTooltipParts warnings
     let tooltip? :=
       if tooltipParts.isEmpty then none else some (String.intercalate " | " tooltipParts)
     {

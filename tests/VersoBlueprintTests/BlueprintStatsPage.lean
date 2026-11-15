@@ -10,8 +10,9 @@ import VersoBlueprintTests.Blueprint.Support
 
 /-!
 The Project Stats page: the formatting helpers, the rendered bands of a view (identity, headline
-card or hint, progress, size, build, trust ledger, summary link), the page in a rendered
-document, and the page that generators add to every site (and leave out when asked).
+card or hint, progress, size, build, what the Lean code rests on, the explanation of the marks,
+summary link), the page in a rendered document, and the page that generators add to every site
+(and leave out when asked). `BlueprintMeaning` pins the wording of each state.
 -/
 
 namespace Verso.VersoBlueprintTests.BlueprintStatsPage
@@ -46,7 +47,10 @@ set_option doc.verso true
     { name := `main, solution := .differs, difference := some "the statement differs",
       differingDeclaration := some `main }
   (headlineVerdict proved).1 == "proved" && (headlineVerdict withSorry).1 == "sorry" &&
-    (headlineVerdict differs).2 == "Statement differs: the statement differs (main)" &&
+    (headlineVerdict proved).2 == "Lean statement proved" &&
+    (headlineVerdict withSorry).2 == "Same Lean statement as the challenge; the proof uses sorry" &&
+    (headlineVerdict differs).2 ==
+      "Lean statement differs from the challenge: the statement differs (main)" &&
     (headlineVerdict { name := `main, solution := .missing }).1 == "missing"
 
 -- Chapters follow their numbers, the unnumbered ones last, in the order they came in.
@@ -81,6 +85,9 @@ private def rokickiLike : ProjectStats := {
     lines := { blank := 378, comment := 402, code := 1353 }
   }
   progress := { formalizedWithAncestors := 54, formalized := 2, incomplete := 1, ready := 1 }
+  leanProgress := {
+    theorems := { total := 48, leanComplete := 46, leanCompleteWithDependencies := 44, informal := 48 }
+    definitions := { total := 10, leanComplete := 10, leanCompleteWithDependencies := 10, informal := 9 } }
   graph := { nodes := 58, statementEdges := 62, proofEdges := 84, edges := 146,
              byKind := #[("definition", 10), ("lemma", 40), ("theorem", 8)] }
   headline := some {
@@ -130,17 +137,32 @@ private def view (stats : ProjectStats) : StatsPageView := {
     -- the headline card
     hasSubstr html "class=\"bp_stats_band bp_stats_headline\"" &&
     hasSubstr html "data-bp-theorem=\"rho_irrational\" data-bp-verdict=\"proved\"" &&
-    hasSubstr html "<a href=\"/Main/#main\">Theorem 6.1</a>" &&
+    -- the node's number is the Blueprint's own, and the link says so
+    hasSubstr html "<a href=\"/Main/#main\">This site's Theorem 6.1</a>" &&
+    hasSubstr html "Lean statement proved</span>" &&
+    hasSubstr html "Lean statement, from the challenge" &&
+    hasSubstr html "Docstring in the challenge (not checked against the Lean statement)" &&
+    -- the Lean statement comes before the docstring
+    appearsBefore html "theorem rho_irrational : Irrational rho" "Rokicki's constant is irrational.</p>" &&
+    hasSubstr html headlineMethodText &&
+    hasSubstr html (thisBuildText rokickiLike.identity) &&
+    thisBuildText rokickiLike.identity == "This page reports on one build, made with Lean v4.35.0 \
+      and the package revisions above. No other toolchain or revision was checked." &&
     hasSubstr html "theorem rho_irrational : Irrational rho" &&
     hasSubstr html "the standard axioms of Lean's logic only" &&
     hasSubstr html "<code>Comparator/Challenge.lean</code>" &&
-    hasSubstr html "<code>rho</code> (same)" &&
+    hasSubstr html "<code>rho</code> (same in the solution)" &&
     !hasSubstr html headlineHintText &&
     -- progress: counts as text, a segment per non-empty status, the per-chapter table
-    hasSubstr html "58 nodes · 93% fully proved" &&
+    hasSubstr html "58 nodes: 48 theorems, 10 definitions</p>" &&
+    hasSubstr html "Lean complete (no sorry in a node's Lean code or in what that code uses): \
+      46 of 48 theorems, 10 of 10 definitions.</p>" &&
+    hasSubstr html "Informal statements: 57 of 58 nodes have one. No tool has checked any of \
+      them against the Lean statements." &&
+    !hasSubstr html "fully proved" && !hasSubstr html "Fully proved" &&
     hasSubstr html "style=\"flex-grow: 54\" data-bp-status=\"fully-proved\"" &&
     !hasSubstr html "data-bp-status=\"not-ready\" title=" &&
-    hasSubstr html "aria-label=\"58 nodes: 54 fully proved, 2 proved, open ancestors, 1 Lean code incomplete, 1 ready to formalize\"" &&
+    hasSubstr html "aria-label=\"58 nodes: 54 Lean complete, dependencies too, 2 Lean complete, a dependency is not, 1 Lean code incomplete, 1 ready to formalize\"" &&
     hasSubstr html "<a href=\"/Ready-to-Prove/#ready-to-prove\">Ready to Prove (1)</a>" &&
     hasSubstr html "data-bp-chapter=\"Character sums\"" && hasSubstr html "16/18" &&
     -- size and build
@@ -148,9 +170,15 @@ private def view (stats : ProjectStats) : StatsPageView := {
     hasSubstr html "73 theorems · 22 definitions" && hasSubstr html "10 definitions · 40 lemmas · 8 theorems" &&
     hasSubstr html "2 of 3 Lean files compiled: 1 imported by the site, 1 built by another target." &&
     hasSubstr html "1 Lean file on disk in no build:" && hasSubstr html "<code>scripts/Probe.lean</code>" &&
-    hasSubstr html "No declaration has a sorry of its own." &&
-    -- trust and the summary link
-    hasSubstr html "Nothing in the ledger limits trust" &&
+    hasSubstr html "No Lean declaration of a node has a sorry of its own." &&
+    -- what the Lean code rests on, the explanation of the marks and the summary link
+    hasSubstr html "No node's Lean code uses sorry, an axiom outside Lean's standard three or the \
+      result of compiled code, as Lean reports the axioms of this build." &&
+    hasSubstr html s!"id=\"{Informal.Meaning.anchor}\"" &&
+    hasSubstr html s!"<a href=\"#{Informal.Meaning.anchor}\" class=\"bp_meaning_link\">What this means</a>" &&
+    meaningItems.all (fun item => hasSubstr html item.1) &&
+    hasSubstr html "<a href=\"lean:help/marks\">" &&
+    appearsBefore html "bp_stats_trust" "bp_stats_meaning" &&
     hasSubstr html "data-bp-trust=\"sorry-direct\" data-bp-count=\"0\"" &&
     hasSubstr html "Detailed breakdown: <a href=\"/Blueprint-Summary/#blueprint-summary\">Blueprint Summary</a>" &&
     appearsBefore html "bp_stats_identity" "bp_stats_headline" &&
@@ -185,15 +213,18 @@ private def view (stats : ProjectStats) : StatsPageView := {
   let headline := rokickiLike.headline.map fun h => { h with theorems := h.theorems.map fun t =>
     { t with proved := false, sorryFree := some false, axioms := t.axioms.push ``sorryAx } }
   let html := (statsPageHtml (view { rokickiLike with trust, headline })).asString
-  hasSubstr html "1 declaration with a sorry of its own." &&
+  hasSubstr html "1 Lean declaration of nodes with a sorry of its own." &&
     hasSubstr html "data-bp-trust=\"sorry-direct\" data-bp-count=\"1\"" &&
     hasSubstr html "<a href=\"/Sums/#lem\">Lemma 3.2</a>" &&
     -- a node is listed once, however many of its declarations are on the row
     hasSubstr html "data-bp-trust=\"sorry-dependency\" data-bp-count=\"1\"" &&
     hasSubstr html "data-bp-trust=\"compiler-trusted\" data-bp-count=\"1\"" &&
     hasSubstr html "data-bp-trust=\"extra-axioms\" data-bp-count=\"0\"" &&
-    !hasSubstr html "Nothing in the ledger limits trust" &&
-    hasSubstr html "data-bp-verdict=\"sorry\"" && hasSubstr html "Same statement; the proof uses sorry" &&
+    !hasSubstr html "No node's Lean code uses sorry" &&
+    hasSubstr html "Nodes whose Lean declarations rest on more than Lean's standard three axioms" &&
+    hasSubstr html "data-bp-verdict=\"sorry\"" &&
+    hasSubstr html "Same Lean statement as the challenge; the proof uses sorry" &&
+    !hasSubstr html ">Lean statement proved</span>" &&
     hasSubstr html "data-bp-axiom-class=\"sorry\"" &&
     !hasSubstr html "the standard axioms of Lean's logic only"
 
@@ -233,7 +264,11 @@ A theorem.
     let total := model.stats.progress.total
     pure (
       hasSubstr out "class=\"bp_project_stats\"" &&
-      hasSubstr out s!"{countOf total "node"} · " &&
+      hasSubstr out s!"{countOf total "node"}: 1 theorem, 1 definition</p>" &&
+      -- both nodes have a written statement, and neither has Lean code
+      hasSubstr out "Lean complete (no sorry in a node's Lean code or in what that code uses): \
+        0 of 1 theorem, 0 of 1 definition." &&
+      hasSubstr out "Informal statements: 2 of 2 nodes have one." &&
       hasSubstr out "class=\"bp_stats_band bp_stats_trust\"" &&
       total ≥ 2)
 

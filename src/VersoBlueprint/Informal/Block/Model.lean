@@ -17,6 +17,10 @@ inductive NumberingMode where
   | sub
   | global
   | local
+  /-- No number: the block is named by its label. For documents whose order carries no meaning
+  a reader could cite, such as a site generated from code, where a number would read as the
+  number of a result in a manuscript. -/
+  | none
 deriving Repr, Inhabited, BEq, FromJson, ToJson, Quote
 
 /-- Which numbered ancestors should appear before the local sub-number? -/
@@ -36,6 +40,7 @@ def NumberingMode.parse? (raw : String) : Option NumberingMode :=
   | "sub" | "chapter" | "section" | "subnumber" | "sub-number" => some .sub
   | "global" => some .global
   | "local" => some .local
+  | "none" | "off" => some .none
   | _ => none
 
 def SubNumberingPrefix.parse? (raw : String) : Option SubNumberingPrefix :=
@@ -52,7 +57,7 @@ def SubNumberingCounter.parse? (raw : String) : Option SubNumberingCounter :=
 
 register_option verso.blueprint.numbering : String := {
   defValue := "sub"
-  descr := "Numbering mode for blueprint informal blocks: `sub` (default; prefix according to sub-numbering options), `global`, or `local`"
+  descr := "Numbering mode for blueprint informal blocks: `sub` (default; prefix according to sub-numbering options), `global`, `local`, or `none` (blocks are named by their labels)"
 }
 
 register_option verso.blueprint.subNumberingPrefix : String := {
@@ -299,6 +304,10 @@ structure BlockPresentation where
   partPrefix : Option String := none
   /-- Document-order global index assigned during traversal. -/
   globalCount : Option Nat := none
+  /-- Where the statement's text comes from, when it is not written in the Blueprint itself: a
+  site generated from code names the source its data gives (`docstring`, `tex`, …). Shown
+  under the statement; `none` reads as the Blueprint. -/
+  statementSource : Option String := none
 deriving FromJson, ToJson, Quote
 
 /-- A compiled document occurrence: identity and presentation, without copied node semantics. -/
@@ -390,9 +399,21 @@ structure NodeDisplay where
   label : Data.Label
   kind : Data.NodeKind
   number? : Option String := none
+  /-- The document shows the node without a number (`NumberingMode.none`): its title is its kind
+  and its label. -/
+  unnumbered : Bool := false
+
+/-- A label as a reader sees it: without Lean's prefix for private names, which a label has when
+it is a private declaration's name. -/
+def NodeDisplay.labelText (label : Data.Label) : String :=
+  (Lean.privateToUserName label).toString (escape := false)
 
 def NodeDisplay.title (display : NodeDisplay) : String :=
-  display.number?.map (fun number => s!"{display.kind} {number}") |>.getD (display.label.toString (escape := false))
+  match display.number? with
+  | some number => s!"{display.kind} {number}"
+  | none =>
+    if display.unnumbered then s!"{display.kind} {NodeDisplay.labelText display.label}"
+    else NodeDisplay.labelText display.label
 
 def NodeDisplay.proofTitle (display : NodeDisplay) : String :=
   s!"Proof for {display.title}"

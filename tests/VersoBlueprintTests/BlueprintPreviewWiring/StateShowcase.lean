@@ -116,8 +116,8 @@ def stateShowcaseDocBlueprint : Informal.BlueprintDocument := .capture stateShow
       hasSubstr out proofStatusNoneText &&
       hasSubstr out proofStatusReadyText &&
       hasSubstr out proofStatusIncompleteText &&
-      hasSubstr out proofStatusFormalizedText &&
-      hasSubstr out proofStatusFormalizedAncestorsText &&
+      hasSubstr out proofStatusFormalizedLabel &&
+      hasSubstr out proofStatusFormalizedAncestorsLabel &&
       hasSubstr out "Unknown reference" &&
       hasSubstr out "Missing external Lean declaration" &&
       hasSubstr out "Lean code, informal statement missing" &&

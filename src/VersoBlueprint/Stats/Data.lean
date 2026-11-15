@@ -23,7 +23,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 2
+def projectStatsSchemaVersion : Nat := 3
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -109,6 +109,35 @@ def ProgressCounts.add (c : ProgressCounts) : Graph.ProofStatus → ProgressCoun
   | .incomplete => { c with incomplete := c.incomplete + 1 }
   | .formalized => { c with formalized := c.formalized + 1 }
   | .formalizedWithAncestors => { c with formalizedWithAncestors := c.formalizedWithAncestors + 1 }
+
+/-- Blueprint nodes of one kind group (theorem-like nodes, or definitions) by what is known of
+their Lean code and of their informal statement. Each count is of nodes, not declarations. -/
+structure KindProgress where
+  total : Nat := 0
+  /-- Nodes whose Lean declarations, with everything those declarations use, contain no `sorry`
+  (`Graph.ProofStatus.formalized` or `formalizedWithAncestors`). Nothing is said about axioms. -/
+  leanComplete : Nat := 0
+  /-- Of `leanComplete`, the nodes for which every node they depend on is also Lean complete
+  (`Graph.ProofStatus.formalizedWithAncestors`). -/
+  leanCompleteWithDependencies : Nat := 0
+  /-- Nodes that have an informal statement (a statement with a body). Whether that statement
+  says what the Lean statement says is not something any count here knows. -/
+  informal : Nat := 0
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The nodes by kind group: theorem-like nodes (theorems, lemmas, propositions, corollaries),
+whose Lean code is a proof, and definitions, whose Lean code is not. Placeholders for unknown
+references are not nodes. -/
+structure LeanProgress where
+  theorems : KindProgress := {}
+  definitions : KindProgress := {}
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- Nodes of either group. -/
+def LeanProgress.total (p : LeanProgress) : Nat := p.theorems.total + p.definitions.total
+
+/-- Nodes of either group that have an informal statement. -/
+def LeanProgress.informal (p : LeanProgress) : Nat := p.theorems.informal + p.definitions.informal
 
 /-- Progress of the nodes rendered in one chapter of the site. The chapter's title is not part
 of the statistics; pages that show it look it up from the site. -/
@@ -242,7 +271,11 @@ structure HeadlineTheorem where
   axioms : Array Name := #[]
   /-- Whether every axiom is in the challenge's permitted list, when it states one. -/
   axiomsPermitted : Option Bool := none
-  /-- The same statement, proved without `sorry`. -/
+  /-- The axioms the verdict does not allow, `sorryAx` aside: those outside the challenge's
+  permitted list when it states one, else those outside Lean's standard three. -/
+  axiomsNotAllowed : Array Name := #[]
+  /-- The same Lean statement as the challenge, proved without `sorry` and without an axiom the
+  verdict does not allow (`axiomsNotAllowed` is empty). -/
   proved : Bool := false
   /-- The Blueprint node whose Lean declarations include the theorem. -/
   node : Option Name := none
@@ -278,6 +311,54 @@ structure Headline where
   definitions : Array HeadlineDefinition := #[]
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
+/-- A person's statement that they compared an informal claim with the Lean statement. It is
+recorded and shown as given; nothing checks it. -/
+structure Attestation where
+  /-- Who attests (the file's `by`). -/
+  who : String
+  /-- When, as the author wrote it (a date). -/
+  date : Option String := none
+  /-- What was compared, in the attester's words (for example the manuscript's version). -/
+  note : Option String := none
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- What a project's author says a Lean declaration states: a result of a manuscript, by the
+manuscript's own number, with the informal statement. Author-supplied data
+(`informal-claims.json`); no tool compares it with the Lean statement. -/
+structure Claim where
+  /-- The Lean declaration the claim is about. -/
+  declaration : Name
+  /-- The result's own name in the source, as the author gives it ("Theorem 2.2"). -/
+  reference : Option String := none
+  /-- The informal statement, as plain text. -/
+  statement : Option String := none
+  /-- People who say they compared the claim with the Lean statement. -/
+  attestations : Array Attestation := #[]
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The manuscript, or other source, a project's claims refer to. -/
+structure ClaimSource where
+  title : Option String := none
+  authors : Option String := none
+  /-- Which version the claims were written against (a date, an arXiv version, a commit). -/
+  version : Option String := none
+  /-- A web address, or a path relative to the project root. -/
+  url : Option String := none
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The project's author-supplied claims (`informal-claims.json` at the project root). -/
+structure Claims where
+  source : ClaimSource := {}
+  /-- In the file's order. -/
+  claims : Array Claim := #[]
+  /-- Why the file could not be read, when that is so; `claims` is then empty. -/
+  error : Option String := none
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The claim about `declaration`, when the author made one. -/
+def Claims.find? (c : Claims) (declaration : Name) : Option Claim :=
+  c.claims.find? (·.declaration == declaration)
+
 /-- The statistics of one Blueprint project. -/
 structure ProjectStats where
   schemaVersion : Nat := projectStatsSchemaVersion
@@ -288,6 +369,8 @@ structure ProjectStats where
   declarations : DeclarationCounts := {}
   sources : SourceStats := {}
   progress : ProgressCounts := {}
+  /-- The nodes by kind group, with what is known of their Lean code and informal statements. -/
+  leanProgress : LeanProgress := {}
   /-- Progress by chapter, in the order chapters first appear in the graph. Empty until the
   site's pages are known (`ProjectStats.withChapters`). -/
   chapters : Array ChapterProgress := #[]
@@ -298,6 +381,8 @@ structure ProjectStats where
   /-- Whether the project has a Comparator challenge. Pages use it to say, without one, that a
   challenge would add a headline. -/
   hasComparatorChallenge : Bool := false
+  /-- The author's claims about what Lean declarations state, when the project has the file. -/
+  claims : Option Claims := none
 deriving Inhabited, ToJson, FromJson
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give

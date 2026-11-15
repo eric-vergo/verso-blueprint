@@ -147,7 +147,7 @@ info: ["unavailable: none ",
 -- `theorem_names` selects the theorems judged; `permitted_axioms` judges their axioms.
 /--
 info: ["unavailable: none ",
-  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted (some false), proved true, node none",
+  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted (some false), proved false, node none",
   "definition double: Informal.Stats.Correspondence.same"]
 -/
 #guard_msgs in

@@ -613,3 +613,58 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_run > .bp_sbs + .bp_sbs {
 .bp_sbs_formal .hl.lean .unknown.token {
   color: var(--bp-code-punctuation, var(--bp-color-text));
 }
+
+/* Under an informal statement that has Lean code beside it: where the text comes from, and that
+   nothing compared it with the Lean statement. Small and quiet; the full sentence is its title. */
+.bp_statement_source {
+  margin: 0.35rem 0 0;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.72rem;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_statement_source a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.bp_status_legend_note {
+  margin: 0.4rem 0 0;
+  color: var(--bp-color-text-faint);
+}
+
+/* An author's claim under a statement on a chapter page (`Informal.ClaimView`). */
+.bp_claim {
+  margin: 0.5rem 0 0;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--bp-color-border-strong);
+  background: var(--bp-color-surface-subtle);
+  font-size: 0.9rem;
+}
+
+.bp_claim p,
+.bp_claim ul {
+  margin: 0.15rem 0;
+}
+
+.bp_claim_caption {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bp-color-text-subtle);
+}
+
+.bp_claim_cite {
+  font-weight: 600;
+}
+
+.bp_claim_attestations {
+  padding-left: 1.1rem;
+  color: var(--bp-color-text-muted);
+}
+
+.bp_claim_note {
+  font-size: 0.82rem;
+  color: var(--bp-color-text-subtle);
+}

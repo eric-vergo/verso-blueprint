@@ -9,6 +9,7 @@ import Lean.Meta.Match.MatcherInfo
 import VersoBlueprint.Axioms
 import VersoBlueprint.Environment
 import VersoBlueprint.Graph
+import VersoBlueprint.Stats.Claims
 import VersoBlueprint.Stats.Data
 
 /-!
@@ -265,6 +266,23 @@ def progressOf (graph : Graph.GraphModel) : ProgressCounts :=
   graph.nodes.foldl (init := {}) fun c node =>
     if node.warnings.unknownRef then c else c.add node.proofStatus
 
+/-- The nodes by kind group, with what is known of their Lean code (from the graph's progress
+status) and whether they have an informal statement (from the Blueprint state). A node without a
+kind counts as theorem-like, as the graph draws it. -/
+def leanProgressOf (state : Environment.State) (graph : Graph.GraphModel) : LeanProgress :=
+  graph.nodes.foldl (init := {}) fun p node =>
+    if node.warnings.unknownRef then p else
+    let add (k : KindProgress) : KindProgress :=
+      let complete := node.proofStatus == .formalized || node.proofStatus == .formalizedWithAncestors
+      let informal := (state.data.get? node.label).any (·.toNode.hasStatementBody)
+      { total := k.total + 1
+        leanComplete := k.leanComplete + (if complete then 1 else 0)
+        leanCompleteWithDependencies := k.leanCompleteWithDependencies +
+          (if node.proofStatus == .formalizedWithAncestors then 1 else 0)
+        informal := k.informal + (if informal then 1 else 0) }
+    if (node.kind.map (·.isTheoremLike)).getD true then { p with theorems := add p.theorems }
+    else { p with definitions := add p.definitions }
+
 /-- The size of the graph. Edges are counted from the uses of real nodes. -/
 def graphSizeOf (graph : Graph.GraphModel) : GraphSize := Id.run do
   let nodes := graph.nodes.filter (!·.warnings.unknownRef)
@@ -388,8 +406,10 @@ def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
   return {
     identity, layout, modules, declarations, sources
     progress := progressOf graph
+    leanProgress := leanProgressOf state graph
     graph := graphSizeOf graph
     trust := trustLedgerOf state graph
+    claims := ← Claims.atRoot? root
   }
 
 /-- Read the project's files again from the working directory, keeping what was captured from
@@ -401,6 +421,6 @@ def ProjectStats.refreshWorkspace (stats : ProjectStats) : IO ProjectStats := do
   unless identity.name == stats.identity.name do
     return stats
   let sources ← SourceStats.read root stats.layout stats.modules
-  return { stats with identity, sources }
+  return { stats with identity, sources, claims := ← Claims.atRoot? root }
 
 end Informal.Stats

@@ -35,6 +35,16 @@ through other such declarations, is declared identically by the solution (type a
 compared as terms), except that a theorem or a definition hole only needs the same type. A
 constant from an import counts as the same, since both sides have it from the same compiled
 module.
+
+A theorem counts as proved when the solution has the same statement, does not depend on `sorry`
+and depends on no axiom outside the challenge's permitted list (outside Lean's standard three
+when the challenge states no list).
+
+What this is not: the comparison reads the compiled modules of the build the site is generated
+from, and the axioms as Lean reports them for that build. It does not build the project from its
+sources in a sandbox and does not replay any proof in a kernel; `lake comparator` does both. And
+neither says anything about what the statement means: that a Lean statement is the theorem of a
+manuscript is for a reader to judge.
 -/
 
 namespace Informal.Stats
@@ -437,6 +447,13 @@ def matchesSource (challenge : ChallengeModule) (source : String) : Bool :=
       let name := privateToUserName info.name
       !written.isEmpty && (name.toString (escape := false)).endsWith written
 
+/-- The axioms among `axioms` that a verdict of "proved" does not allow, `sorryAx` aside (a
+`sorry` is reported on its own): those outside `permitted` when the challenge states a list, else
+those outside Lean's standard three. -/
+def axiomsNotAllowed (permitted : Option (Array Name)) (axioms : Array Name) : Array Name :=
+  axioms.filter fun a =>
+    a != sorryAxiom && !(permitted.getD standardAxioms).contains a
+
 /-- The headline of a project with the given challenge configuration, comparing with the solution
 in the current environment. `root` is the project root and `layout` where its sources and
 compiled modules are; `libraryPath` is searched for the compiled challenge first. -/
@@ -495,9 +512,10 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
     let axioms := sortAxioms (← declarationAxioms t.name)
     let sorryFree := !axioms.contains sorryAxiom
     let axiomsPermitted := config.permittedAxioms.map fun ok => axioms.all ok.contains
-    let t := { t with sorryFree, axioms, axiomsPermitted, node }
+    let axiomsNotAllowed := axiomsNotAllowed config.permittedAxioms axioms
+    let t := { t with sorryFree, axioms, axiomsPermitted, axiomsNotAllowed, node }
     judged := judged.push <| match firstDifference ctx t.name with
-      | none => { t with solution := .same, proved := sorryFree }
+      | none => { t with solution := .same, proved := sorryFree && axiomsNotAllowed.isEmpty }
       | some (decl, why) =>
         { t with solution := .differs, differingDeclaration := decl, difference := why }
   let authored := (challenge.complete.filter (isAuthored challenge.ranges ·)).qsort

@@ -2,13 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "project-stats.schema.json",
   "title": "Blueprint project statistics",
-  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 2. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
+  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 3. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
-    "progress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge"],
+    "progress", "leanProgress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge",
+    "claims"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -77,6 +78,16 @@
       }
     },
     "progress": { "$ref": "#/$defs/progress" },
+    "leanProgress": {
+      "description": "The nodes by kind group: theorem-like nodes (theorems, lemmas, propositions, corollaries) and definitions.",
+      "type": "object",
+      "required": ["theorems", "definitions"],
+      "additionalProperties": false,
+      "properties": {
+        "theorems": { "$ref": "#/$defs/kindProgress" },
+        "definitions": { "$ref": "#/$defs/kindProgress" }
+      }
+    },
     "chapters": {
       "description": "Progress by chapter (the first directory of the nodes' page addresses), in order of first appearance. Empty until the site's pages are known.",
       "type": "array",
@@ -160,6 +171,60 @@
     "hasComparatorChallenge": {
       "description": "Whether the project has a Comparator challenge: comparator.json at the root, or the source of Comparator.Challenge. Without one a page can say that a challenge would add a headline.",
       "type": "boolean"
+    },
+    "claims": {
+      "description": "The author's claims about what Lean declarations state (informal-claims.json at the project root); null without the file. Author-supplied text: nothing compares it with the Lean statements.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["source", "claims", "error"],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "description": "The manuscript, or other source, the claims refer to.",
+              "type": "object",
+              "required": ["title", "authors", "version", "url"],
+              "additionalProperties": false,
+              "properties": {
+                "title": { "$ref": "#/$defs/nullableString" },
+                "authors": { "$ref": "#/$defs/nullableString" },
+                "version": { "$ref": "#/$defs/nullableString" },
+                "url": { "$ref": "#/$defs/nullableString" }
+              }
+            },
+            "claims": {
+              "description": "In the file's order, one per declaration.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["declaration", "reference", "statement", "attestations"],
+                "additionalProperties": false,
+                "properties": {
+                  "declaration": { "$ref": "#/$defs/name" },
+                  "reference": { "description": "The result's own name in the source, such as \"Theorem 2.2\".", "$ref": "#/$defs/nullableString" },
+                  "statement": { "$ref": "#/$defs/nullableString" },
+                  "attestations": {
+                    "description": "People who say they compared the claim with the Lean statement. A person's statement, not a check.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["who", "date", "note"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "who": { "type": "string" },
+                        "date": { "$ref": "#/$defs/nullableString" },
+                        "note": { "$ref": "#/$defs/nullableString" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "error": { "description": "Why the file could not be read; claims is then empty.", "$ref": "#/$defs/nullableString" }
+          }
+        }
+      ]
     }
   },
   "$defs": {
@@ -205,7 +270,8 @@
           "items": {
             "type": "object",
             "required": ["name", "docstring", "statement", "solution", "differingDeclaration",
-              "difference", "sorryFree", "axioms", "axiomsPermitted", "proved", "node"],
+              "difference", "sorryFree", "axioms", "axiomsPermitted", "axiomsNotAllowed", "proved",
+              "node"],
             "additionalProperties": false,
             "properties": {
               "name": { "$ref": "#/$defs/name" },
@@ -239,8 +305,13 @@
                 "description": "Whether every axiom is in permittedAxioms; null without a list.",
                 "type": ["boolean", "null"]
               },
+              "axiomsNotAllowed": {
+                "description": "The axioms the verdict does not allow, sorryAx aside: those outside permittedAxioms when the challenge states a list, else those outside Lean's standard three.",
+                "type": "array",
+                "items": { "$ref": "#/$defs/name" }
+              },
               "proved": {
-                "description": "The same statement, proved without sorry.",
+                "description": "The same Lean statement as the challenge, without sorry and with axiomsNotAllowed empty. Read from the compiled modules of the build; nothing is replayed in a kernel.",
                 "type": "boolean"
               },
               "node": {
@@ -278,6 +349,18 @@
         "blank": { "$ref": "#/$defs/count" },
         "comment": { "$ref": "#/$defs/count" },
         "code": { "$ref": "#/$defs/count" }
+      }
+    },
+    "kindProgress": {
+      "description": "Nodes of one kind group. leanComplete: the node's Lean declarations, with everything they use, contain no sorry (nothing is said about axioms). leanCompleteWithDependencies: of those, the nodes whose dependencies in the graph are all Lean complete. informal: nodes that have an informal statement.",
+      "type": "object",
+      "required": ["total", "leanComplete", "leanCompleteWithDependencies", "informal"],
+      "additionalProperties": false,
+      "properties": {
+        "total": { "$ref": "#/$defs/count" },
+        "leanComplete": { "$ref": "#/$defs/count" },
+        "leanCompleteWithDependencies": { "$ref": "#/$defs/count" },
+        "informal": { "$ref": "#/$defs/count" }
       }
     },
     "progress": {

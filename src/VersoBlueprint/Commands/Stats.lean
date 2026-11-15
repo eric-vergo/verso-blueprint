@@ -14,6 +14,8 @@ import VersoBlueprint.Commands.WorkQueue
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Lib.ExtensionDecode
+import VersoBlueprint.Meaning
+import VersoBlueprint.Stats.Claims
 import VersoBlueprint.Stats.Data
 import VersoBlueprint.StatusColors
 import VersoBlueprint.TraversalIndex
@@ -24,9 +26,18 @@ The "Project Stats" page: what a first-time reader of a project wants to know, o
 The page shows the project's identity (name, description, license, toolchain, key dependency
 revisions, links), its headline result (the theorems of its Comparator challenge, when it has one),
 how far along it is (nodes by progress status, overall and per chapter), how big it is, whether it
-builds, and a short trust ledger (`sorry`, extra axioms, proofs that trust compiled code). Every
-number comes from the project statistics captured with the render model (`Informal.Stats`); the
-page holds no version-control data and needs no script.
+builds, and a short ledger of what the Lean code rests on (`sorry`, extra axioms, compiled code).
+Every number comes from the project statistics captured with the render model
+(`Informal.Stats`); the page holds no version-control data and needs no script.
+
+Each sentence on the page says what was looked at and no more. A status is about Lean code: its
+words are "Lean complete" (no `sorry` in a node's declarations or in what they use), never
+"proved" for a definition and never a word about an informal statement. The headline's verdict
+is about the Lean statement, in the build the site was generated from. Informal text (a
+challenge's docstring, an author's claim about a manuscript) is shown with a caption naming its
+source and the sentence that no tool compared it with the Lean statement
+(`Informal.Meaning`); the page ends with a short explanation of the marks
+(`Informal.Meaning.anchor`), which the notes link to.
 
 Generators add the page to every site (`withStatsPage`), as an unnumbered page at the end of the
 table of contents, unless the document places it itself with `{blueprint_stats}` or the generator
@@ -60,6 +71,9 @@ structure StatsPageData where
   documentTitle : Option String := none
   /-- External links shown with the identity (generators pass their sidebar links). -/
   links : Array StatsLink := #[]
+  /-- The page of the explanation of the marks is this page, so its notes link to the anchor
+  alone. -/
+  meaningHref : Option String := Option.some s!"#{Informal.Meaning.anchor}"
 deriving Inhabited, Repr, BEq, ToJson, FromJson
 
 /-- A Blueprint node as the page links to it. -/
@@ -157,10 +171,18 @@ structure ProgressBucket where
   count : Nat
 deriving Inhabited, Repr
 
-/-- The progress counts as buckets, most complete first. -/
+/-- The words for a node whose Lean declarations, with everything they use, contain no `sorry`.
+It is said of theorems and definitions alike, and says nothing about an informal statement. -/
+def leanCompleteLabel : String := "Lean complete"
+
+/-- The progress counts as buckets, most complete first. The tokens are the status tokens of
+the stylesheet; the labels say what was looked at: the node's Lean code and the nodes it depends
+on. -/
 def progressBuckets (c : ProgressCounts) : Array ProgressBucket := #[
-  { token := "fully-proved", label := "fully proved", count := c.formalizedWithAncestors },
-  { token := "open-ancestors", label := "proved, open ancestors", count := c.formalized },
+  { token := "fully-proved", label := "Lean complete, dependencies too",
+    count := c.formalizedWithAncestors },
+  { token := "open-ancestors", label := "Lean complete, a dependency is not",
+    count := c.formalized },
   { token := "incomplete", label := "Lean code incomplete", count := c.incomplete },
   { token := "ready", label := "ready to formalize", count := c.ready },
   { token := "not-ready", label := "not ready", count := c.notReady }
@@ -191,9 +213,23 @@ private def band (cls title : String) (content : Array Output.Html) : Output.Htm
 
 /-! ## Identity -/
 
+/-- What the page's reports are reports of: one build. A site of a port, or of a project built
+with other revisions than its release names, must not read as a check of that release. -/
+def thisBuildText (identity : ProjectIdentity) : String :=
+  let lean := identity.toolchain.map fun t => s!"Lean {toolchainVersion t}"
+  let packages : Option String :=
+    if (identity.packages.filter (!·.inherited)).isEmpty then Option.none
+    else some "the package revisions above"
+  let made := match lean, packages with
+    | some l, some p => s!", made with {l} and {p}"
+    | some l, Option.none => s!", made with {l}"
+    | Option.none, some p => s!", made with {p}"
+    | Option.none, Option.none => ""
+  s!"This page reports on one build{made}. No other toolchain or revision was checked."
+
 private def identityHtml (view : StatsPageView) : Output.Html :=
   let identity := view.stats.identity
-  let name := identity.title <|> view.page.documentTitle <|> identity.name
+  let name := identity.shownTitle? <|> view.page.documentTitle <|> identity.name
   let license : Output.Html := match identity.license with
     | some info =>
       el "li" "bp_stats_chip bp_stats_chip_license" (txt s!"License: {info.spdx.getD info.file}")
@@ -223,34 +259,49 @@ private def identityHtml (view : StatsPageView) : Output.Html :=
     | some d => el "p" "bp_stats_description" (txt d)
     | Option.none => .empty,
     el "ul" "bp_stats_chips" (.seq (#[license, toolchain] ++ packages)),
+    el "p" "bp_stats_this_build" (txt (thisBuildText identity)) #[("data-bp-build", "this-build")],
     links
   ])
 
 /-! ## Headline -/
 
-/-- The verdict on a theorem of the challenge: a token for markup and the words shown. -/
+/-- The axioms a verdict does not allow, in words: against the challenge's list when it states
+one, else against Lean's standard three. -/
+private def notAllowedText (t : HeadlineTheorem) : String :=
+  let names := ", ".intercalate (t.axiomsNotAllowed.toList.map (·.toString))
+  let one := t.axiomsNotAllowed.size == 1
+  if t.axiomsPermitted.isSome then
+    s!"{if one then "an axiom" else "axioms"} the challenge does not permit ({names})"
+  else s!"{if one then "an axiom" else "axioms"} outside Lean's standard three ({names})"
+
+/-- The verdict on a theorem of the challenge: a token for markup and the words shown. The
+words are about the Lean statement: "proved" is said only of the same Lean statement as the
+challenge's, without `sorry` and without an axiom the verdict does not allow. -/
 def headlineVerdict (t : HeadlineTheorem) : String × String :=
-  if t.proved then ("proved", "Proved")
+  if t.proved then ("proved", "Lean statement proved")
   else match t.solution with
     | .same =>
-      if t.sorryFree == some false then ("sorry", "Same statement; the proof uses sorry")
-      else ("open", "Same statement; not proved")
+      if t.sorryFree == some false then
+        ("sorry", "Same Lean statement as the challenge; the proof uses sorry")
+      else if !t.axiomsNotAllowed.isEmpty then
+        ("axioms", s!"Same Lean statement as the challenge; the proof rests on {notAllowedText t}")
+      else ("open", "Same Lean statement as the challenge; not proved")
     | .differs =>
       let what := match t.difference, t.differingDeclaration with
         | some d, some decl => s!": {d} ({decl})"
         | some d, Option.none => s!": {d}"
         | Option.none, some decl => s!" ({decl})"
         | Option.none, Option.none => ""
-      ("differs", s!"Statement differs{what}")
+      ("differs", s!"Lean statement differs from the challenge{what}")
     | .missing => ("missing", "Not in the solution")
     | .hole => ("hole", "Definition hole")
     | .notCompared => ("not-compared", "Not compared")
 
 /-- How the solution declares a definition of the challenge, in a few words. -/
 def definitionVerdict : Correspondence → String
-  | .same => "same"
+  | .same => "same in the solution"
   | .hole => "definition hole, supplied by the solution"
-  | .differs => "differs"
+  | .differs => "differs in the solution"
   | .missing => "not in the solution"
   | .notCompared => "not compared"
 
@@ -275,12 +326,12 @@ private def axiomsHtml (t : HeadlineTheorem) : Output.Html :=
     else if t.axioms.all (AxiomClass.ofName · == .standard) then
       "the standard axioms of Lean's logic only"
     else ""
-  let permitted : Output.Html := match t.axiomsPermitted with
-    | some false => el "span" "bp_stats_axioms_note bp_stats_axioms_not_permitted"
-        (txt "uses an axiom the challenge does not permit")
-    | _ => .empty
+  let permitted : Output.Html :=
+    if t.axiomsNotAllowed.isEmpty then .empty
+    else el "span" "bp_stats_axioms_note bp_stats_axioms_not_permitted"
+      (txt s!"uses {notAllowedText t}")
   el "div" "bp_stats_axioms" (.seq #[
-    el "span" "bp_stats_caption" (txt "Axioms"),
+    el "span" "bp_stats_caption" (txt "Axioms of the solution's proof"),
     el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map axiomChip)),
     if note.isEmpty then .empty else el "span" "bp_stats_axioms_note" (txt note),
     permitted])
@@ -293,27 +344,63 @@ private def nodeLink (view : StatsPageView) (label : Name) : Output.Html :=
   | some ref => link ref.href (txt ref.title)
   | Option.none => txt label.toString
 
+/-- The link to the explanation of the marks, with a space before it. -/
+private def meaningLink (view : StatsPageView) : Output.Html :=
+  match view.page.meaningHref with
+  | some href => .seq #[txt " ", .tag "a" #[("href", href), ("class", "bp_meaning_link")]
+      (txt Informal.Meaning.linkText)]
+  | Option.none => .empty
+
+/-- The caption of a challenge theorem's docstring: whose words they are, and that nothing
+compared them with the Lean statement. -/
+def challengeDocCaption : String :=
+  s!"Docstring in the challenge ({Informal.Meaning.uncheckedTag})"
+
+/-- The link from a judged theorem to its node. The node's title is the site's own: a written
+Blueprint numbers its nodes, so the link says that the number is the Blueprint's. -/
+private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Output.Html :=
+  match t.node with
+  | Option.none => .empty
+  | some label =>
+    let ref? := nodeRef? view label
+    let title := (ref?.map (·.title)).getD label.toString
+    let text := if title.endsWith t.name.toString || title.endsWith label.toString then
+        "Its node on this site"
+      else s!"This site's {title}"
+    el "span" "bp_stats_theorem_node" (link (ref?.bind (·.href)) (txt text))
+
 private def headlineTheoremHtml (view : StatsPageView) (t : HeadlineTheorem) : Output.Html :=
   let (token, verdict) := headlineVerdict t
+  let claim? := view.stats.claims.bind (·.view? t.name)
   el "div" "bp_stats_theorem" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
-      match t.node with
-      | some label => el "span" "bp_stats_theorem_node" (nodeLink view label)
-      | Option.none => .empty,
       el "code" "bp_stats_theorem_name" (txt t.name.toString),
-      el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict)]),
-    match t.docstring with
-    | some d => el "p" "bp_stats_theorem_doc" (txt d)
-    | Option.none => .empty,
+      el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
+      theoremNodeHtml view t]),
     if t.statement.isEmpty then .empty
-    else el "pre" "bp_stats_statement" (code t.statement),
-    axiomsHtml t
+    else .seq #[
+      el "p" "bp_stats_caption bp_stats_statement_caption" (txt "Lean statement, from the challenge"),
+      el "pre" "bp_stats_statement" (code t.statement)],
+    axiomsHtml t,
+    match t.docstring with
+    | some d => el "div" "bp_stats_theorem_informal" (.seq #[
+        el "p" "bp_stats_caption bp_stats_doc_caption" (txt challengeDocCaption),
+        el "p" "bp_stats_theorem_doc" (txt d)]) #[("data-bp-statement-source", "docstring")]
+    | Option.none => .empty,
+    match claim? with
+    | some c => c.render view.page.meaningHref
+    | Option.none => .empty
   ]) #[("data-bp-theorem", t.name.toString), ("data-bp-verdict", token)]
 
 /-- The one line a page without a Comparator challenge shows instead of the card. -/
 def headlineHintText : String :=
   "No headline result: a Comparator challenge (a module that states the main theorems with " ++
     "sorry, and a solution module that proves them) would add one here."
+
+/-- What the headline's comparison is and is not, in one sentence after the two file names. -/
+def headlineMethodText : String :=
+  "Compared by this site's generator from the compiled modules of this build: not rebuilt in a \
+    sandbox and not replayed in a kernel, as lake comparator does."
 
 private def headlineHtml (view : StatsPageView) : Output.Html :=
   match view.stats.headline with
@@ -322,8 +409,8 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
     let source : Output.Html :=
       let challenge := code (h.challengeFile.getD h.challengeModule.toString)
       let solution := code (h.solutionFile.getD h.solutionModule.toString)
-      el "p" "bp_stats_headline_source" (.seq #[txt "From the Comparator challenge ", challenge,
-        txt ", proved in ", solution, txt ". A summary for readers; lake comparator is the authority."])
+      el "p" "bp_stats_headline_source" (.seq #[txt "Comparator challenge ", challenge,
+        txt ", solution ", solution, txt s!". {headlineMethodText}", meaningLink view])
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
         let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
@@ -332,13 +419,33 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
     let definitions : Output.Html :=
       if h.definitions.isEmpty then .empty
       else el "p" "bp_stats_headline_definitions" (.seq #[
-        el "span" "bp_stats_caption" (txt "Definitions"), txt " ",
+        el "span" "bp_stats_caption" (txt "Definitions of the challenge"), txt " ",
         commaList (h.definitions.map fun d =>
           .seq #[code d.name.toString, txt s!" ({definitionVerdict d.solution})"])])
     let theorems : Output.Html :=
       if h.theorems.isEmpty then el "p" "bp_stats_headline_unavailable" (txt "The challenge states no theorem.")
       else .seq (h.theorems.map (headlineTheoremHtml view))
     band "bp_stats_headline" "Headline result" #[unavailable, theorems, definitions, source]
+
+/-! ## Author's claims -/
+
+/-- The claims the headline does not already show: those about declarations that are not
+judged theorems. Each is shown with its declaration and, when a node has it, the node. -/
+private def claimsHtml (view : StatsPageView) : Output.Html :=
+  match view.stats.claims with
+  | Option.none => .empty
+  | some claims =>
+    let judged : Array Name := (view.stats.headline.map (·.theorems.map (·.name))).getD #[]
+    let rest := claims.claims.filter fun c => !judged.contains c.declaration
+    let error : Output.Html := match claims.error with
+      | some e => el "p" "bp_stats_claims_error" (txt s!"{claimsFile} could not be read: {e}")
+      | Option.none => .empty
+    if rest.isEmpty && claims.error.isNone then .empty else
+    let items := rest.filterMap fun c => (claims.view? c.declaration).map fun v =>
+      el "div" "bp_stats_claim_item" (.seq #[
+        el "code" "bp_stats_theorem_name" (txt c.declaration.toString),
+        v.render view.page.meaningHref]) #[("data-bp-claim-declaration", c.declaration.toString)]
+    band "bp_stats_claims" "Author's claims" (#[error] ++ items)
 
 /-! ## Progress -/
 
@@ -362,7 +469,7 @@ private def chapterTable (rows : Array StatsChapterRow) : Output.Html :=
   if rows.isEmpty then .empty else
   let body := rows.map fun row =>
     let total := row.progress.total
-    let done := row.progress.formalizedWithAncestors
+    let done := row.progress.formalizedWithAncestors + row.progress.formalized
     .tag "tr" #[("data-bp-chapter", row.title)] (.seq #[
       el "td" "bp_stats_chapter_title" (.seq #[
         match row.number with
@@ -377,22 +484,61 @@ private def chapterTable (rows : Array StatsChapterRow) : Output.Html :=
       .tag "th" #[("scope", "col")] (txt "Chapter"),
       el "th" "bp_stats_num" (txt "Nodes") #[("scope", "col")],
       .tag "th" #[("scope", "col")] (txt "Progress"),
-      el "th" "bp_stats_num" (txt "Fully proved") #[("scope", "col")]])),
+      el "th" "bp_stats_num" (txt leanCompleteLabel) #[("scope", "col")]])),
     .tag "tbody" #[] (.seq body)])
+
+/-- `n of m theorems` (or definitions), for the progress lines. -/
+private def ofKind (n : Nat) (k : KindProgress) (noun : String) : String :=
+  s!"{formatCount n} of {countOf k.total noun}"
+
+/-- The sentence that counts nodes with Lean code free of `sorry`, by kind group. A definition
+is never said to be proved, and a kind group without nodes is left out. -/
+def leanCompleteText (p : LeanProgress) : String :=
+  let parts :=
+    (if p.theorems.total == 0 then [] else
+      [ofKind p.theorems.leanComplete p.theorems "theorem"]) ++
+    (if p.definitions.total == 0 then [] else
+      [ofKind p.definitions.leanComplete p.definitions "definition"])
+  if parts.isEmpty then "No nodes."
+  else s!"{leanCompleteLabel} (no sorry in a node's Lean code or in what that code uses): \
+    {", ".intercalate parts}."
+
+/-- The sentence that counts informal statements. It never calls one checked. -/
+def informalText (p : LeanProgress) : String :=
+  if p.total == 0 then ""
+  else if p.informal == 0 then
+    "Informal statements: none. Every node shows its Lean code alone."
+  else
+    s!"Informal statements: {formatCount p.informal} of {countOf p.total "node"} \
+      {if p.informal == 1 then "has" else "have"} one. \
+      No tool has checked any of them against the Lean statements."
 
 private def progressHtml (view : StatsPageView) : Output.Html :=
   let c := view.stats.progress
-  let lead := s!"{countOf c.total "node"} · {percentOf c.formalizedWithAncestors c.total}% fully proved"
+  let p := view.stats.leanProgress
+  let kinds := joinKinds p
+  let lead := if kinds.isEmpty then countOf c.total "node" else s!"{countOf c.total "node"}: {kinds}"
+  let informal := informalText p
   let queue : Output.Html := match view.workQueueHref with
     | some href => el "p" "bp_stats_links_line" (.seq #[
         .tag "a" #[("href", href)] (txt s!"{workQueuePageTitle} ({formatCount view.workQueueSize})")])
     | Option.none => .empty
   band "bp_stats_progress" "How far along" #[
     el "p" "bp_stats_lead" (txt lead),
+    el "p" "bp_stats_progress_line" (txt (leanCompleteText p)) #[("data-bp-progress", "lean")],
+    if informal.isEmpty then .empty
+    else el "p" "bp_stats_progress_line"
+      (.seq #[txt informal, if p.informal == 0 then .empty else meaningLink view])
+      #[("data-bp-progress", "informal")],
     progressBar c,
     progressLegend c,
     queue,
     chapterTable view.chapters]
+where
+  joinKinds (p : LeanProgress) : String :=
+    ", ".intercalate <|
+      (if p.theorems.total == 0 then [] else [countOf p.theorems.total "theorem"]) ++
+      (if p.definitions.total == 0 then [] else [countOf p.definitions.total "definition"])
 
 /-! ## Size -/
 
@@ -456,8 +602,9 @@ private def buildHtml (view : StatsPageView) : Output.Html :=
       (if compiled > 0 then s!", {formatCount compiled} built by another target." else ".")
   let sorries := sorryDeclarations s.trust
   let sorryLine :=
-    if sorries == 0 then "No declaration has a sorry of its own."
-    else s!"{countOf sorries "declaration"} with a sorry of {if sorries == 1 then "its" else "their"} own."
+    if sorries == 0 then "No Lean declaration of a node has a sorry of its own."
+    else s!"{countOf sorries "Lean declaration"} of nodes with a sorry of \
+      {if sorries == 1 then "its" else "their"} own."
   let notBuiltPart : Output.Html :=
     if notBuilt.isEmpty then el "p" "bp_stats_build_line" (txt "Every Lean file on disk is in a build.")
       #[("data-bp-build", "not-built")]
@@ -493,10 +640,11 @@ private def trustRow (view : StatsPageView) (key label : String) (labels : Array
 private def trustHtml (view : StatsPageView) : Output.Html :=
   let t := view.stats.trust
   let lead :=
-    if t.isClear then "Nothing in the ledger limits trust: no sorry, no extra axiom, no proof that " ++
-      "trusts compiled code."
-    else "Blueprint nodes whose Lean declarations rest on more than Lean's logic."
-  band "bp_stats_trust" "Trust" #[
+    if t.isClear then "No node's Lean code uses sorry, an axiom outside Lean's standard three or " ++
+      "the result of compiled code, as Lean reports the axioms of this build."
+    else "Nodes whose Lean declarations rest on more than Lean's standard three axioms, as " ++
+      "Lean reports the axioms of this build."
+  band "bp_stats_trust" "What the Lean code rests on" #[
     el "p" "bp_stats_lead" (txt lead),
     el "table" "bp_stats_ledger" (.seq #[
       .tag "thead" #[] (.tag "tr" #[] (.seq #[
@@ -504,16 +652,56 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
         el "th" "bp_stats_num" (txt "Nodes") #[("scope", "col")],
         .tag "th" #[("scope", "col")] (txt "Where")])),
       .tag "tbody" #[] (.seq #[
-        trustRow view "sorry-direct" "sorry in the proof" (t.sorryDirect.map (·.label)),
+        trustRow view "sorry-direct" "a sorry of its own" (t.sorryDirect.map (·.label)),
         trustRow view "sorry-dependency" "sorry through a dependency"
           (t.sorryThroughDependency.map (·.label)),
         trustRow view "extra-axioms" "axioms beyond Lean's standard three" (t.extraAxioms.map (·.label)),
-        trustRow view "compiler-trusted" "trust in compiled code (native_decide)"
+        trustRow view "compiler-trusted" "the result of compiled code (native_decide)"
           (t.compilerTrusted.map (·.label)),
         trustRow view "missing-declarations" "Lean names not found"
           (t.missingDeclarations.map (·.label)),
         trustRow view "unknown-references" "references to no node"
           (t.unknownReferences.foldl (init := #[]) fun acc r => acc ++ r.referencedBy)])])]
+
+/-! ## What the marks mean -/
+
+/-- The explanation of the marks: what each statement on a site reports, in the order a reader
+meets them, ending with what no tool here checks. One short sentence each. -/
+def meaningItems : Array (String × String) := #[
+  ("Lean complete, and the check mark on a node",
+    "the node's Lean declarations, and everything they use, contain no sorry. The generator reads \
+      this from the compiled modules; it does not run Lean's kernel again. Code that rests on an \
+      axiom beyond Lean's standard three gets the warning mark, with the axiom named."),
+  ("Axioms",
+    "the axioms each declaration depends on, as Lean reports them for this build. propext, \
+      Classical.choice and Quot.sound are Lean's standard three; a sorry, the result of compiled \
+      code (native_decide) and any other axiom are named."),
+  ("Lean statement proved, in the headline",
+    "the solution states the same Lean terms as the Comparator challenge, without sorry and \
+      without an axiom the challenge does not permit. The comparison reads the compiled modules \
+      of this build; lake comparator also rebuilds the project in a sandbox and replays the \
+      proofs in a kernel."),
+  ("This build",
+    "every report here is about the build the site was generated from, with the Lean version \
+      and package revisions shown with the project's name. A port or an update is a different \
+      build."),
+  ("Not checked by any tool",
+    "that a Lean statement says what an informal statement, a docstring or a manuscript says. \
+      Informal text is shown with its source so that a reader can compare. An attestation \
+      records that a named person says they compared them; it is not a check.")]
+
+/-- The link a viewer that documents the marks itself may show beside the explanation: hidden
+unless the viewer opts in with `<html data-lean-links>`, as the source links are. -/
+def meaningViewerHref : String := "lean:help/marks"
+
+private def meaningHtml : Output.Html :=
+  el "section" "bp_stats_band bp_stats_meaning" (.seq #[
+    el "h2" "bp_stats_band_title" (txt "What this page reports, and what it does not"),
+    el "dl" "bp_stats_meaning_list" (.seq <| meaningItems.map fun item =>
+      .seq #[.tag "dt" #[] (txt item.1), .tag "dd" #[] (txt item.2)]),
+    el "p" "bp_stats_meaning_more" (.tag "a" #[("href", meaningViewerHref)]
+      (txt "More in the viewer's guide"))])
+    #[("id", Informal.Meaning.anchor)]
 
 /-! ## The page -/
 
@@ -526,10 +714,12 @@ def statsPageHtml (view : StatsPageView) : Output.Html :=
   el "div" "bp_project_stats" (.seq #[
     identityHtml view,
     headlineHtml view,
+    claimsHtml view,
     progressHtml view,
     sizeHtml view,
     buildHtml view,
     trustHtml view,
+    meaningHtml,
     summary])
     #[("data-bp-schema-version", toString view.stats.schemaVersion)]
 
@@ -573,6 +763,12 @@ def pageSection? (sections : Array SiteSection) (title : String) : Option SiteSe
     else match best with
       | some b => if s.depth < b.depth then some s else some b
       | Option.none => some s
+
+/-- The address of the explanation of the marks from another page of the site: the Project
+Stats page's anchor, when the site has the page. -/
+def meaningHref? (state : TraverseState) : Option String :=
+  (pageSection? (siteSections state) "Project Stats").map fun s =>
+    String.join (s.link.path.toList.map (· ++ "/")) ++ "#" ++ Informal.Meaning.anchor
 
 /-- The node's numbered title ("Lemma 4.2"), falling back to the graph's display label. -/
 private def nodeTitle (state : TraverseState) (node : Graph.NodeData) : String :=
