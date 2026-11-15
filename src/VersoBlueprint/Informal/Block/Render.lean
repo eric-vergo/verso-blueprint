@@ -886,8 +886,8 @@ def proved : StatusGlyphKind :=
 def incomplete : StatusGlyphKind :=
   ⟨"◐", "partial", "Lean code incomplete: a sorry in the proof or in what it uses"⟩
 def problem : StatusGlyphKind :=
-  ⟨"⚠", "problem", "Lean code needs a look: a sorry in the statement, an axiom beyond Lean's \
-    standard three, or code that could not be inspected"⟩
+  ⟨"⚠", "problem", "Lean code needs a look: a sorry in the statement, an axiom (declared, or \
+    used beyond Lean's standard three), or code that could not be inspected"⟩
 def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"⟩
 def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 
@@ -926,6 +926,9 @@ def statusGlyph (mark? : Option BlockStatusMark) : StatusGlyphKind × String :=
         (.proved, s!"{noun} complete: no sorry in it or in what it uses")
       else
         (.problem, s!"{noun} without sorry, resting on {extraAxiomsText mark.extraAxioms}")
+    else if status.isAxiomLike then
+      (.problem, "Declared without a proof or a body (an axiom or an opaque constant): \
+        assumed, not proved")
     else
       let kind :=
         if status.isMissing then StatusGlyphKind.missing

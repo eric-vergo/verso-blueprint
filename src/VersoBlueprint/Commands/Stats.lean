@@ -409,8 +409,12 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
     let source : Output.Html :=
       let challenge := code (h.challengeFile.getD h.challengeModule.toString)
       let solution := code (h.solutionFile.getD h.solutionModule.toString)
+      -- what the comparison is and is not, only where one was made
+      let method : Output.Html :=
+        if h.unavailable.isSome then txt "."
+        else .seq #[txt s!". {headlineMethodText}", meaningLink view]
       el "p" "bp_stats_headline_source" (.seq #[txt "Comparator challenge ", challenge,
-        txt ", solution ", solution, txt s!". {headlineMethodText}", meaningLink view])
+        txt ", solution ", solution, method])
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
         let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
@@ -423,8 +427,10 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
         commaList (h.definitions.map fun d =>
           .seq #[code d.name.toString, txt s!" ({definitionVerdict d.solution})"])])
     let theorems : Output.Html :=
-      if h.theorems.isEmpty then el "p" "bp_stats_headline_unavailable" (txt "The challenge states no theorem.")
-      else .seq (h.theorems.map (headlineTheoremHtml view))
+      if !h.theorems.isEmpty then .seq (h.theorems.map (headlineTheoremHtml view))
+      -- a challenge that could not be read states nothing either way
+      else if h.unavailable.isSome then .empty
+      else el "p" "bp_stats_headline_unavailable" (txt "The challenge states no theorem.")
     band "bp_stats_headline" "Headline result" #[unavailable, theorems, definitions, source]
 
 /-! ## Author's claims -/

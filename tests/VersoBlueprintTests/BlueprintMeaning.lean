@@ -89,6 +89,10 @@ private def directSorry : Data.ProvedStatus :=
     withSorry.2 == "Lean code incomplete: a sorry in the proof or in what it uses \
       (Lean statement: no sorry; Lean proof: blocked by sorry)" &&
     missing.1.modifier == "missing" && hasSubstr missing.2 "Lean declaration missing" &&
+    -- an axiom, or an opaque constant, as a node: assumed, and said so
+    (statusGlyph (some (mark .definition .axiomLike))).1.modifier == "problem" &&
+    (statusGlyph (some (mark .definition .axiomLike))).2 == "Declared without a proof or a body \
+      (an axiom or an opaque constant): assumed, not proved" &&
     none.1.modifier == "none" && none.2 == "No Lean declaration"
 
 -- The legend: every meaning is about Lean code, and it ends with what no mark is about.
@@ -226,6 +230,10 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   let noChallenge := page (stats Option.none)
   hasSubstr notBuilt "Not compared: The challenge module has not been built. (Challenge)" &&
     !hasSubstr notBuilt ">Lean statement proved</span>" &&
+    -- nothing was compared, so the page does not say how, nor what the challenge states
+    !hasSubstr notBuilt "Compared by this site's generator" &&
+    !hasSubstr notBuilt "The challenge states no theorem." &&
+    hasSubstr (page (stats (some (challenge #[])))) "The challenge states no theorem." &&
     hasSubstr noChallenge headlineHintText && !hasSubstr noChallenge "bp_stats_theorem"
 
 /-! ## The counts -/
