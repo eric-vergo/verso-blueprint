@@ -256,8 +256,7 @@ class TestSideBySideRuntime:
             """() => {
               const parse = (c) => { const p = c.match(/[\\d.]+/g).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
               const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
-              const card = document.querySelector('.bp_sbs_grid');
-              const bg = parse(getComputedStyle(card).backgroundColor);
+              const bg = parse(getComputedStyle(document.body).backgroundColor);
               const tokens = [...document.querySelectorAll('.bp_sbs_formal .hl.lean .token')]
                 .filter((el) => el.textContent.trim())
                 .map((el) => {
@@ -323,6 +322,234 @@ class TestSideBySideRuntime:
             assert width[0] <= width[1], width
             right = box.evaluate("e => e.getBoundingClientRect().right")
             assert right <= page.viewport_size["width"], right
+
+
+def runs_page_path(site_dir: Path) -> str:
+    for path in sorted(site_dir.rglob("index.html")):
+        if 'data-bp-node="runs_first"' in path.read_text(encoding="utf-8"):
+            return "/" + str(path.parent.relative_to(site_dir)).replace("\\", "/") + "/"
+    raise AssertionError("no page with the runs_first node")
+
+
+# Geometry of every run on the page: its box, and per node its box, whether it has two columns,
+# its divider's x position (or null) and the right edge of its informal column and left edge of
+# its Lean column.
+_RUN_GEOMETRY_JS = """
+() => [...document.querySelectorAll('.bp_sbs_run')].map((run) => {
+  const r = run.getBoundingClientRect();
+  const nodes = [...run.querySelectorAll(':scope > .bp_sbs')].map((node) => {
+    const grid = node.querySelector(':scope > .bp_sbs_grid');
+    const g = grid.getBoundingClientRect();
+    const before = getComputedStyle(grid, '::before');
+    const hasDivider = before.content !== 'none' && before.display !== 'none';
+    const informal = grid.querySelector(':scope > .bp_sbs_informal').getBoundingClientRect();
+    const formalEl = grid.querySelector(':scope > .bp_sbs_formal');
+    const formal = formalEl ? formalEl.getBoundingClientRect() : null;
+    return {
+      label: node.getAttribute('data-bp-node'),
+      top: g.top, bottom: g.bottom,
+      divider: hasDivider ? g.left + parseFloat(before.left) : null,
+      dividerTop: hasDivider ? g.top + parseFloat(before.top) : null,
+      dividerBottom: hasDivider ? g.bottom - parseFloat(before.bottom) : null,
+      informalRight: informal.right,
+      formalLeft: formal ? formal.left : null,
+      border: getComputedStyle(grid).borderTopWidth,
+      background: getComputedStyle(grid).backgroundColor,
+    };
+  });
+  return { top: r.top, bottom: r.bottom, nodes };
+})
+"""
+
+_FIRST_PROSE_SUMMARY = (
+    '.bp_sbs[data-bp-node="runs_first"] .bp_sbs_informal > details.bp_kind_proof_wrapper > summary'
+)
+
+
+class TestSideBySideRuns:
+    def open_runs(self, page: Page, server: str, site_dir: Path, width: int = 1440) -> None:
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(server + runs_page_path(site_dir))
+        page.wait_for_load_state("networkidle")
+
+    def test_one_divider_spans_each_run(self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page):
+        errors = record_runtime_errors(page)
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        runs = page.evaluate(_RUN_GEOMETRY_JS)
+        mine = [run for run in runs if run["nodes"] and run["nodes"][0]["label"] in ("runs_first", "runs_long_proof")]
+        # prose between the nodes ends the first run
+        assert [[n["label"] for n in run["nodes"]] for run in mine] == [
+            ["runs_first", "runs_definition", "runs_lean_only"],
+            ["runs_long_proof"],
+        ]
+        for run in mine:
+            nodes = run["nodes"]
+            # no card: no border, no background
+            assert all(n["border"] == "0px" for n in nodes), nodes
+            assert all(n["background"] in ("rgba(0, 0, 0, 0)", "transparent") for n in nodes), nodes
+            # one line: the same x everywhere, in the column gap, and the segments meet from the
+            # run's top to its bottom
+            xs = {round(n["divider"], 1) for n in nodes}
+            assert len(xs) == 1 and None not in xs, nodes
+            for n in nodes:
+                assert n["informalRight"] <= n["divider"] <= n["formalLeft"], n
+            assert abs(nodes[0]["dividerTop"] - run["top"]) <= 0.5, (run["top"], nodes[0])
+            assert abs(nodes[-1]["dividerBottom"] - run["bottom"]) <= 0.5, (run["bottom"], nodes[-1])
+            for above, below in zip(nodes, nodes[1:]):
+                assert abs(below["dividerTop"] - above["dividerBottom"]) <= 0.5, (above, below)
+        assert_no_runtime_errors(errors)
+
+    def test_narrow_width_stacks_without_divider_or_sideways_scroll(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        for width in (360, 600):
+            self.open_runs(page, side_by_side_server, side_by_side_site_dir, width)
+            page.locator(_FIRST_PROSE_SUMMARY).click()
+            page.wait_for_timeout(400)
+            runs = page.evaluate(_RUN_GEOMETRY_JS)
+            assert all(n["divider"] is None for run in runs for n in run["nodes"]), width
+            scroll = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
+            assert scroll[0] <= scroll[1], (width, scroll)
+
+    def test_one_toggle_opens_prose_and_lean_proofs(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        errors = record_runtime_errors(page)
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        node = page.locator('.bp_sbs[data-bp-node="runs_first"]')
+        prose = node.locator(".bp_sbs_informal > details.bp_kind_proof_wrapper")
+        lean = node.locator(".bp_sbs_formal details.bp_decl_source_proof")
+        summary = page.locator(_FIRST_PROSE_SUMMARY)
+        expect(node).to_have_attribute("data-bp-proofs-linked", "")
+        # the Lean proof's own toggle gives way; the closed Lean proof takes no room
+        expect(lean.locator("summary")).to_be_hidden()
+        expect(lean).to_be_hidden()
+        expect(summary).to_have_attribute("aria-expanded", "false")
+        controls = summary.get_attribute("aria-controls")
+        assert controls and lean.get_attribute("id") in controls.split()
+        summary.focus()
+        page.keyboard.press("Enter")
+        expect(prose).to_have_attribute("open", "")
+        expect(lean).to_have_attribute("open", "")
+        expect(summary).to_have_attribute("aria-expanded", "true")
+        expect(lean.locator("code.hl.lean.block")).to_be_visible()
+        page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
+        assert page.evaluate("() => document.activeElement && document.activeElement.matches('summary')")
+        expect(summary).to_be_focused()
+        summary.click()
+        expect(summary).to_have_attribute("aria-expanded", "false")
+        page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
+        expect(prose).not_to_have_attribute("open", "")
+        expect(lean).not_to_have_attribute("open", "")
+        assert_no_runtime_errors(errors)
+
+    def test_lean_only_node_keeps_its_lean_toggle(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        node = page.locator('.bp_sbs[data-bp-node="runs_lean_only"]')
+        expect(node).not_to_have_attribute("data-bp-proofs-linked", "")
+        lean = node.locator(".bp_sbs_formal details.bp_decl_source_proof")
+        expect(lean.locator("summary")).to_be_visible()
+        lean.locator("summary").click()
+        expect(lean).to_have_attribute("open", "")
+        expect(lean.locator("code.hl.lean.block")).to_be_visible()
+
+    def test_animation_is_capped_and_reversible(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        durations = {}
+        for label in ("runs_first", "runs_long_proof"):
+            summary = page.locator(
+                f'.bp_sbs[data-bp-node="{label}"] .bp_sbs_informal > details.bp_kind_proof_wrapper > summary'
+            )
+            summary.scroll_into_view_if_needed()
+            summary.click()
+            durations[label] = page.evaluate(
+                f"""() => [...document.querySelectorAll('.bp_sbs[data-bp-node="{label}"] details')]
+                      .flatMap((d) => d.getAnimations()).map((a) => a.effect.getTiming().duration)"""
+            )
+            page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
+        cap = page.evaluate(
+            "() => getComputedStyle(document.documentElement).getPropertyValue('--bp-sbs-proof-duration').trim()"
+        )
+        cap_ms = float(cap[:-2]) if cap.endswith("ms") else float(cap[:-1]) * 1000
+        # both proofs of a node move, each for the capped duration, long or short
+        for label, values in durations.items():
+            assert len(values) >= 2 and all(v == cap_ms for v in values), (label, values, cap)
+        # a second press mid-way reverses: the proof ends closed, at its closed height
+        details = page.locator('.bp_sbs[data-bp-node="runs_long_proof"] .bp_sbs_informal > details.bp_kind_proof_wrapper')
+        first = page.locator('.bp_sbs[data-bp-node="runs_first"] .bp_sbs_informal > details.bp_kind_proof_wrapper')
+        summary = details.locator("summary")
+        summary.click()
+        page.wait_for_timeout(int(cap_ms / 3))
+        summary.click()
+        page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
+        expect(details).to_have_attribute("open", "")
+        summary.click()
+        page.wait_for_timeout(int(cap_ms / 3))
+        mid = details.evaluate("e => e.getBoundingClientRect().height")
+        summary.click()
+        page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
+        expect(details).to_have_attribute("open", "")
+        full = details.evaluate("e => e.getBoundingClientRect().height")
+        assert mid < full, (mid, full)
+        assert first.evaluate("e => e.style.height") == ""
+
+    def test_reduced_motion_opens_at_once(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        page.emulate_media(reduced_motion="reduce")
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        page.locator(_FIRST_PROSE_SUMMARY).click()
+        state = page.evaluate(
+            """() => [...document.querySelectorAll('.bp_sbs[data-bp-node="runs_first"] details')]
+                  .map((d) => [d.open, d.getAnimations().length, d.hasAttribute('data-bp-animating')])"""
+        )
+        assert state and all(s == [True, 0, False] for s in state), state
+
+    def test_without_scripts_both_proofs_open_natively(
+        self, browser, side_by_side_server: str, side_by_side_site_dir: Path
+    ):
+        context = browser.new_context(java_script_enabled=False, viewport={"width": 1440, "height": 900})
+        try:
+            page = context.new_page()
+            page.goto(side_by_side_server + runs_page_path(side_by_side_site_dir))
+            node = page.locator('.bp_sbs_run > .bp_sbs[data-bp-node="runs_first"]')
+            expect(node).to_have_count(1)
+            # the generator already placed the proof in the node's informal column
+            prose = node.locator(".bp_sbs_informal > details.bp_kind_proof_wrapper")
+            lean = node.locator(".bp_sbs_formal details.bp_decl_source_proof")
+            expect(prose).to_have_count(1)
+            expect(lean.locator("summary")).to_be_visible()
+            prose.locator("summary").first.click()
+            expect(prose).to_have_attribute("open", "")
+            lean.locator("summary").click()
+            expect(lean).to_have_attribute("open", "")
+            expect(lean.locator("code.hl.lean.block")).to_be_visible()
+        finally:
+            context.close()
+
+    def test_deep_link_into_a_proof_opens_it_and_marks_the_node(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        proof_id = page.locator(
+            '.bp_sbs[data-bp-node="runs_long_proof"] .bp_sbs_informal > details.bp_kind_proof_wrapper'
+        ).get_attribute("id")
+        assert proof_id
+        page.goto(side_by_side_server + runs_page_path(side_by_side_site_dir) + "#" + proof_id)
+        page.wait_for_load_state("networkidle")
+        node = page.locator('.bp_sbs[data-bp-node="runs_long_proof"]')
+        expect(node.locator(".bp_sbs_informal > details.bp_kind_proof_wrapper")).to_have_attribute("open", "")
+        expect(node.locator(".bp_sbs_formal details.bp_decl_source_proof")).to_have_attribute("open", "")
+        tint = node.locator(":scope > .bp_sbs_grid").evaluate("e => getComputedStyle(e).backgroundColor")
+        assert tint not in ("rgba(0, 0, 0, 0)", "transparent"), tint
+        other = page.locator('.bp_sbs[data-bp-node="runs_first"] > .bp_sbs_grid').evaluate(
+            "e => getComputedStyle(e).backgroundColor"
+        )
+        assert other in ("rgba(0, 0, 0, 0)", "transparent"), other
 
 
 # The id of the graph node whose label is `label`, from the page's graph data.
