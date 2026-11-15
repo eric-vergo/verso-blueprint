@@ -149,6 +149,7 @@ def mkCodePanel
     (header : CodePanelHeader) (summaryTitle : String)
     (progressBar body : Output.Html)
     (attrs : Array (String × String) := #[])
+    (headingExtra : Output.Html := .empty)
     (folded : Bool := false) : Output.Html :=
   open Verso.Output.Html in
   let attrs :=
@@ -165,6 +166,7 @@ def mkCodePanel
                 .empty}}
           </span>
           {{progressBar}}
+          {{headingExtra}}
         </summary>
         {{body}}
       </details>

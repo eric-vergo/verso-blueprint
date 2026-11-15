@@ -25,6 +25,7 @@ If you are starting a first project, read
 - [Reusing Blueprint Nodes and Previews](#reusing-blueprint-nodes-and-previews)
 - [Blueprint APIs](#blueprint-apis)
 - [The Generator Entry Point](#the-generator-entry-point)
+- [Sites from Compiled Code](#sites-from-compiled-code)
 - [Blueprint Options](#blueprint-options)
 - [Experimental Widget](#experimental-widget)
 - [Current Limits](#current-limits)
@@ -1397,6 +1398,161 @@ label-only fallback HTML.
 When labeled inline Rust code is attached to a node, the rendered page also
 shows an associated Rust code panel below the statement body.
 
+### Side-by-side layout
+
+A generator can render every statement that has `(lean := ...)` references as a
+two-column node: the statement, its status glyph and its proof on the left, and
+the highlighted Lean source of the referenced declarations on the right:
+
+### Sidebar
+
+A generator can turn Verso's table of contents into a navigation sidebar:
+
+```lean
+def main (args : List String) : IO UInt32 :=
+  Informal.PreviewManifest.blueprintMainWithPreviewData
+    (%doc Contents) args
+    (extensionImpls := by exact extension_impls%)
+    (sideBySide := true)
+```
+
+The generator flag `--side-by-side` does the same for one build. With the
+layout on:
+
+- The Lean column shows the source of each declaration's defining command,
+  with the same hover information as other highlighted Lean code. Definitions,
+  structures and instances are shown whole; theorem-like declarations show their
+  statement up to `:=` (and a following `by`), with the proof folded under
+  "Lean proof [show]". A command that defines several of the node's
+  declarations (a `mutual` block, a structure and its fields) is shown once.
+  Declarations whose source is not available (declarations from dependencies
+  under `.lake/packages`, or modules that could not be highlighted) keep the
+  signature-and-docstring row of the Lean code panel.
+- Proofs are folded ("Proof [show]") and placed in the left column of their
+  statement's node when they directly follow it on the page; the generator
+  places them, so this holds without scripts too.
+- Nodes have no card. Consecutive Blueprint blocks form a *run*
+  (`div.bp_sbs_run`); prose, a code block or a heading between two blocks ends
+  it, while a block that renders nothing (group metadata, hidden external
+  markup) does not. One hairline divider in the middle of the column gap runs
+  through the whole run; a statement without Lean declarations takes the full
+  width and interrupts it. The node a link lands on (its statement, its proof or
+  one of its declarations) is tinted on screen, not in print. Other styles and
+  print stack the columns and keep the nodes of a run apart.
+- With the page script, "Proof [show]" on the prose side opens and closes the
+  prose proof and the node's Lean proofs together, and the Lean proofs' own
+  toggles are hidden; a node with Lean proofs but no prose proof keeps
+  "Lean proof [show]". Opening and closing animate the height, a second press
+  reverses a running animation, and `prefers-reduced-motion` makes the change
+  immediate. A link into a proof opens it. Without scripts each proof keeps its
+  own native toggle.
+- The look is set by CSS custom properties a project stylesheet can override
+  on `:root`: `--bp-sbs-column-gap` (2.25rem), `--bp-sbs-divider-width` (1px),
+  `--bp-sbs-divider-color` (the soft border colour), `--bp-sbs-node-gap`
+  (space between the nodes of a run, 2rem), `--bp-sbs-run-margin` (around a
+  run, 1.5rem), `--bp-sbs-target-surface` and `--bp-sbs-target-bleed` (the
+  tint of a linked node), `--bp-sbs-proof-duration` (200ms, the length of every
+  opening and closing, long proofs included) and `--bp-sbs-proof-easing`.
+- The node title carries a status glyph: ✓ the Lean declarations are complete,
+  ◐ the statement is formalized but a proof is incomplete, ⚠ the statement
+  depends on `sorry`, an axiom, or unverified code, ✗ a declaration is missing,
+  ○ no Lean declaration is attached. The glyph's tooltip gives its meaning and
+  the details. A folded "Status legend" lists the glyphs: in the sidebar foot
+  when the site has a sidebar, otherwise at the end of the page.
+- The relation and Lean chips of the title row (`uses N`, `used by N`,
+  `✓ L∃∀N`) are shown small and muted at the right of the title; counts of
+  zero are hidden.
+- In the Lean column the code comes first, its first line on the baseline of
+  the node title; the module path (a link to the source when the repository is
+  on GitHub) and, where it is shown, the "Lean proof [show]" toggle form a
+  caption row below it.
+  Long lines wrap with a hanging indent of four columns beyond their own
+  indentation, without horizontal scrolling.
+- `sbs` ("side by side") becomes the site's default style in the style
+  switcher; choosing another style stacks the two columns. Nodes also stack
+  when their container is narrower than about 760 pixels, and when printing;
+  stacked nodes have no column divider.
+- Typography of the `sbs` style: one serif text face for reading text (chapter
+  prose, node headings, statements and proofs), by default the KaTeX text face
+  so that text and formulas match, with upright statements (italics are left to
+  emphasis and the "Proof" caption); Verso's structure face for navigation and
+  controls; a monospace face for code. The faces are CSS variables a project
+  stylesheet can set: `--bp-sbs-text-font-family`, `--bp-sbs-code-font-family`
+  (and `--bp-sbs-text-size`). Every page of the site uses the wide content
+  area, with running text kept to a readable measure (`--bp-sbs-measure`,
+  48rem); links in reading text use the theme's link colour.
+- Display formulas wider than the left column are set smaller to fit (down to
+  70%); wider ones scroll inside the column.
+
+Declaration sources come from SubVerso's per-module highlighted JSON. Before
+rendering, the generator runs `lake build +<Module>:highlighted` once for every
+workspace module that declares a referenced declaration; Lake caches the result
+per module, so only changed modules are highlighted again. The first build of a
+large project can take a while: highlighting re-elaborates each such module.
+
+### Dark theme
+
+Every blueprint page ships a dark palette. It applies in two cases: when the
+page's `<html>` element carries `data-theme="dark"` (the attribute a Verso theme
+toggle sets), and when the operating system prefers a dark colour scheme, unless
+the page opts out with `data-theme="light"`. Both triggers use identical values.
+
+All colours are CSS variables (`--bp-color-*`, `--bp-shadow-*`). Verso's own page
+variables (`--verso-text-color`, `--verso-tooltip-bg-color`, ...) are overridden
+as well, so the whole page turns dark. A project can override any of these
+variables in its own stylesheet; to change only the dark values, scope the
+override under `html[data-theme="dark"]`.
+
+The status colours form one family, `--bp-color-status-*`, with a light and a
+dark value each (`Informal.StatusColors`): the proof-status fills
+(`not-ready`, `definition`, `ready`, `incomplete`, `formalized`,
+`formalized-with-ancestors`, `unresolved`), the label colours on them
+(`fill-text`, `formalized-with-ancestors-text`, `unresolved-text`) and the
+statement-status borders (`blocked-border`, `ready-border`,
+`formalized-border`, `mathlib-border`, `unresolved-border`). The dependency
+graph paints its nodes from them: Graphviz receives the light values, each node
+carries its status classes (`bp_graph_status_<status>`,
+`bp_graph_statement_<status>`) in the SVG, and the graph stylesheet repaints the
+node from the tokens in the active theme. The graph legend and the summary's
+status cards use the same tokens, so overriding one changes it everywhere.
+Group-overview nodes mix their members' light colours and are not repainted.
+
+    (sidebar? := some {
+      links := #[
+        { label := "Paper [web]", href := "https://arxiv.org/abs/..." },
+        { label := "Paper [pdf]", href := "https://arxiv.org/pdf/..." },
+        { label := "GitHub", href := "https://github.com/..." }
+      ]
+    })
+```
+
+The generator flag `--sidebar` enables the sidebar with the default
+configuration (no external links) for one build.
+
+The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
+chapters with the current one in bold, a separator, the unnumbered pages
+(dependency graph, summary, bibliography, ...), the configured external links
+after another separator (none when `links` is empty), and a light/dark switch at
+its foot. The current chapter's sections are listed under that chapter,
+indented and smaller (and a section's subsections under the section); Verso's
+separate per-level lists are not shown. The current entry is in bold.
+
+The site title and the search box sit at the top of the sidebar instead of in a
+full-width header, so pages start at the top of the window. Page controls that
+would otherwise float over the content move into the sidebar foot: the
+Blueprint style switcher, and the status-glyph legend of the side-by-side
+layout. On narrow screens (700 pixels and less) the sidebar collapses behind
+Verso's menu button and the title and search stay in Verso's slim header bar.
+When printing, the sidebar, header and page navigation are left out.
+
+The theme switch sets `data-theme="light"` or `data-theme="dark"` on the root
+element and stores the choice under the `localStorage` key `verso-theme`; an
+inline script in `<head>` applies a stored choice before the page is drawn.
+Without a stored choice the operating system's preference applies. If the page
+already has a theme control in the table of contents, the sidebar adds none.
+The sidebar colours are CSS variables (`--bp-sidebar-bg`, `--bp-sidebar-fg`,
+`--bp-sidebar-rule`, ...) that a project stylesheet can override.
+
 ### Dependency graph
 
 `blueprint_graph` renders a dependency-oriented view of the current Blueprint
@@ -1452,6 +1608,75 @@ The command-side options and the runtime graph controls are compatible:
 
 Group metadata may be used to organize the presentation, but grouping does not
 change dependency edges.
+
+#### Neighbourhood (ego) view
+
+On a large graph a reader can look at one node's surroundings instead of the
+whole graph: the *ego view* of a node shows the node, the nodes it uses and the
+nodes that use it, up to a number of hops (1 to 3) chosen beside the view
+selector. It is cut from the full view's DOT and laid out in the page, so it
+keeps every node's and edge's styling; the centre node is outlined. The page
+URL names it (`#ego=<label>&k=<hops>`, the label percent-encoded), so a link or
+a reload opens it again; a node view's *Neighbourhood* link opens its node's ego
+view, and so do the declaration cards of a site generated from compiled code.
+
+#### Layout at build time
+
+A graph block may name a Graphviz `dot` program (`GraphBlockData.layoutProgram`;
+`vbp code-site` uses `dot` when one is on the `PATH`). Every view is then laid
+out once while the site is built (`dot -Tdot`, `Informal.GraphLayout`), and the
+layouts travel beside the graph data as raw text, one element per view
+(`<script type="text/vnd.graphviz" class="bp-graph-layout" data-variant="<key>">`);
+the page draws a laid-out view with Graphviz's `nop2` engine, without a layout
+pass, and reads only the view it shows. The view shown first is also drawn as
+SVG at build time (`svg.bp_graph_prerendered`), so it is on screen as soon as
+the page is parsed; it is replaced by the interactive graph once that is drawn.
+Views with more than 6,000 nodes, layouts that do not finish within two
+minutes, other directions or packing chosen by the reader, and ego views are
+laid out in the page as before.
+
+#### Node views
+
+In pinned mode, clicking a node opens its *node view* in the graph's panel,
+which widens to hold it:
+
+- the node's informal statement on the left, when the node has one;
+- its Lean declarations on the right: the highlighted source of each defining
+  command with its hovers on sites built with side-by-side source (see
+  "Side-by-side layout"), otherwise the signature and docstring rows of the
+  Lean code panel, plus any inline Lean code of the node;
+- a node with only one of the two (a code-only node from `@[blueprint]`
+  without a docstring, or a statement without `(lean := ...)`) shows it at full
+  width, never an empty column;
+- above, the node's status glyph and status text (where a `sorry` is, an
+  axiom-like declaration); below, links to the nodes it uses and the nodes
+  that use it, which switch the panel to that node;
+- an *Axioms* row listing the axioms the node's Lean declarations depend on,
+  as `#print axioms` reports them, each with its class: a `sorry`
+  (`sorryAx`), an extra axiom (one the project or a dependency declares) and
+  an axiom that trusts compiled code (the `<declaration>._native.<tactic>.ax_*`
+  axioms `native_decide` and `bv_decide` add) come first, with a short tag,
+  and the standard axioms `propext`, `Classical.choice` and `Quot.sound` last.
+  The row says "none" when the declarations use no axiom, and is left out for
+  a node without Lean declarations.
+
+The axioms are computed when a node is captured, once per declaration name
+and environment (`Informal.Data.declarationAxioms`), and stored with each
+declaration reference (`ExternalRef.axioms`) and with the declarations a
+blueprint defines itself, so they are also in the site manifest's
+`codeData`.
+
+The open view is named in the page URL as `#node=<label>` (the label
+URI-encoded), so a link to `Dependency-Graph/#node=<label>` or a reload opens
+it again; closing the panel leaves `#node=` with no label. The fragment
+changes with `location.replace`, so it adds no browser history entry, and an
+embedding viewer sees each change as a same-document navigation. Hover mode
+keeps the compact statement preview.
+
+The views are rendered with the site into
+`-verso-data/blueprint-node-views.json` (`{"entries": [{"label", "html"}]}`;
+hover ids refer to the HTML cache's hover table) by `Informal.NodeView`, which
+takes plain data, so other generators can render the same view.
 
 Graph data is also available through documented Lean, manifest, and browser APIs.
 Lean callers build a semantic `GraphModel` before traversal and cross one
@@ -1638,6 +1863,176 @@ Some summary sections use deliberately practical project-management terms:
 Maintainer-oriented diagnostics such as external declaration render failures are
 available through an explicit summary debug option so they do not appear in the
 default end-user view.
+
+### Work queue page
+
+`{blueprint_work_queue}` adds an unnumbered "Ready to Prove" page that lists
+what can be worked on next:
+
+```
+{blueprint_work_queue}
+```
+
+It reads the same finalized dependency-graph statuses as the dependency graph
+and `lake exe vbp query work-queue`: a node is listed when its statement is ready
+to formalize, or, for theorem-like nodes, when its proof is ready to formalize
+or its Lean code is incomplete. Ready nodes are listed first, then nodes with
+incomplete Lean code, each in document order. Each entry links to its node,
+says which stage is next, shows the beginning of the node's statement (about
+three lines), and lists under "needs:" the direct dependencies of that stage
+that are not formalized yet.
+
+### Project statistics
+
+Every render model carries project statistics (`Informal.Stats.ProjectStats`),
+the numbers a first-time reader of a project looks for. They are captured with
+the rest of the model and saved as the traversal's `stats` overview; their JSON
+form is described in `doc/schemas/project-stats.schema.json`.
+
+- **Identity**: the root package name from `lake-manifest.json`, the first
+  heading and first prose paragraph of the README, the license file with a
+  guess of its SPDX identifier (no license file: the field is empty), the
+  `lean-toolchain` and the locked package revisions.
+- **Size**: the project's modules (environment modules whose source lies under
+  the project root and outside `.lake`), their declarations by kind (theorems,
+  definitions, instances, structures, classes, inductives, axioms, opaques;
+  generated declarations are not counted), and every `.lean` file under the
+  root with its blank, comment and code lines. Comments include nested block
+  comments and docstrings.
+- **Build**: each file is either imported by the generator, compiled by
+  another build target, or in no build.
+- **Progress**: nodes by the dependency graph's fill status, for the whole
+  project and per chapter (the first directory of the nodes' page addresses).
+- **Trust**: declarations with a `sorry` of their own or through a dependency,
+  with axioms outside Lean's standard three, or with proofs that trust compiled
+  code (`native_decide`), plus Lean names that are missing and labels nobody
+  defines.
+- **Headline**: the theorems of the project's Comparator challenge, compared
+  with its solution (see below). A project without a challenge has no
+  headline, and `hasComparatorChallenge` is false.
+
+The statistics hold no version-control data, and every path in them is
+relative to the project root, so they do not change between `--reproducible`
+builds of the same files. The generator reads the project's files again when it
+runs, so README, license and source edits that no Lean module imports still
+reach the statistics without a rebuild of the generator.
+
+#### The headline: a Comparator challenge
+
+A Comparator challenge states a project's main results in a module of their
+own, the way `lake comparator` judges them: a challenge module states each
+theorem with `sorry`, together with every definition its statement needs, and a
+solution module declares the same theorems with the same statements and proves
+them. The two modules are named in `comparator.json` at the project root, the
+file `lake comparator` reads:
+
+```json
+{
+  "challenge_module": "Comparator.Challenge",
+  "solution_module": "Comparator.Solution",
+  "theorem_names": ["main_theorem"],
+  "definition_names": [],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+}
+```
+
+Without that file, a project whose sources contain `Comparator/Challenge.lean`
+has the challenge `Comparator.Challenge` and the solution `Comparator.Solution`;
+every theorem the challenge states is judged and no axiom list is stated. The
+challenge needs a library of its own in the Lake configuration, since nothing
+imports it (it declares the same names as the solution):
+
+```toml
+[[lean_lib]]
+name = "ComparatorChallenge"
+roots = ["Comparator.Challenge"]
+```
+
+The solution must be imported by the Blueprint (a chapter that presents the
+main theorem can import it), so that the environment the site is generated from
+has its declarations. The challenge is read from its compiled module without
+importing it; `lake exe vbp build` builds it first.
+
+For each theorem the headline records its name, its docstring and its
+statement as the challenge writes them (from the keyword to the end of the
+signature), and:
+
+- whether the solution has the **same statement**: the solution declares the
+  name as the same kind of declaration with the same universe parameters and
+  the same type, and every declaration of the challenge module that this type
+  uses, directly or through other such declarations, is declared identically by
+  the solution, type and value. A judged theorem and a definition hole (listed
+  in `definition_names`) only need the same type. Constants from imports count
+  as the same, since the challenge and the site have them from the same
+  compiled modules. Otherwise the first declaration that differs is named;
+- whether the solution's proof is free of `sorry`, directly or through what it
+  uses, and the axioms it depends on, sorted by class as in node views;
+- whether those axioms are all in `permitted_axioms`, when the file lists them;
+- **proved**: the same statement and no `sorry`;
+- the Blueprint node whose Lean declarations include the theorem.
+
+The other declarations the challenge introduces (its definitions) are listed
+with the same comparison. When no comparison can be made, `unavailable` says
+why and the theorems are listed without a verdict: `comparator.json` is
+invalid, the challenge has no compiled module or one that does not match its
+source (a theorem is not where the module was compiled from; Lake decides when
+it is rebuilt), the module cannot be read, or the site's environment lacks the
+solution module or a module the challenge imports. The headline is computed
+with the rest of the render model. A resident session (`vbp build --resident`)
+builds the challenge whenever it goes through Lake (when it starts, and on
+`build --full`); a challenge edited after that shows as out of date once the
+model is captured again.
+
+This comparison is a summary for readers, not a verdict: `lake comparator`
+remains the authority (it also rechecks the solution with the kernel in a
+sandbox).
+
+### Project Stats page
+
+Every site that `blueprintMain` or `blueprintMainWithPreviewData` generates has
+an unnumbered "Project Stats" page at the end of its table of contents, so it
+is reached from the site's navigation like the summary and the dependency
+graph. It shows the project statistics on one page, in this order:
+
+1. **Identity**: the README's heading (or the document's title) and first
+   paragraph, the license (or "No license file"), the Lean version, the
+   packages the project requires directly with the revision it asked for and
+   the locked commit, and the generator's sidebar links.
+2. **Headline result**: a card per theorem of the Comparator challenge, with
+   its node, its statement and docstring as the challenge writes them, the
+   verdict ("Proved", "Same statement; the proof uses sorry", "Statement
+   differs", "Not in the solution") and the axioms of the solution's proof. A
+   project without a challenge gets one line saying that a challenge would add
+   a headline.
+3. **How far along**: the nodes by progress status as one bar with counts, a
+   legend, a link to the work-queue page when the site has one, and a table
+   with one row per chapter.
+4. **How big**: Lean files, lines (code, comment and blank), declarations by
+   kind, Blueprint nodes by kind, chapters and dependencies.
+5. **Does it build**: how many Lean files the site's build compiled, how many
+   declarations have a `sorry` of their own, and the Lean files on disk that
+   are in no build.
+6. **Trust**: the nodes whose declarations have a `sorry` (their own or through
+   a dependency), use axioms beyond Lean's standard three or trust compiled
+   code (`native_decide`), plus Lean names not found and references to no node.
+
+It ends with a link to the summary page for the detailed breakdown. The page
+is plain HTML and CSS: the bars use the shared status colour tokens, each
+status with its own pattern, and their counts are written out, so colour is
+never the only signal. It needs no script and holds no version-control data.
+
+To place the page elsewhere in the document, write the command where it
+should go; the generator then does not add a second one:
+
+```
+{blueprint_stats}
+```
+
+To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
+`blueprintMainWithPreviewData`, or run the generator with the flag
+`--no-stats-page` (`lake exe vbp build --no-stats-page` hands it on). Such a
+build also removes the page an earlier build wrote into the same output folder.
+TeX and PDF output never get the page.
 
 ### Bibliography page
 
@@ -1866,6 +2261,39 @@ The detailed public API reference lives in [`API.md`](./API.md). It covers:
 - [the public browser runtime API](./API.md#browser-runtime-api) and the
   boundary around bundled helper APIs
 
+### Lean source anchors for embedding viewers
+
+Generated HTML carries plain attributes that let an embedding viewer (an editor
+that shows the Blueprint next to the Lean code, for example) map rendered nodes
+to Lean declarations and back without scraping presentation markup:
+
+- The root element of every node facet (statement or proof) with associated
+  Lean declarations carries `data-lean-decls="<Name1> <Name2>"`: the declared
+  names of its `(lean := ...)` references, space separated, including names
+  that were missing when the Blueprint was built.
+- The element that renders one declaration carries `data-lean-decl="<Name>"`
+  and, when the declaring module and source range are known,
+  `data-lean-source="<path>:<startLine>:<startCol>-<endLine>:<endCol>"`.
+- The Lean code panel heading contains one jump link per present declaration,
+  `lean:decl/<Name>`. Generated pages contain only this form: a declaration
+  name stays valid when the Lean file is edited after the Blueprint was built,
+  a source position does not. A viewer that wants to jump to a position reads
+  it from `data-lean-source`; `LeanSourceAnchor.sourceHref` builds the
+  matching `lean:source/<path>:<line>:<col>` link for custom generators and
+  viewers that accept that form.
+
+`<path>` is the declaring module's source path relative to its package source
+directory (`Mathlib/Order/Basic.lean` for `Mathlib.Order.Basic`). Lines are
+1-based; columns are 0-based UTF-16 code units, as in the Language Server
+Protocol. The range is Lean's declaration range, which starts at the doc comment
+or first modifier. Names are printed as Lean prints them; in links they are
+percent-encoded (UTF-8) outside `A-Z a-z 0-9 . _ ~ - ' ! / :`.
+
+Browsers have no handler for the `lean:` scheme, so the jump links are hidden
+unless the page's root element has a `data-lean-links` attribute. A viewer sets
+it (for example with a script injected at document start), intercepts
+navigations to `lean:` URLs, cancels them, and opens the target in its editor.
+
 ## The Generator Entry Point
 
 Blueprint projects normally expose a small generator `main` function.
@@ -1911,7 +2339,9 @@ lake exe vbp build --serve
 ```
 
 It discovers the generator, then uses Lake to build its imports and execute it;
-VBP can optionally serve the result. When a maintainer harness or advanced CI
+VBP can optionally serve the result. When the project has a Comparator
+challenge (see "Project statistics"), VBP builds the challenge module first; a
+challenge that fails to build is reported and the site is still generated. When a maintainer harness or advanced CI
 job cannot use `vbp`, the equivalent lower-level command is:
 
 ```bash
@@ -1934,6 +2364,89 @@ font packages; on Ubuntu CI, install `python3-pygments`, `texlive-luatex`,
 `texlive-fonts-extra`, and `texlive-plain-generic`. `--pdf` implies
 `--with-tex`; `--with-tex` alone still only writes the TeX tree under
 `_out/site/tex/`.
+
+### Reproducible output
+
+By default the title page shows when and from which commits the site was built,
+and the generated preview manifest records absolute source paths. For output
+that depends only on the project's content, for example to check whether a
+site is up to date by comparing it with a previous build, pass:
+
+```bash
+lake exe vbp build --reproducible
+```
+
+Two such builds of an unchanged project are byte-identical. `--reproducible`
+enables three generator options, which a generator also accepts one by one:
+
+- `--omit-build-time` drops the "Compiled" timestamp from the build metadata;
+- `--omit-git-metadata` drops facts read from Git working trees (the project's
+  and the upstream formalization's commit and subject, and versions of path
+  dependencies); versions pinned in `lake-manifest.json` and repository links
+  stay;
+- `--relative-source-paths` writes `sourceLocation.location.path` in
+  `blueprint-manifest.json` relative to the project root (the generator's
+  working directory) when the file lies under it.
+
+Generators can also fix these options in code by passing
+`(reproducibility := Informal.PreviewManifest.ReproducibilityOptions.all)` (or
+individual fields) to `blueprintMainWithPreviewData`; command-line flags add to
+that setting. GitHub source links in Lean code panels still name the project's
+current commit, so they change when the project is committed, not between builds.
+
+### Resident builds
+
+Editing one chapter's prose and running `lake exe vbp build` again costs
+seconds to a minute on a Mathlib-based project, most of it spent outside the
+edit: Lake re-elaborates the chapter and the document root, and the generator
+then imports the whole project once more. For an edit loop (an editor
+integration, a watcher), keep a build session running instead:
+
+```bash
+lake exe vbp build --resident [--output <dir>] [--verbose] [--reproducible]
+```
+
+The session builds once, as `vbp build` does, then reads requests from standard
+input, one per line:
+
+- `build`: rebuild what changed since the last build;
+- `build --full`: let Lake build the generator's imports and load them again,
+  whatever changed;
+- `prepare <chapter>` (a module name or source path): elaborate that chapter
+  now, so that its first rebuild does not pay for importing its imports;
+- `quit`, or the end of the input: end the session.
+
+Every request ends with one line on standard output, after the generator's
+usual output, so a client can wait for it:
+
+```
+vbp resident: done exit=<code> mode=<full|chapters|unchanged|prepare> ms=<wall time> chapters=<modules>
+```
+
+A module of the generator's import closure is a *chapter* when the document
+root (the module of the generator's `%doc`) includes it, imports it, and is the
+only module of the closure that imports it, and it does not use the module
+system. When only chapters changed, and not their imports, the session
+elaborates each of them again in-process (Lean's own processing pipeline, with
+the options and imports Lake gives the module, reusing the chapter's imported
+environment from its previous elaboration), substitutes the new chapter in the
+document the generator renders, rebuilds the Blueprint state with the chapter's
+new entries, and runs the generator's `main` again (`Informal.Resident`;
+generators that call `blueprintMain` or `blueprintMainWithPreviewData` need no
+change). The output is byte-identical to a `vbp build` of the same sources.
+Anything else (a Lean module, the root, the generator file, a changed import)
+goes through Lake, as `vbp build` does, and the session loads the result. A
+change of `lakefile.*`, `lake-manifest.json`, `lean-toolchain` or
+`.lake/package-overrides.json` ends the session with
+`vbp resident: restart (<file> changed)` and exit code 3: start a new one.
+
+The session does not rewrite the `.olean` of a chapter it elaborated
+in-process; the next Lake build (in the session or a plain `vbp build`)
+rebuilds it as usual. A session holds the project's environment and up to two
+chapter environments in memory: on a Mathlib-based project, several GB.
+Native code comes from the `vbp` executable itself, which links
+VersoBlueprint and its dependencies; other precompiled libraries named by
+Lake's setup for the generator are loaded as `lake lean` loads them.
 
 ### HTML and PDF Feature Support
 
@@ -1967,6 +2480,84 @@ renders a pointer to the HTML output, and `Not in PDF` is absent from
 | Browser preview runtime, relation panels, and interactive controls | Supported in generated HTML | Not in PDF | Not available in PDF |
 | Preview manifest, HTML cache, and JavaScript APIs | Emitted for generated-data and browser consumers | Not in PDF | Not embedded in `main.pdf`; still emitted alongside HTML unless those outputs are disabled |
 | Slides and other generator-side consumers | Supported through their own HTML/data render paths | Not in PDF | Not part of the `--pdf` output path |
+
+## Sites from Compiled Code
+
+A project without a Blueprint can still get a Blueprint site: `vbp code-site`
+generates one from data about its compiled code, without a Blueprint package,
+without changing the project and without loading its environment.
+
+```
+lake exe vbp code-site --data code.json --root <project> [--output <dir>]
+    [--title <text>] [--graphviz <program> | --no-graph-layout]
+    [--no-comparator | --challenge-not-built <reason>]
+    [--no-stats-page] [--reproducible] [--verbose]
+```
+
+The data (`doc/schemas/code-site.schema.json`, format tag
+`verso-blueprint-code-1`) lists the project's modules and, for each, its
+declarations in source order: name, kind, printed signature, docstring, source
+range, proof status (`proved`, `sorry-here`, `depends-on-sorry`, `axiom`,
+`opaque` or `unverified`), the axioms it depends on, and the other declarations
+of the project it uses in its statement or only in its proof. Any tool that can
+read a build can write it, for example by importing the project's modules with
+`importModules` and walking each constant's type and value. Unbuilt and skipped
+modules may be listed; the front page names them. Optionally, each declaration
+lists the constants its source mentions and where (`occurrences`, as a
+module's `.ilean` file records them), and the data gives, once per constant,
+the hover a reader sees on it (`hovers`: its printed signature and docstring).
+A declaration may carry an informal statement (`statement`: its `text`, an
+optional `proof` and `title`, and the `source` the producer found it in, such
+as a LaTeX blueprint or a docstring), written as Markdown with TeX math
+between `$…$` and `$$…$$`; `texPrelude` holds TeX definitions (`\newcommand`
+lines) put before every formula of the statements, as a written Blueprint's
+`tex_prelude` is.
+
+The site is an ordinary Blueprint site:
+
+- one chapter per module, starting with the module's docstrings (`/-! … -/`,
+  read from its source as Markdown with raw HTML shown as text, formulas between
+  `$…$` and `$$…$$` and in Verso's docstring syntax, `` $`…` `` and
+  `` $$`…` ``), with a node per declaration: theorems are
+  theorems, everything else is a definition, numbered by chapter. A node with a
+  statement in the data shows it as on a written Blueprint: in its chapter card
+  and in the graph's node view, beside the Lean side, its title in bold, its
+  formulas rendered by the page's KaTeX, its proof below it (folded in the node
+  view); the statement's Markdown is read with raw HTML shown as text and link
+  targets other than web, mail and site-relative ones dropped. A node without
+  one shows the Lean side alone. The Lean side is an API entry: the signature
+  and the source excerpt read from `--root`,
+  highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
+  the data's occurrences for the constants, with their hovers), the docstring
+  rendered as Markdown (raw HTML shown as text, link targets other than web,
+  mail and site-relative ones dropped), where it is defined (a link to the file
+  on GitHub when `--root` is a GitHub checkout), a link to its neighbourhood in
+  the dependency graph, the status and the axioms;
+- the search box finds declarations by name (as Lean constant documentation),
+  modules by name and docstring text, and the text of the statements
+  (`Block.declSearch`);
+- the dependency graph, with one group per module, laid out at build time when
+  Graphviz is available; above 300 declarations it opens on the group view
+  (`GraphBlockData.initialView`);
+- the summary page and the Project Stats page (the files, identity and
+  Comparator challenge of `--root`). When the project has a challenge, its
+  solution module and the challenge's imports are imported from the project's
+  build (`--root`'s `.lake` directories, with the Lean installation that
+  `LEAN_SYSROOT` names or `lean` on the `PATH` finds) and the headline is
+  compared as on a Blueprint site; when that is not possible the card says why.
+  `--no-comparator` leaves the comparison out; `--challenge-not-built <reason>`
+  is for a caller that tried to build the challenge first and could not:
+  nothing is compared and the card says the challenge module was not built,
+  with the reason. Without a challenge there is no card;
+- the left navigation bar and the side-by-side card style.
+
+What highlighting from data cannot give, compared with a Blueprint's
+elaborated sources: local variables' types, hovers on notation and tactics,
+tactic states and messages.
+
+Nothing is inferred beyond the data: a use is an edge only when both
+declarations are in it, and a `sorry` of a declaration's own is shown as a gap
+in its proof.
 
 ## Blueprint Options
 

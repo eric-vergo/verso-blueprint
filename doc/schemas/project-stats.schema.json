@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project-stats.schema.json",
+  "title": "Blueprint project statistics",
+  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 2. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
+  "type": "object",
+  "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
+    "progress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "identity": { "$ref": "#/$defs/identity" },
+    "layout": {
+      "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
+      "type": "object",
+      "required": ["sourceDirs", "libraryDirs"],
+      "additionalProperties": false,
+      "properties": {
+        "sourceDirs": { "$ref": "#/$defs/sortedPaths" },
+        "libraryDirs": { "$ref": "#/$defs/sortedPaths" }
+      }
+    },
+    "modules": {
+      "description": "The project's modules in the checked environment, sorted by name.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "declarations"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "$ref": "#/$defs/name" },
+          "path": { "$ref": "#/$defs/path" },
+          "declarations": { "$ref": "#/$defs/count" }
+        }
+      }
+    },
+    "declarations": {
+      "description": "Declarations of the project's modules by kind; declarations Lean generates (constructors, recursors, projections, equation lemmas, matchers, internal names) are not counted.",
+      "type": "object",
+      "required": ["theorems", "definitions", "instances", "structures", "classes", "inductives",
+        "axioms", "opaques"],
+      "additionalProperties": false,
+      "properties": {
+        "theorems": { "$ref": "#/$defs/count" },
+        "definitions": { "$ref": "#/$defs/count" },
+        "instances": { "$ref": "#/$defs/count" },
+        "structures": { "$ref": "#/$defs/count" },
+        "classes": { "$ref": "#/$defs/count" },
+        "inductives": { "$ref": "#/$defs/count" },
+        "axioms": { "$ref": "#/$defs/count" },
+        "opaques": { "$ref": "#/$defs/count" }
+      }
+    },
+    "sources": {
+      "description": "Every .lean file under the project root outside hidden directories (such as .lake), sorted by path, and the sum of their lines.",
+      "type": "object",
+      "required": ["files", "lines"],
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "lines", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "$ref": "#/$defs/path" },
+              "lines": { "$ref": "#/$defs/lineCounts" },
+              "status": {
+                "description": "imported: a module of the environment the site was generated from; compiled: not imported, but a library directory holds its .olean; notBuilt: neither.",
+                "enum": ["imported", "compiled", "notBuilt"]
+              }
+            }
+          }
+        },
+        "lines": { "$ref": "#/$defs/lineCounts" }
+      }
+    },
+    "progress": { "$ref": "#/$defs/progress" },
+    "chapters": {
+      "description": "Progress by chapter (the first directory of the nodes' page addresses), in order of first appearance. Empty until the site's pages are known.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["chapter", "progress"],
+        "additionalProperties": false,
+        "properties": {
+          "chapter": { "type": "string" },
+          "progress": { "$ref": "#/$defs/progress" }
+        }
+      }
+    },
+    "graph": {
+      "description": "The size of the dependency graph; placeholders for unknown references are not nodes.",
+      "type": "object",
+      "required": ["nodes", "statementEdges", "proofEdges", "edges", "groups", "byKind"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": { "$ref": "#/$defs/count" },
+        "statementEdges": { "$ref": "#/$defs/count" },
+        "proofEdges": { "$ref": "#/$defs/count" },
+        "edges": { "description": "Distinct dependent-dependency pairs on either axis.", "$ref": "#/$defs/count" },
+        "groups": { "$ref": "#/$defs/count" },
+        "byKind": {
+          "description": "[kind, count] pairs in the order definition, proposition, lemma, theorem, corollary; kinds without nodes are left out.",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "enum": ["definition", "proposition", "lemma", "theorem", "corollary"] },
+              { "$ref": "#/$defs/count" }
+            ],
+            "items": false,
+            "minItems": 2
+          }
+        }
+      }
+    },
+    "trust": {
+      "description": "What the proofs rest on beyond Lean's standard axioms (propext, Classical.choice, Quot.sound), node by node. Lists are sorted by label, then declaration.",
+      "type": "object",
+      "required": ["sorryDirect", "sorryThroughDependency", "extraAxioms", "compilerTrusted",
+        "missingDeclarations", "unknownReferences"],
+      "additionalProperties": false,
+      "properties": {
+        "sorryDirect": { "$ref": "#/$defs/trustEntries" },
+        "sorryThroughDependency": { "$ref": "#/$defs/trustEntries" },
+        "extraAxioms": { "$ref": "#/$defs/trustEntries" },
+        "compilerTrusted": { "$ref": "#/$defs/trustEntries" },
+        "missingDeclarations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "declaration"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "$ref": "#/$defs/name" },
+              "declaration": { "$ref": "#/$defs/name" }
+            }
+          }
+        },
+        "unknownReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "referencedBy"],
+            "additionalProperties": false,
+            "properties": {
+              "label": { "$ref": "#/$defs/name" },
+              "referencedBy": { "type": "array", "items": { "$ref": "#/$defs/name" } }
+            }
+          }
+        }
+      }
+    },
+    "headline": {
+      "description": "The project's headline result: the theorems its Comparator challenge states, compared with the solution. Null when the project has no Comparator challenge.",
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/headline" }]
+    },
+    "hasComparatorChallenge": {
+      "description": "Whether the project has a Comparator challenge: comparator.json at the root, or the source of Comparator.Challenge. Without one a page can say that a challenge would add a headline.",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 },
+    "correspondence": {
+      "description": "How a declaration of the challenge compares with the solution's declaration of the same name: the same (for a theorem the same statement, for anything else the same declaration including its value, and the same for every declaration of the challenge its statement uses), a definition hole whose value the solution supplies, differs, missing from the solution, or not compared (headline.unavailable says why).",
+      "enum": ["same", "hole", "differs", "missing", "notCompared"]
+    },
+    "headline": {
+      "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
+      "type": "object",
+      "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
+        "permittedAxioms", "unavailable", "unavailableDetail", "theorems", "definitions"],
+      "additionalProperties": false,
+      "properties": {
+        "challengeModule": { "$ref": "#/$defs/name" },
+        "solutionModule": { "$ref": "#/$defs/name" },
+        "challengeFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
+        "solutionFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
+        "config": {
+          "description": "comparator.json when the challenge is configured by it; null for the default modules.",
+          "$ref": "#/$defs/nullableString"
+        },
+        "permittedAxioms": {
+          "description": "The axioms the challenge permits, when it states them.",
+          "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
+        },
+        "unavailable": {
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source, or is unreadable; the environment of the site lacks the solution module or a module the challenge imports. Null when the comparison was made.",
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate",
+                "challengeUnreadable", "solutionNotImported", "importsNotAvailable"] }
+          ]
+        },
+        "unavailableDetail": {
+          "description": "The module, file or error message behind unavailable.",
+          "$ref": "#/$defs/nullableString"
+        },
+        "theorems": {
+          "description": "The theorems judged (theorem_names, or every theorem of the challenge), in source order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "docstring", "statement", "solution", "differingDeclaration",
+              "difference", "sorryFree", "axioms", "axiomsPermitted", "proved", "node"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/name" },
+              "docstring": {
+                "description": "The challenge's docstring, as written without its delimiters.",
+                "$ref": "#/$defs/nullableString"
+              },
+              "statement": {
+                "description": "The statement as written in the challenge, from its keyword to the end of the signature; empty without the source.",
+                "type": "string"
+              },
+              "solution": { "$ref": "#/$defs/correspondence" },
+              "differingDeclaration": {
+                "description": "When solution is differs: the first declaration found to differ, the theorem itself or a declaration of the challenge its statement uses.",
+                "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+              },
+              "difference": {
+                "description": "When solution is differs: how, in a few words.",
+                "$ref": "#/$defs/nullableString"
+              },
+              "sorryFree": {
+                "description": "Whether the solution's declaration is free of sorry, directly or through what it uses; null when the solution has none.",
+                "type": ["boolean", "null"]
+              },
+              "axioms": {
+                "description": "The axioms the solution's declaration depends on: sorryAx first, then other axioms, compiled-code axioms, the standard three.",
+                "type": "array",
+                "items": { "$ref": "#/$defs/name" }
+              },
+              "axiomsPermitted": {
+                "description": "Whether every axiom is in permittedAxioms; null without a list.",
+                "type": ["boolean", "null"]
+              },
+              "proved": {
+                "description": "The same statement, proved without sorry.",
+                "type": "boolean"
+              },
+              "node": {
+                "description": "The Blueprint node whose Lean declarations include the theorem.",
+                "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+              }
+            }
+          }
+        },
+        "definitions": {
+          "description": "The other declarations the challenge introduces, in source order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "solution"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/name" },
+              "solution": { "$ref": "#/$defs/correspondence" }
+            }
+          }
+        }
+      }
+    },
+    "name": { "description": "A Lean name as Lean prints it, with « » around components that need them.", "type": "string" },
+    "path": { "type": "string", "pattern": "^[^/]" },
+    "sortedPaths": { "type": "array", "items": { "type": "string", "pattern": "^[^/]" } },
+    "nullableString": { "type": ["string", "null"] },
+    "lineCounts": {
+      "description": "Physical lines: whitespace only (blank), comment text only (comment: line comments, nested block comments, docstrings) or anything else (code).",
+      "type": "object",
+      "required": ["blank", "comment", "code"],
+      "additionalProperties": false,
+      "properties": {
+        "blank": { "$ref": "#/$defs/count" },
+        "comment": { "$ref": "#/$defs/count" },
+        "code": { "$ref": "#/$defs/count" }
+      }
+    },
+    "progress": {
+      "description": "Nodes by the dependency graph's fill status.",
+      "type": "object",
+      "required": ["notReady", "ready", "incomplete", "formalized", "formalizedWithAncestors"],
+      "additionalProperties": false,
+      "properties": {
+        "notReady": { "$ref": "#/$defs/count" },
+        "ready": { "$ref": "#/$defs/count" },
+        "incomplete": { "$ref": "#/$defs/count" },
+        "formalized": { "$ref": "#/$defs/count" },
+        "formalizedWithAncestors": { "$ref": "#/$defs/count" }
+      }
+    },
+    "trustEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "declaration", "axioms"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "$ref": "#/$defs/name" },
+          "declaration": { "$ref": "#/$defs/name" },
+          "axioms": {
+            "description": "The axioms that put the declaration on this row.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/name" }
+          }
+        }
+      }
+    },
+    "identity": {
+      "description": "What the files at the project root say: the root package name in lake-manifest.json, the README's first heading and first prose paragraph (plain text), the license file with an SPDX guess (null: no license file), lean-toolchain and the locked packages in manifest order.",
+      "type": "object",
+      "required": ["name", "readme", "title", "description", "license", "toolchain", "packages"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/nullableString" },
+        "readme": { "$ref": "#/$defs/nullableString" },
+        "title": { "$ref": "#/$defs/nullableString" },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "license": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["file", "spdx"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "$ref": "#/$defs/path" },
+                "spdx": { "$ref": "#/$defs/nullableString" }
+              }
+            }
+          ]
+        },
+        "toolchain": { "$ref": "#/$defs/nullableString" },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "source", "rev", "inputRev", "url", "dir", "inherited"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "source": { "enum": ["git", "path"] },
+              "rev": { "$ref": "#/$defs/nullableString" },
+              "inputRev": { "$ref": "#/$defs/nullableString" },
+              "url": { "description": "Without any user name or password.", "$ref": "#/$defs/nullableString" },
+              "dir": { "$ref": "#/$defs/nullableString" },
+              "inherited": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

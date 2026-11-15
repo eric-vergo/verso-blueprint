@@ -85,6 +85,8 @@ structure CodeDeclData where
   commandIndex : Nat := 0
   weight : Nat := 1
   provedStatus : Data.ProvedStatus := .incomplete {}
+  /-- The axioms the declaration depends on, sorted by name. -/
+  axioms : Array Name := #[]
   sourceLocation : Data.SourceLocationResult :=
     Data.SourceLocationResult.unavailable "inline Lean declaration source location unavailable"
 deriving Repr, Inhabited, FromJson, ToJson, Quote
@@ -98,6 +100,7 @@ def CodeDeclData.ofLiterateDef (d : Data.LiterateDef)
     commandIndex := d.commandIndex
     weight := max d.commandLines 1
     provedStatus := d.provedStatus
+    axioms := d.axioms
     sourceLocation
   }
 
@@ -110,6 +113,7 @@ def CodeDeclData.ofLiterateThm (d : Data.LiterateThm)
     commandIndex := d.commandIndex
     weight := max d.commandLines 1
     provedStatus := d.provedStatus
+    axioms := d.axioms
     sourceLocation
   }
 

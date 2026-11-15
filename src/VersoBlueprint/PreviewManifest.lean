@@ -11,20 +11,26 @@ import Std.Data.HashSet
 import VersoManual
 import VersoManual.HighlightedCode
 import VersoBlueprint.Cite
+import VersoBlueprint.DeclarationSource
+import VersoBlueprint.Sidebar
 import VersoBlueprint.Informal.Block
+import VersoBlueprint.Informal.Block.Runs
 import VersoBlueprint.Informal.Uses
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Informal.Group
 import VersoBlueprint.Informal.LeanCodePreview
+import VersoBlueprint.Informal.NodeView
 import VersoBlueprint.Lib.PreviewSource
 import VersoBlueprint.PreviewCache
 import VersoBlueprint.PreviewManifest.Cli
 import VersoBlueprint.PreviewManifest.ExternalMarkupRender
 import VersoBlueprint.PreviewRender
 import VersoBlueprint.RenderModel
+import VersoBlueprint.Resident
 import VersoBlueprint.RenderingResolution
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Graph
+import VersoBlueprint.Commands.Stats
 import VersoBlueprint.Git
 import VersoBlueprint.Html
 import VersoBlueprint.HtmlDocument
@@ -173,9 +179,11 @@ structure PackageMetadata where
 deriving Inhabited, Repr
 
 structure BuildMetadata where
-  compiledAt : String
-  commit : String
-  subject : String
+  /-- Build timestamp; `none` when omitted for reproducible output. -/
+  compiledAt : Option String
+  /-- Project commit; `none` when omitted for reproducible output. -/
+  commit : Option String
+  subject : Option String
   projectRepositoryUrl : Option String := none
   projectCommitUrl : Option String := none
   leanToolchain : String
@@ -390,7 +398,9 @@ private def versionFromManifestPackage? (pkg : Json) : Option String :=
       | none => some rev
   | none => none
 
-private def packageMetadataFromPathPackage? (pkg : Json) : IO (Option PackageMetadata) := do
+private def packageMetadataFromPathPackage? (omitGit : Bool) (pkg : Json) :
+    IO (Option PackageMetadata) := do
+  if omitGit then return none
   let some dir := jsonStringField? pkg "dir"
     | return none
   let cwd ← IO.currentDir
@@ -410,14 +420,16 @@ private def packageMetadataFromGitPackage? (pkg : Json) : Option PackageMetadata
   let commitUrl := Git.commitUrl? repositoryUrl (jsonStringField? pkg "rev")
   some { version, repositoryUrl, commitUrl }
 
-private def packageMetadata? (manifest : Json) (names : Array String) : IO (Option PackageMetadata) := do
+private def packageMetadata? (omitGit : Bool) (manifest : Json) (names : Array String) :
+    IO (Option PackageMetadata) := do
   let some pkg := manifestPackageByName? manifest names
     | return none
   match packageMetadataFromGitPackage? pkg with
   | some metadata => pure (some metadata)
-  | none => packageMetadataFromPathPackage? pkg
+  | none => packageMetadataFromPathPackage? omitGit pkg
 
-private def gitPackageMetadataAt (dir : System.FilePath) : IO PackageMetadata := do
+private def gitPackageMetadataAt (omitGit : Bool) (dir : System.FilePath) : IO PackageMetadata := do
+  if omitGit then return { version := unknownMetadataValue }
   let version ← Git.shortCommitAt? dir
   let repositoryUrl ← Git.repositoryUrlAt? dir
   let commitUrl := Git.commitUrl? repositoryUrl (← Git.fullCommitAt? dir)
@@ -427,17 +439,18 @@ private def gitPackageMetadataAt (dir : System.FilePath) : IO PackageMetadata :=
     commitUrl
   }
 
-private def readBlueprintPackage (manifest? : Option Json) : IO PackageMetadata := do
+private def readBlueprintPackage (omitGit : Bool) (manifest? : Option Json) : IO PackageMetadata := do
   match manifest? with
   | some manifest =>
-      match ← packageMetadata? manifest #["VersoBlueprint", "verso-blueprint"] with
+      match ← packageMetadata? omitGit manifest #["VersoBlueprint", "verso-blueprint"] with
       | some metadata => pure metadata
-      | none => gitPackageMetadataAt (← IO.currentDir)
-  | none => gitPackageMetadataAt (← IO.currentDir)
+      | none => gitPackageMetadataAt omitGit (← IO.currentDir)
+  | none => gitPackageMetadataAt omitGit (← IO.currentDir)
 
-private def readMathlibPackage? (manifest? : Option Json) : IO (Option PackageMetadata) := do
+private def readMathlibPackage? (omitGit : Bool) (manifest? : Option Json) :
+    IO (Option PackageMetadata) := do
   match manifest? with
-  | some manifest => packageMetadata? manifest #["mathlib", "Mathlib"]
+  | some manifest => packageMetadata? omitGit manifest #["mathlib", "Mathlib"]
   | none => pure none
 
 private def tomlQuotedValue? (line key : String) : Option String :=
@@ -481,22 +494,36 @@ private def readUpstreamBlueprint? : IO (Option GitCommitMetadata) := do
   | _, _ => pure ()
   gitCommitMetadataAt? upstreamDir
 
-def readBuildMetadata : IO BuildMetadata := do
+/--
+Read the build metadata shown on the title page. Reproducibility options drop the
+facts that differ between two builds of an unchanged project.
+-/
+def readBuildMetadata (reproducibility : ReproducibilityOptions := {}) : IO BuildMetadata := do
   let cwd ← IO.currentDir
+  let omitGit := reproducibility.omitGitMetadata
   let manifest? ← readLakeManifestJson?
-  let compiledAt ← Process.runTrimmedCommand? "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
-  let commit ← Git.shortCommitAt? cwd
-  let subject ← Git.subjectAt? cwd
+  let compiledAt ←
+    if reproducibility.omitBuildTime then pure none
+    else
+      some <$> (Option.getD · unknownMetadataValue) <$>
+        Process.runTrimmedCommand? "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
+  let (commit, subject, projectCommitUrl) ←
+    if omitGit then pure (none, none, none)
+    else do
+      let commit ← Git.shortCommitAt? cwd
+      let subject ← Git.subjectAt? cwd
+      let repositoryUrl ← Git.repositoryUrlAt? cwd
+      pure (some (commit.getD unknownMetadataValue), some (subject.getD unknownMetadataValue),
+        Git.commitUrl? repositoryUrl (← Git.fullCommitAt? cwd))
   let projectRepositoryUrl ← Git.repositoryUrlAt? cwd
-  let projectCommitUrl := Git.commitUrl? projectRepositoryUrl (← Git.fullCommitAt? cwd)
   let leanToolchain ← readLeanToolchain
-  let blueprintPackage ← readBlueprintPackage manifest?
-  let mathlibPackage? ← readMathlibPackage? manifest?
-  let upstreamBlueprint ← readUpstreamBlueprint?
+  let blueprintPackage ← readBlueprintPackage omitGit manifest?
+  let mathlibPackage? ← readMathlibPackage? omitGit manifest?
+  let upstreamBlueprint ← if omitGit then pure none else readUpstreamBlueprint?
   pure {
-    compiledAt := compiledAt.getD unknownMetadataValue
-    commit := commit.getD unknownMetadataValue
-    subject := subject.getD unknownMetadataValue
+    compiledAt
+    commit
+    subject
     projectRepositoryUrl
     projectCommitUrl
     leanToolchain
@@ -529,15 +556,24 @@ def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
   open Verso.Output.Html in
   {{
     <div class="bp_build_metadata" aria-label="Build metadata">
-      <span class="bp_build_metadata_item">
-        <span class="bp_build_metadata_label">"Compiled"</span>
-        <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.compiledAt}}</span>
-      </span>
-      <span class="bp_build_metadata_item">
-        {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
-        {{buildMetadataCodeHtml metadata.commit metadata.projectCommitUrl}}
-        <span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text metadata.subject}}</span>
-      </span>
+      {{if let some compiledAt := metadata.compiledAt then
+        {{<span class="bp_build_metadata_item">
+            <span class="bp_build_metadata_label">"Compiled"</span>
+            <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text compiledAt}}</span>
+          </span>}}
+        else .empty}}
+      {{if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
+        {{<span class="bp_build_metadata_item">
+            {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
+            {{match metadata.commit with
+              | some commit => buildMetadataCodeHtml commit metadata.projectCommitUrl
+              | none => .empty}}
+            {{match metadata.subject with
+              | some subject =>
+                {{<span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text subject}}</span>}}
+              | none => .empty}}
+          </span>}}
+        else .empty}}
       <span class="bp_build_metadata_item">
         <span class="bp_build_metadata_label">"Lean"</span>
         <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.leanToolchain}}</span>
@@ -676,6 +712,9 @@ def manifestFilename : String := "blueprint-manifest.json"
 
 def htmlCacheFilename : String := "blueprint-html-cache.json"
 
+/-- The dependency graph's node views (`NodeViewFile`), next to the manifest. -/
+def nodeViewsFilename : String := "blueprint-node-views.json"
+
 /--
 Internal schema marker for generated Blueprint manifests.
 
@@ -741,6 +780,28 @@ private def graphRuntimeCoreModuleMjs : String := include_str "Commands/graph-ru
 
 private def graphRuntimeModuleMjs : String := include_str "Commands/graph.mjs"
 
+/-- D3, vendored (`static-web/vendor/README.md`); `Commands/graph.mjs` loads it from the site. -/
+private def vendoredD3Js : String := include_str "../../static-web/vendor/d3/d3.min.js"
+
+/-- d3-graphviz with its bundled Graphviz WebAssembly build, vendored like `vendoredD3Js`. -/
+private def vendoredD3GraphvizJs : String :=
+  include_str "../../static-web/vendor/d3-graphviz/d3-graphviz.min.js"
+
+/--
+The licence and notice files of the vendored libraries, written next to them in every site
+(`static-web/vendor/README.md`), with their paths in the site's data directory.
+-/
+def vendoredLicenseFiles : Array (String × String) := #[
+  ("vendor/d3/LICENSE", include_str "../../static-web/vendor/d3/LICENSE"),
+  ("vendor/d3-graphviz/LICENSE", include_str "../../static-web/vendor/d3-graphviz/LICENSE"),
+  ("vendor/d3-graphviz/LICENSE-hpcc-js-wasm",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-hpcc-js-wasm"),
+  ("vendor/d3-graphviz/LICENSE-graphviz",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-graphviz"),
+  ("vendor/d3-graphviz/LICENSE-expat",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-expat")
+]
+
 private def relationPanelModuleMjs : String := include_str "Informal/Block/relation-panel.mjs"
 
 private def previewRuntimeBaseModuleFilename : String := "preview-runtime-base.mjs"
@@ -797,8 +858,10 @@ private def pageRuntimeModules : Array (String × String) := #[
   ("Commands/inline-preview.mjs", inlinePreviewModuleMjs),
   ("Commands/graph-runtime-core.mjs", graphRuntimeCoreModuleMjs),
   ("Commands/graph.mjs", graphRuntimeModuleMjs),
-  ("Informal/Block/relation-panel.mjs", relationPanelModuleMjs)
-]
+  ("Informal/Block/relation-panel.mjs", relationPanelModuleMjs),
+  ("vendor/d3/d3.min.js", vendoredD3Js),
+  ("vendor/d3-graphviz/d3-graphviz.min.js", vendoredD3GraphvizJs)
+] ++ vendoredLicenseFiles
 
 private def writeDataFile (dataDir : System.FilePath) (relativePath contents : String) : IO Unit := do
   let path := dataDir / relativePath
@@ -1188,6 +1251,19 @@ structure PreparedPreviewState where private mk ::
 def PreparedPreviewState.prepare (state : TraverseState) : PreparedPreviewState :=
   PreparedPreviewState.mk (Informal.RelatedPanel.patchRelationCaches state)
 
+/-- The rendered view of one dependency-graph node. -/
+structure NodeViewEntry where
+  /-- The graph node's label, as the graph data writes it. -/
+  label : String
+  /-- The rendered `Informal.NodeView`; its hover ids refer to the HTML cache's hover table. -/
+  html : String
+deriving Inhabited, Repr, ToJson, FromJson
+
+/-- The dependency graph's node views (`blueprint-node-views.json`). -/
+structure NodeViewFile where
+  entries : Array NodeViewEntry := #[]
+deriving Inhabited, Repr, ToJson, FromJson
+
 /-- Paired, emission-ready preview-data outputs for a generated Blueprint site. -/
 structure Files where private mk ::
   /--
@@ -1201,6 +1277,11 @@ structure Files where private mk ::
   this cache with `manifest` by preview key when they need presentation data.
   -/
   htmlCache : HtmlCache.File := {}
+  /--
+  One rendered view per dependency-graph node (`Informal.NodeView`): the informal
+  statement beside its Lean declarations. Hover ids refer to `htmlCache.hoverDocs`.
+  -/
+  nodeViews : NodeViewFile := {}
 deriving Repr
 
 /--
@@ -2420,6 +2501,103 @@ private def validateSourceRefs
         unless documents.any (fun doc => doc.id == sourceRef.document) do
           logError s!"Blueprint manifest: source ref for facet {key} references unknown source document '{sourceRef.document}'"
 
+/-- Make an absolute path relative to `root` when it lies under it. -/
+def relativeToRoot (root path : String) : String :=
+  let sep := System.FilePath.pathSeparator.toString
+  let rootPrefix := if root.endsWith sep then root else root ++ sep
+  if path.startsWith rootPrefix then (path.drop rootPrefix.length).toString else path
+
+/-- Rewrite the manifest's source paths under `root` relative to it. -/
+def File.relativizeSourcePaths (file : File) (root : String) : File :=
+  let relativize (result : Informal.Data.SourceLocationResult) : Informal.Data.SourceLocationResult :=
+    { result with location := result.location.map fun loc => { loc with path := relativeToRoot root loc.path } }
+  { file with previews := file.previews.map fun entry =>
+      { entry with sourceLocation := relativize entry.sourceLocation } }
+
+/-- The root that manifest source paths are made relative to, when requested. -/
+def sourcePathRoot? (reproducibility : ReproducibilityOptions) : IO (Option String) := do
+  if reproducibility.relativeSourcePaths then
+    return some (← IO.FS.realPath (← IO.currentDir)).toString
+  else
+    return none
+
+/-- Whether a rendered fragment has no text outside its tags (an inert or empty body). -/
+private def fragmentIsBlank (html : String) : Bool := Id.run do
+  let mut inTag := false
+  for c in html.toList do
+    if c == '<' then inTag := true
+    else if c == '>' then inTag := false
+    else if !inTag && !c.isWhitespace then return false
+  return true
+
+private def nodeViewLinks (entries : Array RelatedEntry) : Array Informal.NodeView.Link :=
+  entries.map fun e => { label := e.label.toString, title := e.title, href? := e.href }
+
+/-- The axioms a node's Lean declarations depend on, together; `none` when it has no
+declaration present in the environment (nothing is known about its axioms). -/
+private def nodeAxioms? (code? : Option Informal.BlockCodeData) : Option (Array Name) := do
+  let code ← code?
+  let external := code.externalDecls.filter (·.present)
+  let literate := code.literateDeclarations.declarations
+  if external.isEmpty && literate.isEmpty then none
+  some (external.flatMap (·.axioms) ++ literate.flatMap (·.axioms))
+
+/--
+Render the view of every dependency-graph node (`Informal.NodeView`): its
+statement and proof fragments from the HTML cache (none for a code-only node), its Lean
+declarations' highlighted source when `Informal.DeclarationSource` has it (else
+their signature rows), inline Lean code fragments, its status, its relations and the
+axioms its declarations depend on.
+Lean hovers are registered in the cache's hover table `hoverState`.
+-/
+private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entry)
+    (hoverState : Verso.Code.Hover.State Output.Html) :
+    IO (NodeViewFile × Verso.Code.Hover.State Output.Html) := do
+  let index := manifest.index
+  let bodies : Std.HashMap String String :=
+    htmlEntries.foldl (fun m e => m.insert e.key e.html) {}
+  let mut hoverState := hoverState
+  let mut seen : Std.HashSet String := {}
+  let mut entries : Array NodeViewEntry := #[]
+  for graph in manifest.graphs do
+    for node in graph.nodes do
+      let label := node.label.toString
+      if seen.contains label then continue
+      let some key := node.previewKey | continue
+      let some entry := index.findEntry? key.value | continue
+      seen := seen.insert label
+      let informal? : Option Output.Html :=
+        if entry.codeOnlyPreview then none else
+        (bodies.get? key.value).bind fun html =>
+          if fragmentIsBlank html then none else some (.text false html)
+      let proof? : Option Output.Html :=
+        (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
+          if fragmentIsBlank html then none else some (.text false html)
+      let decls := (entry.codeData.map (·.externalDecls)).getD #[]
+      let (sourceParts, hoverState') ←
+        Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
+      hoverState := hoverState'
+      let inlineParts : Array Output.Html := entry.leanCodePreviewKeys.filterMap fun k =>
+        match index.findEntry? k, bodies.get? k with
+        | some e, some html => if e.targetKind == .inlineLeanCode then some (.text false html) else none
+        | _, _ => none
+      let view : Informal.NodeView.NodeView := {
+        label
+        title := node.title
+        href? := node.href
+        status := Informal.statusGlyph
+          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData)
+        informal?
+        proof?
+        lean := sourceParts ++ inlineParts
+        leanDecls := decls.map (·.canonical)
+        axioms? := nodeAxioms? entry.codeData
+        uses := nodeViewLinks entry.uses
+        usedBy := nodeViewLinks entry.usedBy
+      }
+      entries := entries.push { label, html := view.render.asString }
+  pure ({ entries }, hoverState)
+
 /--
 Build the semantic Blueprint manifest and rendered-fragment cache from a
 completed Manual traversal state.
@@ -2434,7 +2612,8 @@ def buildPreviewDataFiles
     (logError : String → IO Unit)
     (preparedState : PreparedPreviewState)
     (externalMarkupConfig : Informal.ExternalMarkupRender.Config := {})
-    (verbose : Bool := false) : IO Files := do
+    (verbose : Bool := false)
+    (sourcePathRoot? : Option String := none) : IO Files := do
   let state := preparedState.state
   let impls := Inline.withPreviewRendering impls PreviewResources.deferred
     |> (Block.withPreviewRendering · PreviewResources.deferred)
@@ -2485,6 +2664,9 @@ def buildPreviewDataFiles
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint resource {entry.key}: {error}")
     pure ({ key := entry.key, html := html.asString } : HtmlCache.Entry)
+  let (nodeViews, hoverState) ←
+    withTimedBuildProgress verbose "building dependency-graph node views" <|
+      buildNodeViews manifest resolvedEntries hoverState
   let hoverDocs ← hoverState.dedup.contentId.toArray.mapM fun (id, html) => do
     let html ← match resolve html with
       | .ok html => pure html
@@ -2499,7 +2681,11 @@ def buildPreviewDataFiles
     entries := resolvedEntries
     hoverDocs := hoverDocs.qsort (fun a b => a.id < b.id)
   }
-  pure <| Files.mk (manifest.finalizePreviewReferences index) htmlCache
+  let manifest := manifest.finalizePreviewReferences index
+  let manifest := match sourcePathRoot? with
+    | some root => manifest.relativizeSourcePaths root
+    | none => manifest
+  pure <| Files.mk manifest htmlCache nodeViews
 
 private def dumpPreviewDataJson
     (select : Files → Json)
@@ -2514,6 +2700,7 @@ private def dumpPreviewDataJson
     | .error err =>
         IO.eprintln err
         return 2
+  let (reproducibility, options) := parseReproducibilityOptions {} options
   let errorCount : IO.Ref Nat ← IO.mkRef 0
   let logError msg := do
     errorCount.modify (· + 1)
@@ -2527,7 +2714,7 @@ private def dumpPreviewDataJson
   let preparedState := PreparedPreviewState.prepare document.state
   let traverseState := preparedState.state
   let files ← buildPreviewDataFiles extensionImpls logError preparedState externalMarkupConfig
-    (verbose := cfg.verbose)
+    (verbose := cfg.verbose) (sourcePathRoot? := ← sourcePathRoot? reproducibility)
   let logger := callbackLogger logError
   reportPreviewMetadataLossWarnings logger traverseState files.manifest
   IO.println <| jsonPretty <| select files
@@ -2600,6 +2787,7 @@ def emitBlueprintPreviewData : BlueprintExtraStep := fun preparedState => do
     IO.FS.createDirAll dataDir
     IO.FS.writeFile (dataDir / manifestFilename) (toJson files.manifest).compress
     IO.FS.writeFile (dataDir / htmlCacheFilename) (toJson files.htmlCache).compress
+    IO.FS.writeFile (dataDir / nodeViewsFilename) (toJson files.nodeViews).compress
   withTimedBuildProgress cfg.verbose s!"writing {modeDescription} Blueprint runtime modules" <|
     writeBlueprintRuntimeModules dataDir
   withTimedBuildProgress cfg.verbose s!"merging {modeDescription} hover docs" <|
@@ -2641,6 +2829,33 @@ def handleCliFlags
     else
       pure (none, options, externalMarkupConfig)
 
+/-- The workspace modules whose highlighted source the side-by-side layout needs. -/
+def declarationSourceModules (state : TraverseState) : Array Name :=
+  (Informal.TraversalIndex.LeanCodePreviews.entries state).foldl (init := #[]) fun acc decoded =>
+    match decoded with
+    | .ok stored =>
+      match stored.data.source with
+      | .externalDecl decl =>
+        match Informal.DeclarationSource.wantsSource decl with
+        | some moduleName => if acc.contains moduleName then acc else acc.push moduleName
+        | none => acc
+      | _ => acc
+    | .error _ => acc
+
+/-- Name of the `<meta>` element that selects the site's default Blueprint style. -/
+def defaultStyleMetaName : String := "verso-blueprint-default-style"
+
+/--
+Make the side-by-side style (`sbs`) the site's default Blueprint style, and ship
+the legend of its status glyphs.
+-/
+def withSideBySideDefaultStyle (config : RenderConfig) : RenderConfig :=
+  let styleMeta : Output.Html :=
+    .tag "meta" #[("name", defaultStyleMetaName), ("content", "sbs")] .empty
+  let head := #[styleMeta, Informal.statusLegendTemplate].foldl
+    VersoBlueprint.Html.pushIfRenderedMissing config.toHtmlConfig.extraHead
+  { config with extraHead := head }
+
 /-- Emit only the document/layout pair admitted by the checked boundary. -/
 private def PreparedRendererState.emit (prepared : PreparedRendererState) : EmitM Unit := do
   match prepared.mode with
@@ -2649,6 +2864,8 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
 
 private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
+    (reproducibility : ReproducibilityOptions)
+    (sideBySide : Bool)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config)
     (how : EmitHtml)
     (mode : Mode)
@@ -2669,12 +2886,19 @@ private def emitBlueprintHtml
       document.save path
     return
   let prepared := PreparedRendererState.prepare document
+  -- Before the preview data: the dependency graph's node views show the same source.
+  if sideBySide then
+    let modules := declarationSourceModules prepared.state
+    withTimedBuildProgress cfg.verbose s!"loading highlighted source of {modules.size} Lean modules" <|
+      Informal.DeclarationSource.prepare (← IO.currentDir) modules
+        (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
   let prepared ← match previewConfig? with
     | none => pure prepared
     | some previewConfig => do
       let logger ← readThe (Verso.Logger IO)
       let files ← buildPreviewDataFiles (← read) logger.reportError
         prepared.previewState previewConfig (verbose := cfg.verbose)
+        (sourcePathRoot? := ← sourcePathRoot? reproducibility)
       pure { prepared with previewFiles? := some files }
   withTimedBuildProgress cfg.verbose s!"writing {modeDescription} xrefs" <|
     emitXrefsJson (outDirForMode prepared.config.toConfig prepared.mode) prepared.state
@@ -2682,12 +2906,28 @@ private def emitBlueprintHtml
   let pageImpls := match prepared.previewFiles? with
     | none => impls
     | some files => files.withPageExtensions impls
-  withReader (fun _ => pageImpls) <|
-    withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
+  Informal.DeclarationSource.setEnabled sideBySide
+  try
+    withReader (fun _ => pageImpls) <|
+      withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
+  finally
+    Informal.DeclarationSource.setEnabled false
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
   for step in extraSteps do
     step prepared
+
+/-- Extract `--no-stats-page`: it turns the automatic Project Stats page off. -/
+def parseStatsPageFlag (statsPage? : Option Informal.Commands.StatsPageData) (args : List String) :
+    Option Informal.Commands.StatsPageData × List String :=
+  let flag := Informal.Commands.noStatsPageFlag
+  ((if args.contains flag then none else statsPage?), args.filter (· != flag))
+
+/-- The stats page's data for a generator: its sidebar links, when it has a sidebar. -/
+def statsPageData? (statsPage : Bool) (sidebar? : Option Informal.Sidebar.Config) :
+    Option Informal.Commands.StatsPageData :=
+  if !statsPage then none
+  else some { links := (sidebar?.map (·.links)).getD #[] |>.map fun l => { label := l.label, href := l.href } }
 
 private def blueprintMainCore (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
@@ -2695,15 +2935,34 @@ private def blueprintMainCore (text : Part Manual)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
-    (previewConfig? : Option Informal.ExternalMarkupRender.Config := none) : IO UInt32 :=
+    (previewConfig? : Option Informal.ExternalMarkupRender.Config := none)
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false)
+    (statsPage? : Option Informal.Commands.StatsPageData := some {}) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
     let extensionImpls ← read
+    let (reproducibility, options) := parseReproducibilityOptions reproducibility options
+    let (statsPage?, options) := parseStatsPageFlag statsPage? options
+    -- The stats page is a page of the HTML site only; TeX and word counts keep the document.
+    let htmlText := match statsPage? with
+      | some data => Informal.Commands.withStatsPage text data
+      | none => text
+    let (sideBySideFlag, options) := parseSideBySideFlag options
+    let sideBySide := sideBySide || sideBySideFlag
+    let config := if sideBySide then withSideBySideDefaultStyle config else config
+    -- Consecutive Blueprint blocks form runs that share one column divider.
+    let htmlText := if sideBySide then Informal.SideBySideRuns.groupRuns htmlText else htmlText
     let cfg ← parseRenderConfigOptions (withBuildMetadataAssets config) options
     let cfg := if pdfOptions.enabled then { cfg with emitTeX := true } else cfg
-    let buildMetadata ← readBuildMetadata
+    let buildMetadata ← readBuildMetadata reproducibility
     let extraSteps := emitBuildMetadata buildMetadata :: extraSteps
+
+    -- A site built without the stats page has no page left from an earlier build either.
+    if statsPage?.isNone && !Informal.Commands.hasStatsPage text then
+      let page := cfg.destination / "html-multi" / Informal.Commands.statsPageFolder
+      if ← page.isDir then IO.FS.removeDirAll page
 
     let action : ReaderT ExtensionImpls (BuildLogT IO) Unit := do
       if cfg.emitTeX then
@@ -2711,8 +2970,10 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps previewConfig? cfg.emitHtmlSingle .single cfg text
-      emitBlueprintHtml extraSteps previewConfig? cfg.emitHtmlMulti .multi cfg text
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
+        htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
+        htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -2721,25 +2982,53 @@ where
         Informal.TeX.Pdf.compile pdfOptions cfg.toConfig
     Verso.runWithLogger (action.run extensionImpls)
 
-/-- Generate a document using semantic data captured after all generator imports. -/
+/-- Generate a document using semantic data captured after all generator imports.
+
+The HTML site gets a Project Stats page at the end of its table of contents
+(`Informal.Commands.withStatsPage`); `statsPage := false` or the `--no-stats-page` flag leaves it
+out, and removes the page an earlier build wrote (unless the document places the page itself). -/
 def blueprintMain (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
     (pdfOptions : PdfOptions := {})
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 :=
+    (model : RenderModel := by exact blueprint_render_model%)
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false)
+    (sidebar? : Option Informal.Sidebar.Config := none)
+    (statsPage : Bool := true) : IO UInt32 := do
+  let (text, model) ← Informal.Resident.apply text model
+  let model ← model.refreshStats
+  let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
+  let config := match sidebar? with
+    | some sidebar => Informal.Sidebar.withSidebar sidebar config
+    | none => config
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
+    (reproducibility := reproducibility) (sideBySide := sideBySide)
+    (statsPage? := statsPageData? statsPage sidebar?)
 
+/-- `blueprintMain` with preview data files and the generator's command-line flags; it adds the
+Project Stats page the same way. -/
 def blueprintMainWithPreviewData
     (text : Part Manual)
     (options : List String)
     (extensionImpls : ExtensionImpls)
     (config : RenderConfig := {})
     (extraSteps : List BlueprintExtraStep := [])
-    (model : RenderModel := by exact blueprint_render_model%) : IO UInt32 := do
+    (model : RenderModel := by exact blueprint_render_model%)
+    (reproducibility : ReproducibilityOptions := {})
+    (sideBySide : Bool := false)
+    (sidebar? : Option Informal.Sidebar.Config := none)
+    (statsPage : Bool := true) : IO UInt32 := do
+  let (text, model) ← Informal.Resident.apply text model
+  let model ← model.refreshStats
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
+  let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
+  let config := match sidebar? with
+    | some sidebar => Informal.Sidebar.withSidebar sidebar config
+    | none => config
   let (dumped?, options, externalMarkupConfig) ← handleCliFlags text options extensionImpls config
   if let some code := dumped? then
     return code
@@ -2751,6 +3040,7 @@ def blueprintMainWithPreviewData
         return 2
   blueprintMainCore text (extensionImpls := extensionImpls) (options := options) (config := config)
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
-    (previewConfig? := some externalMarkupConfig)
+    (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
+    (sideBySide := sideBySide) (statsPage? := statsPageData? statsPage sidebar?)
 
 end Informal.PreviewManifest

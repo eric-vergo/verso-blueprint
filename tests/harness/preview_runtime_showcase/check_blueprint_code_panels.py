@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[3]
@@ -22,6 +23,29 @@ def load(path: Path) -> str:
     if not path.exists():
         fail(f"missing file: {path}")
     return path.read_text(encoding="utf-8")
+
+
+def github_repo_pattern() -> str:
+    """Regex for the `<owner>/<repo>` part of the generated GitHub source links.
+
+    The generator links sources to the GitHub repository of the checkout's
+    `origin` remote, so a fork links to itself. Mirror that normalization; when
+    the remote is not on GitHub (or unavailable), accept any repository.
+    """
+    try:
+        url = subprocess.run(
+            ["git", "-C", str(PACKAGE_ROOT), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return r"[^/\"]+/[^/\"]+"
+    for prefix in ("https://github.com/", "http://github.com/", "git@github.com:", "ssh://git@github.com/"):
+        if url.startswith(prefix):
+            repo = url[len(prefix):].removesuffix("/").removesuffix(".git")
+            return re.escape(repo)
+    return r"[^/\"]+/[^/\"]+"
 
 
 def require_contains(haystack: str, needle: str, description: str) -> None:
@@ -226,13 +250,18 @@ def main() -> int:
         fail("missing right-aligned rendered declaration header status container")
     if "bp_external_decl_source_path" not in code_panels:
         fail("missing rendered declaration source path metadata")
+    repo = github_repo_pattern()
     source_link_re = re.compile(
-        r'<a class="bp_external_decl_source_path" href="https://github\.com/leanprover/verso-blueprint/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+(?:-L\d+)?">PreviewRuntimeShowcase/Chapters/CodePanels\.lean</a>'
+        r'<a class="bp_external_decl_source_path" href="https://github\.com/'
+        + repo
+        + r'/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+(?:-L\d+)?">PreviewRuntimeShowcase/Chapters/CodePanels\.lean</a>'
     )
     if source_link_re.search(code_panels) is None:
         fail("missing GitHub source links for in-module rendered declarations")
     source_range_link_re = re.compile(
-        r'<a class="bp_external_decl_source_path" href="https://github\.com/leanprover/verso-blueprint/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+-L\d+">PreviewRuntimeShowcase/Chapters/CodePanels\.lean</a>'
+        r'<a class="bp_external_decl_source_path" href="https://github\.com/'
+        + repo
+        + r'/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+-L\d+">PreviewRuntimeShowcase/Chapters/CodePanels\.lean</a>'
     )
     if source_range_link_re.search(code_panels) is None:
         fail("missing GitHub source links with line ranges for multi-line declarations")

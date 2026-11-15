@@ -331,7 +331,7 @@ def spec : StoreSpec := {
   name := `Informal.renderOverviews
   kind := .internalIndex
   key := "overview name"
-  value := "Typed captured graph or summary data"
+  value := "Typed captured graph, summary or project statistics data"
   summary := "Project overviews selected by the generator and reused by traversal and rendering."
 }
 

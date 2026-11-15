@@ -1577,6 +1577,13 @@ The graph pipeline computes two orthogonal tracks per node:
 This keeps "can I state it?" separate from "can I finish the proof?" instead of
 collapsing all progress into one overloaded color.
 
+Both tracks' colours are theme tokens (`Informal.StatusColors`, the
+`--bp-color-status-*` custom properties) rather than literals in the graph
+code, so the graph, its legend, the summary and any other status view read one
+palette in the light and the dark theme. DOT needs concrete colours, so it
+carries the light values; status classes on the SVG nodes let the stylesheet
+substitute the active theme's values.
+
 The current proof fill progression is:
 
 - `not ready`

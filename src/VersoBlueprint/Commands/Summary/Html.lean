@@ -221,34 +221,45 @@ def summaryCardClass : String := "bp_summary_card"
 def summaryCardWarnClass : String :=
   s!"{summaryCardClass} bp_summary_card_warn"
 
+/--
+A summary card. With `accent?`, the card carries a stripe in that status colour token, the
+colour the dependency graph uses for the same status.
+-/
 def summaryCard (label value : String) (status? : Option String := Option.none)
-    (className : String := summaryCardClass) : Output.Html :=
+    (className : String := summaryCardClass)
+    (accent? : Option StatusColors.ColorToken := Option.none) : Output.Html :=
   let statusNode : Output.Html :=
     match status? with
     | Option.some status => {{<span class="bp_summary_status">{{.text true status}}</span>}}
     | Option.none => .empty
-  {{ <div class={{className}}>
+  let body : Output.Html := {{
       <span class="bp_summary_label">{{.text true label}}</span>
       <span class="bp_summary_value">{{.text true value}}</span>
       {{statusNode}}
-    </div> }}
+    }}
+  match accent? with
+  | Option.some token =>
+    {{ <div class={{className ++ " bp_summary_card_status"}}
+          "style"={{s!"--bp-summary-status: {token.cssVar}"}}>{{body}}</div> }}
+  | Option.none => {{ <div class={{className}}>{{body}}</div> }}
 
 def summaryOptionalCard (visible : Bool) (label value : String)
-    (status? : Option String := Option.none) (className : String := summaryCardClass) :
-    Output.Html :=
+    (status? : Option String := Option.none) (className : String := summaryCardClass)
+    (accent? : Option StatusColors.ColorToken := Option.none) : Output.Html :=
   if visible then
-    summaryCard label value status? className
+    summaryCard label value status? className accent?
   else
     .empty
 
-def summaryWarnCard (label value : String) (status? : Option String := Option.none) :
-    Output.Html :=
-  summaryCard label value status? summaryCardWarnClass
+def summaryWarnCard (label value : String) (status? : Option String := Option.none)
+    (accent? : Option StatusColors.ColorToken := Option.none) : Output.Html :=
+  summaryCard label value status? summaryCardWarnClass accent?
 
 def summaryOptionalWarnCard (visible : Bool) (label value : String)
-    (status? : Option String := Option.none) : Output.Html :=
+    (status? : Option String := Option.none)
+    (accent? : Option StatusColors.ColorToken := Option.none) : Output.Html :=
   if visible then
-    summaryWarnCard label value status?
+    summaryWarnCard label value status? accent?
   else
     .empty
 

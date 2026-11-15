@@ -13,6 +13,7 @@ import Lean.Elab.InfoTree.Types
 
 import VersoManual
 
+import VersoBlueprint.Axioms
 import VersoBlueprint.Data
 import VersoBlueprint.ProvedStatus
 import VersoBlueprint.Process
@@ -31,6 +32,7 @@ import VersoBlueprint.Cite
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Summary
+import VersoBlueprint.Commands.WorkQueue
 import VersoBlueprint.Commands.Bibliography
 import VersoBlueprint.Informal.Block.Assets
 import VersoBlueprint.Informal.Block.Config
@@ -38,6 +40,7 @@ import VersoBlueprint.Informal.Code
 import VersoBlueprint.Informal.RustBlock
 import VersoBlueprint.Informal.Block
 import VersoBlueprint.Informal.Block.RelatedPanel
+import VersoBlueprint.Informal.Block.Runs
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Informal.Block.Traversal
 import VersoBlueprint.Informal.MetadataView
@@ -57,6 +60,7 @@ import VersoBlueprint.Graft
 import VersoBlueprint.ModuleInclude
 import VersoBlueprint.Resolve
 import VersoBlueprint.TraversalIndex
+import VersoBlueprint.Sidebar
 import VersoBlueprint.StyleSwitcher
 import VersoBlueprint.Profiling
 

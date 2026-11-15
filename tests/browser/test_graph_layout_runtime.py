@@ -192,6 +192,29 @@ def preview_node_by_label(page: Page, label: str):
 
 
 class TestGraphLayoutRuntime:
+    def test_graph_draws_without_the_network(self, server: str, page: Page):
+        """The graph's libraries come with the site (`-verso-data/vendor/`): with every request
+        outside the site's server refused, the page still draws its nodes and never asks the
+        network for D3 or d3-graphviz. (Other remote assets of the page, such as the Markdown
+        renderer Verso's page template loads, are Verso's.)"""
+        outside: list[str] = []
+
+        def refuse_outside(route):
+            url = route.request.url
+            if url.startswith(server) or url.startswith(("data:", "blob:")):
+                route.continue_()
+            else:
+                outside.append(url)
+                route.abort("internetdisconnected")
+
+        page.context.route("**/*", refuse_outside)
+        try:
+            goto_graph_page(page, f"{server}/Dependency-Graph/")
+            first_preview_node(page)
+        finally:
+            page.context.unroute("**/*", refuse_outside)
+        assert [url for url in outside if "d3" in url or "graphviz" in url] == []
+
     def test_public_graph_api_exposes_rendered_page_and_manifest_data(self, server: str, page: Page):
         page.set_viewport_size({"width": 1400, "height": 900})
         goto_graph_page(page, f"{server}/Dependency-Graph/")
@@ -844,12 +867,12 @@ class TestGraphLayoutRuntime:
         page.go_back()
         wait_for_graph(page)
         panel = page.locator(".bp_graph_preview").first
-        node = preview_node_by_label(page, "used_target")
-        node.click()
+        # the page URL names the node view the click opened, so going back opens it again
         page.wait_for_function(
             """() => {
                 const panel = document.querySelector(".bp_graph_preview");
-                return !!panel && !panel.hidden && panel.getAttribute("data-bp-preview-mode") === "pinned";
+                return !!panel && !panel.hidden && panel.getAttribute("data-bp-preview-mode") === "pinned" &&
+                    !!panel.querySelector('.bp_node_view[data-bp-node-view="used_target"]');
             }"""
         )
 
@@ -1187,4 +1210,59 @@ class TestGraphLayoutRuntime:
                 return select.value === "full" && Math.abs(canvas.getBoundingClientRect().height - desiredHeight) < 3;
             }""",
             arg=desired_height,
+        )
+
+    def test_narrow_graph_starts_readable_and_nodes_take_clicks(self, server: str, page: Page):
+        # In a narrow window the fitted graph shrinks below a readable size; it then starts at the
+        # minimum readable scale with its roots in view, and a click whose pointer moves a few pixels
+        # (a trackpad click) still reaches the node instead of becoming a pan.
+        page.set_viewport_size({"width": 360, "height": 640})
+        goto_graph_page(page, f"{server}/Dependency-Graph/")
+        wait_for_rendered_variant(page, "full")
+        page.wait_for_timeout(300)
+        metrics = page.evaluate(
+            """() => {
+                const svg = document.querySelector(".bp_graph_canvas svg");
+                const graph = svg.querySelector("g.graph") || svg.querySelector("g");
+                const scale = svg.getScreenCTM().a * window.d3.zoomTransform(svg).k;
+                const canvas = document.querySelector(".bp_graph_canvas").getBoundingClientRect();
+                const visible = [...graph.querySelectorAll("g.node")].filter((n) => {
+                    const r = n.getBoundingClientRect();
+                    return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom;
+                }).length;
+                const vb = svg.viewBox.baseVal;
+                const fit = Math.min(canvas.width / vb.width, canvas.height / vb.height);
+                return { scale, fit, visible, canvasHeight: canvas.height, viewport: window.innerHeight };
+            }"""
+        )
+        assert metrics["scale"] >= 0.5 - 0.01, metrics
+        assert metrics["visible"] > 0, metrics
+        assert metrics["canvasHeight"] >= 0.6 * metrics["viewport"] - 2, metrics
+        assert_graph_has_zoom_handlers(page)
+        target = None
+        # the part of the canvas inside the window
+        canvas = page.locator(".bp_graph_canvas").first.bounding_box()
+        assert canvas is not None
+        view = page.viewport_size
+        left, top = max(canvas["x"], 0), max(canvas["y"], 0)
+        right = min(canvas["x"] + canvas["width"], view["width"])
+        bottom = min(canvas["y"] + canvas["height"], view["height"])
+        for candidate in page.locator(".bp_graph_canvas svg g.node[tabindex='0']").all():
+            box = candidate.bounding_box()
+            if box and box["x"] > left and box["x"] + box["width"] < right \
+                    and box["y"] > top and box["y"] + box["height"] < bottom:
+                target = box
+                break
+        assert target is not None, "no node fully inside the visible canvas"
+        x = target["x"] + target["width"] / 2
+        y = target["y"] + target["height"] / 2
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 3, y + 2, steps=2)
+        page.mouse.up()
+        page.wait_for_function(
+            """() => {
+                const panel = document.querySelector(".bp_graph_preview");
+                return !!panel && !panel.hidden;
+            }"""
         )

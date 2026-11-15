@@ -328,6 +328,8 @@ structure LiterateDef where
   commandIndex : Nat := 0
   commandLines : Nat := 1
   provedStatus : ProvedStatus := .incomplete {}
+  /-- The axioms the declaration depends on, sorted by name. -/
+  axioms : Array Name := #[]
   typeSorryRefs : Array Syntax := #[]
 deriving Repr, Inhabited
 
@@ -545,6 +547,11 @@ structure ExternalRef where
   Snapshot of proof/completeness status at registration time.
   -/
   provedStatus : ProvedStatus := .incomplete {}
+  /--
+  Snapshot of the axioms the declaration depends on, sorted by name (empty when it is
+  not present).
+  -/
+  axioms : Array Name := #[]
   /--
   Snapshot of declaration provenance metadata.
   -/

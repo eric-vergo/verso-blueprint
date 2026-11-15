@@ -8,6 +8,7 @@ import Verso.Output.Html
 import VersoBlueprint.Informal.Block.RelatedPanel
 import VersoBlueprint.Informal.Block.Render
 import VersoBlueprint.Informal.CodeSummary
+import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.PreviewManifest
 import VersoBlueprint.PreviewManifest.RelatedPanel
 
@@ -184,6 +185,7 @@ def renderWithRenderedContent
         title.label
         (statementCaption? := some title.caption)
         (proofCaption? := some entry.title)
+        (attrs := LeanSourceAnchor.rootAttrs ((entry.codeData.map (·.externalDecls)).getD #[]))
         (titleRowAttrs? := cfg.titleRowAttrs? entry)
         (headerExtras := renderHeaderExtras cfg.relationPanels entry blockData group?)
         (sourceRefs := entry.sources)

@@ -10,6 +10,7 @@ import VersoBlueprint.Lib.HtmlId
 import VersoBlueprint.Lib.PreviewKey
 import VersoBlueprint.PreviewCache
 import VersoBlueprint.CodeHealth
+import VersoBlueprint.StatusColors
 
 namespace Informal.Graph
 
@@ -64,6 +65,30 @@ structure WarningFlags where
   missingExternalDecl : Bool := false
 deriving Inhabited, Repr, DecidableEq, ToJson, FromJson, Quote
 
+/-- SVG class of a node's proof status, which picks its fill and label colour tokens. -/
+def proofStatusClass (kind : Data.NodeKind) : ProofStatus → String
+  | .none => if kind.isTheoremLike then "bp_graph_status_not_ready" else "bp_graph_status_definition"
+  | .ready => "bp_graph_status_ready"
+  | .incomplete => "bp_graph_status_incomplete"
+  | .formalized => "bp_graph_status_formalized"
+  | .formalizedWithAncestors => "bp_graph_status_formalized_with_ancestors"
+
+/-- SVG class of a node's statement status, which picks its border colour token. -/
+def statementStatusClass : StatementStatus → String
+  | .blocked => "bp_graph_statement_blocked"
+  | .ready => "bp_graph_statement_ready"
+  | .formalized => "bp_graph_statement_formalized"
+  | .mathlib => "bp_graph_statement_mathlib"
+
+/-- SVG class of a placeholder node for an unknown reference. -/
+def unresolvedClass : String := "bp_graph_status_unresolved"
+
+/-- The SVG classes of a status node (see `GraphNode.svgClass`). -/
+def nodeStatusClasses (kind : Data.NodeKind) (statement : StatementStatus) (proof : ProofStatus)
+    (warnings : WarningFlags) : String :=
+  if warnings.unknownRef then unresolvedClass
+  else s!"{proofStatusClass kind proof} {statementStatusClass statement}"
+
 structure GraphNode (Ref : Type) where
   label : Name
   displayLabel? : Option String := none
@@ -75,11 +100,17 @@ structure GraphNode (Ref : Type) where
   fillcolor : String
   color : String := "#6b7280"
   penwidth : String := "1.8"
-  fontcolor : String := "#111827"
+  fontcolor : String := StatusColors.fillText.light
   peripheries : Nat := 1
   gradientangle? : Option String := none
   tooltip? : Option String := none
   ref? : Option Ref := none
+  /--
+  Space-separated classes Graphviz writes onto the node's SVG group. The graph stylesheet
+  repaints status nodes from the status colour tokens by these classes, so the colours above
+  only matter where no stylesheet applies.
+  -/
+  svgClass : String := ""
 deriving Inhabited, Repr, ToJson, FromJson
 
 instance [Quote Ref] : Quote (GraphNode Ref) where
@@ -87,7 +118,7 @@ instance [Quote Ref] : Quote (GraphNode Ref) where
     #[
       quote n.label, quote n.displayLabel?, quote n.deps, quote n.proofDeps, quote n.parent?, quote n.shape,
       quote n.style, quote n.fillcolor, quote n.color, quote n.penwidth, quote n.fontcolor, quote n.peripheries,
-      quote n.gradientangle?, quote n.tooltip?, quote n.ref?
+      quote n.gradientangle?, quote n.tooltip?, quote n.ref?, quote n.svgClass
     ]
 
 abbrev Graph (Ref : Type) := Array (GraphNode Ref)
@@ -211,7 +242,7 @@ structure NodeVisual where
   fillcolor : String
   color : String := "#6b7280"
   penwidth : String := "1.8"
-  fontcolor : String := "#111827"
+  fontcolor : String := StatusColors.fillText.light
   peripheries : Nat := 1
   gradientangle? : Option String := none
   tooltip? : Option String := none
@@ -371,6 +402,10 @@ private def NodeData.toGraphNode (node : NodeData) : GraphNode String :=
     gradientangle? := node.visual.gradientangle?
     tooltip? := node.visual.tooltip?
     ref? := node.href
+    svgClass :=
+      match node.kind with
+      | some kind => nodeStatusClasses kind node.statementStatus node.proofStatus node.warnings
+      | none => if node.warnings.unknownRef then unresolvedClass else ""
   }
 
 /-- Build render topology exclusively from the authoritative node fields. -/
@@ -387,9 +422,11 @@ def GraphData.toModel (data : GraphData) : GraphModel := {
   }
 }
 
+/-- A legend sample. Colours are CSS values; status colours are token references with the light
+value as fallback, so a swatch follows the page theme and still shows where no token is defined. -/
 structure LegendSwatch where
-  background : String := "#ffffff"
-  borderColor : String := "#6b7280"
+  background : String := StatusColors.definition.cssVarOr
+  borderColor : String := "var(--bp-color-graph-edge, #6b7280)"
   borderWidth : Nat := 1
   borderStyle : String := "solid"
   borderRadius : String := "0.2rem"
@@ -416,22 +453,24 @@ def LegendSwatch.inlineStyle (swatch : LegendSwatch) : String :=
     s!"border-radius: {swatch.borderRadius}"
   ]
 
-def statementBorderBlockedColor : String := "#f59e0b"
-def statementBorderReadyColor : String := "#2563eb"
-def statementBorderFormalizedColor : String := "#16a34a"
-def statementBorderMathlibColor : String := "#14532d"
+/-! The light values of the status colour tokens, which DOT sources carry. -/
 
-def proofBackgroundNeutralColor : String := "#f8fafc"
-def proofBackgroundReadyColor : String := "#dbeafe"
-def proofBackgroundIncompleteColor : String := "#fef3c7"
-def proofBackgroundFormalizedColor : String := "#dcfce7"
-def proofBackgroundFormalizedAncColor : String := "#166534"
+def statementBorderBlockedColor : String := StatusColors.blockedBorder.light
+def statementBorderReadyColor : String := StatusColors.readyBorder.light
+def statementBorderFormalizedColor : String := StatusColors.formalizedBorder.light
+def statementBorderMathlibColor : String := StatusColors.mathlibBorder.light
 
-def definitionBackgroundColor : String := "#ffffff"
+def proofBackgroundNeutralColor : String := StatusColors.notReady.light
+def proofBackgroundReadyColor : String := StatusColors.ready.light
+def proofBackgroundIncompleteColor : String := StatusColors.incomplete.light
+def proofBackgroundFormalizedColor : String := StatusColors.formalized.light
+def proofBackgroundFormalizedAncColor : String := StatusColors.formalizedWithAncestors.light
 
-def unresolvedFillColor : String := "#fee2e2"
-def unresolvedBorderColor : String := "#b91c1c"
-def unresolvedFontColor : String := "#7f1d1d"
+def definitionBackgroundColor : String := StatusColors.definition.light
+
+def unresolvedFillColor : String := StatusColors.unresolved.light
+def unresolvedBorderColor : String := StatusColors.unresolvedBorder.light
+def unresolvedFontColor : String := StatusColors.unresolvedText.light
 
 def statementStatusBlockedText : String := "blocked"
 def statementStatusReadyText : String := "ready to formalize"
@@ -458,13 +497,13 @@ private def legendItem (label : String) (swatch? : Option LegendSwatch := none) 
 def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
   let statementItems :=
     #[
-      legendItem "Blocked" (some { borderColor := statementBorderBlockedColor }),
-      legendItem "Ready to formalize" (some { borderColor := statementBorderReadyColor }),
-      legendItem "Formalized" (some { borderColor := statementBorderFormalizedColor })
+      legendItem "Blocked" (some { borderColor := StatusColors.blockedBorder.cssVarOr }),
+      legendItem "Ready to formalize" (some { borderColor := StatusColors.readyBorder.cssVarOr }),
+      legendItem "Formalized" (some { borderColor := StatusColors.formalizedBorder.cssVarOr })
     ]
   let statementItems :=
     if includeMathlib then
-      statementItems.push (legendItem "In Mathlib" (some { borderColor := statementBorderMathlibColor }))
+      statementItems.push (legendItem "In Mathlib" (some { borderColor := StatusColors.mathlibBorder.cssVarOr }))
     else
       statementItems
   #[
@@ -488,12 +527,15 @@ def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
       title := "Proof Status"
       summary? := some "Fill color tracks proof readiness independently from statement progress."
       items := #[
-        legendItem proofStatusNoneText (some { background := proofBackgroundNeutralColor }),
-        legendItem proofStatusReadyText (some { background := proofBackgroundReadyColor }),
-        legendItem proofStatusIncompleteText (some { background := proofBackgroundIncompleteColor }),
-        legendItem proofStatusFormalizedText (some { background := proofBackgroundFormalizedColor }),
+        legendItem proofStatusNoneText (some { background := StatusColors.notReady.cssVarOr }),
+        legendItem proofStatusReadyText (some { background := StatusColors.ready.cssVarOr }),
+        legendItem proofStatusIncompleteText (some { background := StatusColors.incomplete.cssVarOr }),
+        legendItem proofStatusFormalizedText (some { background := StatusColors.formalized.cssVarOr }),
         legendItem proofStatusFormalizedAncestorsText
-          (some { background := proofBackgroundFormalizedAncColor, borderColor := statementBorderMathlibColor })
+          (some {
+            background := StatusColors.formalizedWithAncestors.cssVarOr
+            borderColor := StatusColors.mathlibBorder.cssVarOr
+          })
       ]
     },
     {
@@ -502,15 +544,16 @@ def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
       summary? := some "Border treatments flag missing references, missing declarations, or Lean-only nodes without an informal statement."
       items := #[
         legendItem "Unknown reference"
-          (some { background := unresolvedFillColor, borderColor := unresolvedBorderColor }),
+          (some {
+            background := StatusColors.unresolved.cssVarOr
+            borderColor := StatusColors.unresolvedBorder.cssVarOr
+          }),
         legendItem "Lean code, informal statement missing"
           (some {
-            background := definitionBackgroundColor
             borderStyle := "dashed"
           }),
         legendItem "Missing external Lean declaration"
           (some {
-            background := definitionBackgroundColor
             borderStyle := "dotted"
           })
       ]
@@ -690,8 +733,41 @@ def proofStatusFillColor (kind : Data.NodeKind) : ProofStatus → String
   | .formalizedWithAncestors => proofBackgroundFormalizedAncColor
 
 def proofStatusFontColor : ProofStatus → String
-  | .formalizedWithAncestors => "#ffffff"
-  | _ => "#111827"
+  | .formalizedWithAncestors => StatusColors.formalizedWithAncestorsText.light
+  | _ => StatusColors.fillText.light
+
+private def graphFillRules : List (String × StatusColors.ColorToken × StatusColors.ColorToken) := [
+  (proofStatusClass .definition .none, StatusColors.definition, StatusColors.fillText),
+  (proofStatusClass .theorem .none, StatusColors.notReady, StatusColors.fillText),
+  (proofStatusClass .theorem .ready, StatusColors.ready, StatusColors.fillText),
+  (proofStatusClass .theorem .incomplete, StatusColors.incomplete, StatusColors.fillText),
+  (proofStatusClass .theorem .formalized, StatusColors.formalized, StatusColors.fillText),
+  (proofStatusClass .theorem .formalizedWithAncestors, StatusColors.formalizedWithAncestors,
+    StatusColors.formalizedWithAncestorsText),
+  (unresolvedClass, StatusColors.unresolved, StatusColors.unresolvedText)
+]
+
+private def graphBorderRules : List (String × StatusColors.ColorToken) := [
+  (statementStatusClass .blocked, StatusColors.blockedBorder),
+  (statementStatusClass .ready, StatusColors.readyBorder),
+  (statementStatusClass .formalized, StatusColors.formalizedBorder),
+  (statementStatusClass .mathlib, StatusColors.mathlibBorder),
+  (unresolvedClass, StatusColors.unresolvedBorder)
+]
+
+/--
+Stylesheet rules that paint graph nodes from the status colour tokens by their SVG classes.
+Graphviz writes the light colours into the SVG; these rules override them in either theme.
+-/
+def graphStatusCss : String :=
+  let node (cls : String) := s!".bp_graph_canvas svg g.node.{cls}"
+  let fills := graphFillRules.map fun (cls, fill, text) =>
+    s!"{node cls} :is(ellipse, polygon, path) \{ fill: {fill.cssVar}; }\n" ++
+      s!"{node cls} text \{ fill: {text.cssVar}; }\n"
+  let borders := graphBorderRules.map fun (cls, border) =>
+    s!"{node cls} :is(ellipse, polygon, path) \{ stroke: {border.cssVar}; }\n"
+  "\n/* Status colours of graph nodes, from the status tokens. */\n" ++
+    String.join fills ++ String.join borders
 
 def kindShape (kind : Data.NodeKind) : String :=
   if kind.isTheoremLike then "ellipse" else "box"
@@ -741,6 +817,7 @@ def mkStyledNode (kind : Data.NodeKind) (label : Name) (deps proofDeps : Array N
       gradientangle? := none
       tooltip? := some s!"Unknown reference: {label}"
       ref?
+      svgClass := unresolvedClass
     }
   else
     let shape := kindShape kind
@@ -766,6 +843,7 @@ def mkStyledNode (kind : Data.NodeKind) (label : Name) (deps proofDeps : Array N
       gradientangle? := none
       tooltip?
       ref?
+      svgClass := nodeStatusClasses kind statement proof warnings
     }
 
 def expandLabels (state : Environment.State) (roots : Array Name) : Array Name :=
@@ -1114,6 +1192,9 @@ def Graph.toDot (g : Graph Ref) (header : String)
             s!"fontcolor=\"{escapeDotString node.fontcolor}\"",
             s!"peripheries={node.peripheries}"
           ]
+          let base :=
+            if node.svgClass.isEmpty then base
+            else base.push s!"class=\"{escapeDotString node.svgClass}\""
           let base :=
             match node.gradientangle? with
             | some gradientangle => base.push s!"gradientangle={gradientangle}"

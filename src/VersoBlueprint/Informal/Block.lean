@@ -15,6 +15,7 @@ import VersoManual
 
 import VersoBlueprint.Commands.Common
 import VersoBlueprint.Data
+import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Environment
 import VersoBlueprint.Informal.Block.Assets
 import VersoBlueprint.Informal.Block.Common
@@ -26,6 +27,7 @@ import VersoBlueprint.Informal.Block.Traversal
 import VersoBlueprint.Informal.CodeSummary
 import VersoBlueprint.Informal.ExternalCode
 import VersoBlueprint.Informal.ExternalMarkupRender
+import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Resolve
 import VersoBlueprint.RenderingResolution
@@ -86,9 +88,17 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           match selectedMarkupAndContent? with
           | some (selectedMarkup, _) => Informal.ExternalMarkupRender.sourceBackedAttrs selectedMarkup
           | none => #[]
-        let attrs := s.htmlId id ++ sourceBackedAttrs
         let codeHint? := data.codeData
         let externalDecls := codeHint?.map (·.externalDecls) |>.getD #[]
+        -- Side-by-side layout: statements with Lean declarations become two-column nodes.
+        let sideBySide ← (DeclarationSource.enabled : IO Bool)
+        let sideBySideAttrs : Array (String × String) :=
+          if sideBySide then
+            #[("data-bp-node", data.label.toString),
+              ("data-bp-facet", if data.isProof then "proof" else "statement")]
+          else #[]
+        let attrs := s.htmlId id ++ sourceBackedAttrs ++ LeanSourceAnchor.rootAttrs externalDecls ++
+          sideBySideAttrs
         let getDeclHref (decl : Name) : Option String :=
           Resolve.resolveInformalDeclHref? s data.label decl
         let getDeclAnchorAttrs (decl : Data.ExternalRef) : Array (String × String) :=
@@ -101,8 +111,13 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
             } getDeclHref
           | true => none
+        let formalColumn? : Option Output.Html ←
+          if sideBySide && !data.isProof && !externalDecls.isEmpty then
+            some <$> ExternalCode.renderDeclarationSourceColumn externalDecls getDeclHref getDeclAnchorAttrs
+          else
+            pure none
         let externalPanel : Output.Html ← do
-          if externalDecls.isEmpty then
+          if externalDecls.isEmpty || formalColumn?.isSome then
             pure .empty
           else
             let externalCdata : CodeSummary.ComputedData := {
@@ -138,9 +153,16 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
             (proofCaption? := some (data.displayTitle s))
             (attrs := attrs)
             (headerExtras := headerExtras)
-            (folded := data.foldInformalShell)
+            (folded := data.foldInformalShell || (sideBySide && data.isProof))
+            (titleSuffix :=
+              if sideBySide && !data.isProof then
+                renderStatusGlyph (headingParts?.bind (·.statusMark))
+              else .empty)
           content
           companionPanels := #[externalPanel]
+          formalColumn?
+          -- statements without Lean declarations get the same card (one column)
+          sideBySideNode := sideBySide && !data.isProof
         }
 
 /- Informal custom blocks -/

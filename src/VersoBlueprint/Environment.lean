@@ -304,6 +304,26 @@ initialize informalExt : PersistentEnvExtension Entry Empty State ←
         (nodeEntries ++ attributeLabelEntries ++ groupEntries ++ authorEntries)
   }
 
+/--
+The Blueprint entries the current module of `env` exports, as its `.olean` stores them
+(non-module files store the `private` level).
+-/
+def localEntries (env : Lean.Environment) : Array Entry :=
+  (informalExt.exportEntriesFn env (informalExt.getState env)).private
+
+/--
+The Blueprint state an import of `env`'s modules computes when the entries of the modules in
+`replacements` are replaced by the given ones. Used to rebuild the state after a module was
+elaborated again without writing its `.olean`.
+-/
+def stateReplacingModules (env : Lean.Environment) (opts : Lean.Options)
+    (replacements : Lean.NameMap (Array Entry)) : IO State := do
+  let entries := env.header.moduleNames.mapIdx fun idx moduleName =>
+    match replacements.find? moduleName with
+    | some replacement => replacement
+    | none => informalExt.getModuleEntries env idx (level := .private)
+  (informalExt.addImportedFn entries).run { env, opts }
+
 section EnvOps
 
 variable [Monad m] [MonadEnv m] [MonadLog m] [AddMessageContext m] [MonadOptions m]

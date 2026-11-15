@@ -255,6 +255,17 @@ private def highlightedToHtml (h : SubVerso.Highlighting.Highlighted) :
     ExternalDeclHighlightRender ExternalDeclHtml :=
   runHighlightedHtml (h.toHtml (g := Verso.Genre.Manual))
 
+/--
+Render several pieces of highlighted code into one compact template that shares
+one hover table, then assemble them into HTML. Callers turn the template into
+page HTML the same way as external declaration snippets.
+-/
+def renderHighlightedTemplate (parts : Array SubVerso.Highlighting.Highlighted)
+    (assemble : Array ExternalDeclHtml → ExternalDeclHtml) : ExternalDeclRenderedHtml :=
+  renderWithHoverPayloads do
+    let htmls ← parts.mapM highlightedToHtml
+    pure (assemble htmls)
+
 private def renderExternalDeclSignatureVariant
     (keywordText : String) (signature : SubVerso.Highlighting.Highlighted) :
     ExternalDeclHighlightRender ExternalDeclHtml :=
@@ -395,7 +406,8 @@ private def renderExternalDeclWrapper
     (signature : ExternalDeclHtml) (body : ExternalDeclHtml)
     (headerBadge? : Option ExternalDeclHeaderBadge := none)
     (headerMeta : Array String := #[])
-    (headerSource? : Option ExternalDeclHeaderSource := none) : ExternalDeclHtml :=
+    (headerSource? : Option ExternalDeclHeaderSource := none)
+    (headerLinks : ExternalDeclHtml := .empty) : ExternalDeclHtml :=
   open Verso.Output.Html in
   let headerMetaHtml : ExternalDeclHtml :=
     if headerMeta.isEmpty then
@@ -424,6 +436,7 @@ private def renderExternalDeclWrapper
           <span class="bp_external_decl_kind">{{.text true kindMarker}}</span>
           {{headerMetaHtml}}
           {{headerSourceHtml}}
+          {{headerLinks}}
         </div>
         <div class="bp_external_decl_kicker_status">
           {{if let some badge := headerBadge? then
@@ -660,5 +673,81 @@ def renderDeclHtmlNodeDirect? (decl : Name) : MetaM (Option ExternalDeclHtml) :=
   catch ex =>
     logError m!"External declaration rendering failed for {decl}: {← ex.toMessageData.toString}"
     return none
+
+/--
+Render a declaration from text alone: its printed signature, its docstring and, when known, its
+source text. Generators that have no Lean environment, such as a site generated from data a tool
+read out of a project's build, use it; the markup is the one `renderDeclHtmlDirectFromInfoE`
+produces, without hovers. `kindMarker` is the declaration's keyword (`theorem`, `def`, …).
+-/
+def renderPlainDecl (decl : Name) (kindMarker signature : String) (doc? : Option String)
+    (source? : Option String := none)
+    (headerSource? : Option ExternalDeclHeaderSource := none) : ExternalDeclRenderedHtml :=
+  open Verso.Output.Html in
+  let signatureHtml : ExternalDeclHtml := {{
+    <div class="bp_external_decl_signature_wrap">
+      <pre class="signature hl lean block bp_plain_signature">{{.text true signature}}</pre>
+    </div>
+  }}
+  let sourceHtml : ExternalDeclHtml := match source? with
+    | some src => {{
+        <details class="bp_plain_decl_source">
+          <summary>"Source"</summary>
+          <pre class="hl lean block">{{.text true src}}</pre>
+        </details>
+      }}
+    | none => .empty
+  let body : ExternalDeclHtml := {{ {{docsHtml (plainDocstringHtml doc?)}} {{sourceHtml}} }}
+  let html := renderExternalDeclWrapper decl kindMarker kindMarker signatureHtml body
+    (headerSource? := headerSource?)
+  { html := html.asString, hoverPayloads := #[] }
+
+/-- A link in a declaration's header (`renderCodeDecl`). -/
+structure ExternalDeclHeaderLink where
+  text : String
+  href : String
+  className : String
+  title? : Option String := none
+
+/--
+Render a declaration from code highlighted without an environment: its signature and, when
+known, its source as SubVerso `Highlighted` code (for example from a lexer and the constant
+positions a module's `.ilean` file records), its docstring as rendered HTML, and links for the
+header. The markup is `renderPlainDecl`'s; the highlighted code carries its tokens' classes and
+hovers, which the page renderer registers like those of any other external declaration.
+-/
+def renderCodeDecl (decl : Name) (kindMarker : String)
+    (signature : SubVerso.Highlighting.Highlighted) (docHtml? : Option String)
+    (source? : Option SubVerso.Highlighting.Highlighted := none)
+    (headerSource? : Option ExternalDeclHeaderSource := none)
+    (links : Array ExternalDeclHeaderLink := #[]) : ExternalDeclRenderedHtml :=
+  open Verso.Output.Html in
+  renderWithHoverPayloads do
+    let sigHtml ← highlightedToHtml signature
+    let signatureHtml : ExternalDeclHtml := {{
+      <div class="bp_external_decl_signature_wrap">
+        <pre class="signature hl lean block bp_plain_signature">{{sigHtml}}</pre>
+      </div>
+    }}
+    let sourceHtml : ExternalDeclHtml ← match source? with
+      | some src => do
+        let srcHtml ← highlightedToHtml src
+        pure {{
+          <details class="bp_plain_decl_source">
+            <summary>"Source"</summary>
+            <pre class="hl lean block">{{srcHtml}}</pre>
+          </details>
+        }}
+      | none => pure .empty
+    let docHtml : ExternalDeclHtml := match docHtml? with
+      | some html => {{<div class="docs"><div class="docstring">{{.text false html}}</div></div>}}
+      | none => .empty
+    let linkHtml : Array ExternalDeclHtml := links.map fun l =>
+      .tag "a" (#[("class", l.className), ("href", l.href)] ++
+        (l.title?.map fun t => #[("title", t)]).getD #[]) (.text true l.text)
+    let headerLinks : ExternalDeclHtml := if links.isEmpty then .empty else
+      .tag "span" #[("class", "bp_external_decl_links")] (.seq linkHtml)
+    pure <| renderExternalDeclWrapper decl kindMarker kindMarker signatureHtml
+      {{ {{docHtml}} {{sourceHtml}} }} (headerSource? := headerSource?) (headerLinks := headerLinks)
 
 end Informal

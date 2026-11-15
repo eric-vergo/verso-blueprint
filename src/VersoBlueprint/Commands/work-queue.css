@@ -1,0 +1,98 @@
+.bp_work_queue {
+  max-width: 52rem;
+}
+
+.bp_work_queue_section + .bp_work_queue_section {
+  margin-top: 1.6rem;
+}
+
+.bp_work_queue_title {
+  font-size: 1.1rem;
+  margin: 0 0 0.6rem;
+}
+
+.bp_work_queue_list {
+  margin: 0;
+  padding-left: 1.6rem;
+}
+
+.bp_work_queue_item {
+  padding: 0.45rem 0.55rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--bp-color-border-soft);
+  border-left-width: 3px;
+  border-radius: var(--bp-radius-sm);
+  background: var(--bp-color-surface);
+}
+
+.bp_work_queue_ready {
+  border-left-color: var(--bp-color-accent-success);
+}
+
+.bp_work_queue_incomplete {
+  border-left-color: var(--bp-color-accent-warning);
+}
+
+.bp_work_queue_head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem 0.8rem;
+}
+
+.bp_work_queue_head > a {
+  color: var(--bp-color-link, #1d4ed8);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.bp_work_queue_head > a:hover {
+  text-decoration: underline;
+}
+
+.bp_work_queue_stage,
+.bp_work_queue_needs {
+  font-family: var(--verso-structure-font-family, sans-serif);
+}
+
+.bp_work_queue_stage {
+  font-size: 0.8rem;
+  color: var(--bp-color-text-faint);
+}
+
+/* The node's statement, shortened to about three lines with a fade. */
+.bp_work_queue_statement {
+  max-height: 4.6em;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--bp-color-text-subtle);
+  /* Opaque for the first three lines; only a cut-off fourth line fades. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 3.1em, transparent 4.6em);
+  mask-image: linear-gradient(to bottom, #000 3.1em, transparent 4.6em);
+}
+
+.bp_work_queue_statement p {
+  margin: 0 0 0.3rem;
+  line-height: inherit;
+}
+
+.bp_work_queue_statement .katex-display {
+  margin: 0.2rem 0;
+}
+
+.bp_work_queue_needs {
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--bp-color-text-subtle);
+}
+
+.bp_work_queue_needs_key {
+  font-weight: 600;
+}
+
+.bp_work_queue_empty {
+  color: var(--bp-color-text-faint);
+}

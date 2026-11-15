@@ -1,0 +1,615 @@
+/* Side-by-side node layout: informal statement and proof on the left, the
+   highlighted Lean source of the node's declarations on the right. The grid is
+   the default whenever a page contains side-by-side nodes; another explicit
+   style from the style switcher stacks the columns. */
+html:has(.bp_sbs),
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) {
+  --verso-content-max-width: var(--bp-sbs-content-max-width, 92rem);
+}
+
+/* Typography of the side-by-side style, active on sites that make it their
+   default style unless the reader picks another style: one serif text face for
+   reading text (chapter prose, node headings, statements and proofs), the KaTeX
+   text face by default so that prose and formulas match; Verso's structure face
+   for navigation and controls; one monospace face for code. Italics are left to
+   emphasis and the "Proof" caption, so theorem statements are upright. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) {
+  --verso-text-font-family: var(--bp-sbs-text-font-family,
+    KaTeX_Main, "Latin Modern Roman", "CMU Serif", "Times New Roman", serif);
+  --verso-code-font-family: var(--bp-sbs-code-font-family,
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
+  --bp-sbs-text-size: 1.0625rem;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main {
+  font-family: var(--verso-structure-font-family);
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) {
+  font-family: var(--verso-text-font-family);
+  font-size: var(--bp-sbs-text-size);
+}
+
+/* Every page of a side-by-side site uses the wide content area (so the page
+   navigation stays in place from page to page); running text keeps a readable
+   measure. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol) {
+  max-width: var(--bp-sbs-measure, 48rem);
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
+  font-size: inherit;
+  line-height: 1.5;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main :is(h1, h2, h3, h4) {
+  font-family: var(--verso-text-font-family);
+}
+
+/* With the text set in the KaTeX face, formulas use the text size. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) main .katex {
+  font-size: 1.04em;
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) .bp_wrapper.bp_style_plain .bp_content {
+  font-style: normal;
+}
+
+/* Inline code in reading text matches the text's x-height. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper p, .bp_wrapper li) code:not(.block) {
+  font-size: 0.86em;
+}
+
+/* Links in reading text use the theme's link colour. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, .bp_wrapper p, .bp_wrapper li) a {
+  color: var(--bp-color-link, #1d4ed8);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+/* The look of the side-by-side layout. Each value is a custom property, so a
+   site can retune it with one declaration on `:root`. */
+:root {
+  /* space between the two columns */
+  --bp-sbs-column-gap: 2.25rem;
+  /* the column divider: a hairline in the page's soft border colour */
+  --bp-sbs-divider-width: 1px;
+  --bp-sbs-divider-color: var(--bp-color-border-soft);
+  /* space between the nodes of a run, and around a run */
+  --bp-sbs-node-gap: 2rem;
+  --bp-sbs-run-margin: 1.5rem;
+  /* the node a link landed on */
+  --bp-sbs-target-surface: var(--bp-color-focus-surface);
+  --bp-sbs-target-bleed: 0.75rem;
+  /* the proof toggle: the longest an opening or closing takes, and its easing */
+  --bp-sbs-proof-duration: 200ms;
+  --bp-sbs-proof-easing: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.bp_sbs {
+  container-type: inline-size;
+  margin: 1.1rem 0 1.35rem;
+}
+
+/* A run: consecutive nodes (and their proofs) of a page, spaced as one unit. */
+.bp_sbs_run {
+  margin: var(--bp-sbs-run-margin) 0;
+}
+
+.bp_sbs_run > .bp_sbs {
+  margin: 0;
+}
+
+.bp_sbs_grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  column-gap: var(--bp-sbs-column-gap);
+  /* The node title and the first line of Lean code share a baseline. */
+  align-items: first baseline;
+}
+
+/* Nodes of the page have no card: the space of a run is padding inside each
+   node, so that the dividers of consecutive nodes meet and read as one line
+   through the run. Prose (or anything else that is not a node) ends a run and
+   its line. */
+.bp_sbs_run > .bp_sbs > .bp_sbs_grid {
+  position: relative;
+  padding-block: calc(var(--bp-sbs-node-gap) / 2);
+}
+
+.bp_sbs_run > .bp_sbs:first-child > .bp_sbs_grid {
+  padding-top: 0;
+}
+
+.bp_sbs_run > .bp_sbs:last-child > .bp_sbs_grid {
+  padding-bottom: 0;
+}
+
+/* The divider sits in the middle of the column gap. The informal column takes
+   0.92 of the 2 fractions left after the gap. */
+.bp_sbs_run > .bp_sbs:not(.bp_sbs_single) > .bp_sbs_grid::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc((100% - var(--bp-sbs-column-gap)) * 0.46 + var(--bp-sbs-column-gap) / 2);
+  width: var(--bp-sbs-divider-width);
+  margin-left: calc(var(--bp-sbs-divider-width) / -2);
+  background: var(--bp-sbs-divider-color);
+  pointer-events: none;
+}
+
+/* A statement without Lean declarations: one full-width column. */
+.bp_sbs_single > .bp_sbs_grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The node a link landed on (a link to the statement, its proof or one of its
+   declarations) is tinted; the tint bleeds past the text so nothing moves. */
+.bp_sbs_run > .bp_sbs:is(:target, :has(:target)) > .bp_sbs_grid {
+  border-radius: var(--bp-radius-lg);
+  background: var(--bp-sbs-target-surface);
+  box-shadow: 0 0 0 var(--bp-sbs-target-bleed) var(--bp-sbs-target-surface);
+}
+
+.bp_sbs_informal,
+.bp_sbs_formal {
+  min-width: 0;
+}
+
+/* The informal blocks lose their own card chrome inside the node. */
+.bp_sbs_informal > .bp_wrapper,
+.bp_sbs_informal > details.bp_wrapper {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.bp_sbs_informal > .bp_wrapper + .bp_wrapper {
+  margin-top: 0.6rem;
+}
+
+/* Heading: "Definition 4.1. ✓" at the left, the relation and Lean chips as
+   quiet secondary information at the right. */
+.bp_sbs_informal .bp_heading {
+  align-items: baseline;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.bp_sbs_informal .bp_content {
+  margin-top: 0.35rem;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.bp_sbs_informal .bp_caption,
+.bp_sbs_informal .bp_label {
+  font-weight: 700;
+}
+
+/* Title, number and status glyph read as one phrase: "Definition 4.1. ✓". */
+.bp_sbs_informal .bp_heading_title_row_statement {
+  display: inline-flex;
+  align-items: baseline;
+  column-gap: 0.4rem;
+}
+
+.bp_sbs_informal .bp_heading_title_row_statement .bp_label {
+  text-align: left;
+}
+
+.bp_sbs_informal .bp_extras {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0.15rem 0.75rem;
+  width: auto;
+  margin-left: auto;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.bp_sbs_informal .bp_extras .bp_relation_chip,
+.bp_sbs_informal .bp_extras .bp_code_link {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_sbs_informal .bp_extras button.bp_relation_chip {
+  cursor: pointer;
+}
+
+.bp_sbs_informal .bp_extras button.bp_relation_chip:hover,
+.bp_sbs_informal .bp_extras .bp_code_link:hover {
+  color: var(--bp-color-link, #1d4ed8);
+}
+
+.bp_sbs_informal .bp_extras .bp_code_status_symbol {
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+/* Counts of zero say nothing: hide them. A slot or a header row left with
+   nothing to show takes no room either, so a folded proof stays one line tall
+   when the header wraps in a narrow card. */
+.bp_sbs_informal .bp_extras .bp_relation_chip_empty,
+.bp_sbs_informal .bp_extras > .bp_extra_slot:not(:has(> :not(.bp_relation_chip_empty))),
+.bp_sbs_informal .bp_extras:not(:has(> .bp_extra_slot > :not(.bp_relation_chip_empty))):not(:has(> :not(.bp_extra_slot))) {
+  display: none;
+}
+
+/* Wide display math scrolls inside the column instead of overlapping the code. */
+.bp_sbs_informal .bp_content {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Status glyph beside the node title. */
+.bp_status_glyph {
+  display: inline-block;
+  margin-left: 0.15rem;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.95em;
+  font-weight: 400;
+  line-height: 1;
+  cursor: help;
+}
+
+.bp_status_glyph_proved { color: var(--bp-color-accent-success); }
+.bp_status_glyph_partial { color: var(--bp-color-status-warning-text); }
+.bp_status_glyph_problem { color: var(--bp-color-accent-warning); }
+.bp_status_glyph_missing { color: var(--bp-color-accent-danger); }
+.bp_status_glyph_none { color: var(--bp-color-text-faint); }
+
+/* Legend of the status glyphs (a <details> placed by the page script in the
+   sidebar foot, or at the end of the page without a sidebar). */
+.bp_status_legend {
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.8rem;
+}
+
+.bp_status_legend > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_status_legend > summary::-webkit-details-marker {
+  display: none;
+}
+
+.bp_status_legend > summary::after {
+  content: " ▸";
+}
+
+.bp_status_legend[open] > summary::after {
+  content: " ▾";
+}
+
+.bp_status_legend dl {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0.2rem 0.3rem;
+  margin: 0.4rem 0 0;
+}
+
+/* Glyphs keep their node colours on the page surface, wherever the legend sits. */
+.bp_status_legend dt {
+  margin: 0;
+  border-radius: 0.25rem;
+  background: var(--bp-color-surface);
+  text-align: center;
+  line-height: 1.35;
+}
+
+.bp_status_legend dd {
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* Verso sets definition lists in the text face; the legend is a control. */
+.bp_status_legend :is(dt, dd) {
+  font-family: inherit;
+}
+
+main .bp_status_legend {
+  margin: 2rem 0 1rem;
+}
+
+/* Folded proofs read "Proof [show]". */
+.bp_sbs_informal details.bp_kind_proof_wrapper > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.bp_sbs_informal details.bp_kind_proof_wrapper > summary::-webkit-details-marker {
+  display: none;
+}
+
+.bp_sbs_informal details.bp_kind_proof_wrapper .bp_caption {
+  font-style: italic;
+}
+
+.bp_sbs_informal details.bp_kind_proof_wrapper .bp_heading_title_row::after {
+  content: "[show]";
+  margin-left: 0.45rem;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.75rem;
+  font-weight: 400;
+  font-style: normal;
+  color: var(--bp-color-link, #1d4ed8);
+}
+
+.bp_sbs_informal details.bp_kind_proof_wrapper[open]:not([data-bp-closing]) .bp_heading_title_row::after {
+  content: "[hide]";
+}
+
+/* With the page script, the prose proof's "Proof [show]" opens the Lean proofs
+   of its node too; their own toggles give way to it, and a closed Lean proof
+   takes no room. Without the script both toggles stay. */
+.bp_sbs[data-bp-proofs-linked] .bp_sbs_formal details.bp_decl_source_proof > summary {
+  display: none;
+}
+
+.bp_sbs[data-bp-proofs-linked] .bp_sbs_formal details.bp_decl_source_proof:not([open]) {
+  display: none;
+}
+
+/* A proof that is opening or closing clips its content to the animated height. */
+details[data-bp-animating] {
+  overflow: hidden;
+}
+
+/* Right column: one card per defining command. The code comes first, so its
+   first line sits on the node title's baseline; the module path and the
+   "Lean proof [show]" toggle follow as a caption row. */
+.bp_decl_source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.75rem;
+}
+
+.bp_decl_source > code.hl.lean.block {
+  flex: 1 1 100%;
+  order: 0;
+}
+
+.bp_decl_source > .bp_decl_source_proof {
+  flex: 1 1 auto;
+  order: 1;
+}
+
+.bp_decl_source > .bp_decl_source_proof[open] {
+  flex-basis: 100%;
+}
+
+.bp_decl_source > .bp_decl_source_meta {
+  order: 2;
+  margin-left: auto;
+}
+
+.bp_decl_source + .bp_decl_source,
+.bp_decl_source + .bp_code_hover_list,
+.bp_code_hover_list + .bp_decl_source {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--bp-color-border-soft);
+}
+
+.bp_decl_source_meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.7rem;
+  color: var(--bp-color-text-faint);
+}
+
+.bp_decl_source_meta a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.15em;
+}
+
+.bp_decl_source_meta a.bp_decl_source_path::after {
+  content: " ↗";
+}
+
+.bp_decl_source_meta a:hover {
+  color: var(--bp-color-link, #1d4ed8);
+  text-decoration-color: currentColor;
+}
+
+.bp_decl_source code.hl.lean.block {
+  display: block;
+  margin: 0;
+  padding: 0;
+  overflow-x: visible;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--verso-code-font-family);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  background: transparent;
+}
+
+/* Each source line wraps with a hanging indent of four columns beyond its own
+   leading whitespace (--bp-indent, set per line). */
+.bp_decl_source code.hl.lean.block .bp_code_line {
+  display: block;
+  min-height: 1.6em;
+  padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
+  text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
+}
+
+.bp_decl_source_proof {
+  margin-top: 0.2rem;
+}
+
+.bp_decl_source_proof > summary {
+  cursor: pointer;
+  font-family: var(--verso-structure-font-family, sans-serif);
+  font-size: 0.7rem;
+  color: var(--bp-color-text-faint);
+  list-style: none;
+}
+
+.bp_decl_source_proof > summary::-webkit-details-marker {
+  display: none;
+}
+
+.bp_decl_source_proof > summary::after {
+  content: " [show]";
+  color: var(--bp-color-link, #1d4ed8);
+}
+
+.bp_decl_source_proof[open]:not([data-bp-closing]) > summary::after {
+  content: " [hide]";
+}
+
+.bp_decl_source_proof > code.hl.lean.block {
+  margin-top: 0.25rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--bp-color-border-soft);
+}
+
+/* Hovers in the Lean column stay inside the window: the box is at most the
+   viewport wide and long signatures wrap, so a narrow pane gets no
+   horizontal scrollbar while one is shown. */
+html:has(.bp_sbs) .tippy-box[data-theme~='lean'] {
+  max-width: calc(100vw - 2rem) !important;
+}
+
+html:has(.bp_sbs) .tippy-box[data-theme~='lean'] .hover-info > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 760px) {
+  .bp_sbs_grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bp_sbs_formal {
+    margin-top: 0.85rem;
+    padding-top: 0.75rem;
+    border-top: var(--bp-sbs-divider-width) solid var(--bp-sbs-divider-color);
+  }
+
+  /* stacked columns have no column divider */
+  .bp_sbs_grid::before {
+    display: none;
+  }
+}
+
+/* An explicit non-side-by-side style stacks the columns. */
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_formal {
+  margin-top: 0.6rem;
+}
+
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
+  display: none;
+}
+
+/* Stacked, the nodes of a run are spaced by a margin instead of the padding
+   that the rule above removes. */
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_run > .bp_sbs + .bp_sbs {
+  margin-top: var(--bp-sbs-node-gap);
+}
+
+/* Print: one column per node. */
+@media print {
+  .bp_sbs_grid {
+    display: block;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .bp_sbs {
+    break-inside: avoid-page;
+  }
+
+  .bp_sbs_grid::before {
+    display: none;
+  }
+
+  /* The run's padding gives way to one margin between nodes, and a targeted
+     node prints without its tint. Each rule matches its screen rule's weight. */
+  .bp_sbs_run > .bp_sbs > .bp_sbs_grid {
+    padding-block: 0;
+  }
+
+  .bp_sbs_run > .bp_sbs + .bp_sbs,
+  html[data-bp-style] .bp_sbs_run > .bp_sbs + .bp_sbs {
+    margin-top: 1rem;
+  }
+
+  .bp_sbs_run > .bp_sbs:is(:target, :has(:target)) > .bp_sbs_grid {
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .bp_sbs_formal {
+    margin-top: 0.5rem;
+  }
+
+  .bp_status_legend {
+    display: none;
+  }
+}
+
+/* Token colours of the Lean column. Each colour is a variable so that themes
+   (for example a dark theme) can replace the palette. */
+.bp_sbs_formal .hl.lean .keyword.token,
+.bp_sbs_formal .hl.lean .built-in.delim.token {
+  color: var(--bp-code-keyword, #0b52b5);
+}
+
+.bp_sbs_formal .hl.lean .const.token {
+  color: var(--bp-code-const, #8a5a00);
+}
+
+.bp_sbs_formal .hl.lean .var.token,
+.bp_sbs_formal .hl.lean .wildcard.token {
+  color: var(--bp-code-var, #1a5fa8);
+  font-style: normal;
+}
+
+.bp_sbs_formal .hl.lean .sort.token {
+  color: var(--bp-code-sort, #0f7a6c);
+}
+
+.bp_sbs_formal .hl.lean .literal.token {
+  color: var(--bp-code-literal, #0f7a3d);
+}
+
+.bp_sbs_formal .hl.lean .doc-comment.token,
+.bp_sbs_formal .hl.lean .comment.token {
+  color: var(--bp-code-comment, #5f6b78);
+  font-style: italic;
+}
+
+.bp_sbs_formal .hl.lean .punctuation.token,
+.bp_sbs_formal .hl.lean .unknown.token {
+  color: var(--bp-code-punctuation, var(--bp-color-text));
+}

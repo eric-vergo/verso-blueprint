@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import Lean
+import VersoBlueprint.Axioms
 import VersoBlueprint.Data
 import VersoBlueprint.ProvedStatus
 import VersoBlueprint.ExternalDeclRender
@@ -270,6 +271,7 @@ private def externalRefSnapshotWithStatus (opts : Lean.Options) (workspaceRoot :
       canonical
       present := true
       provedStatus
+      axioms := ← Data.declarationAxioms canonical
       kind := nodeKind
     }
     let ranges? ← findDeclarationRanges? canonical

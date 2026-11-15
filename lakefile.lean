@@ -4,7 +4,10 @@ open Lake DSL
 -- Pin the matching Lean 4.35 stable dependency stack.
 require verso from git "https://github.com/leanprover/verso"@"v4.35.0"
 require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.35.0"
-require subverso from git "https://github.com/leanprover/subverso"@"verso-v4.35.0"
+-- Side-by-side nodes need `SubVerso.Module.findDecl?`, which is on the branch
+-- `feat/declaration-source` of the eric-vergo/subverso fork and not in an
+-- upstream SubVerso release. Return to the upstream tag if it is released there.
+require subverso from git "https://github.com/eric-vergo/subverso"@"feat/declaration-source"
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
 
@@ -23,6 +26,13 @@ input_file blueprintMathJs where
 input_file mathLintWorkerJs where
   path := "static-web/katex-lint.mjs"
   text := true
+
+-- The graph's browser libraries and their licences, shipped with every site
+-- (static-web/vendor/README.md).
+input_dir vendoredWebAssets where
+  path := "static-web/vendor"
+  text := true
+  filter := .any #[PathPat.extension (.mem #["js"]), PathPat.fileName (.startsWith "LICENSE")]
 
 -- Optional VIR resource API; neither the core library nor generator imports it.
 lean_lib VersoBlueprintVir where
@@ -48,7 +58,7 @@ lean_lib VersoBlueprint where
   srcDir := "src"
   roots := #[`VersoBlueprint]
   precompileModules := true
-  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs]
+  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs, vendoredWebAssets]
 
 @[default_target]
 lean_exe «vbp» where
@@ -56,9 +66,33 @@ lean_exe «vbp» where
   srcDir := "src"
   supportInterpreter := true
 
+-- Comparator challenges and solutions of the headline tests. Nothing imports a challenge (it
+-- declares the same names as its solution); `BlueprintComparator` reads their compiled modules.
+lean_lib VersoBlueprintComparatorFixtures where
+  srcDir := "tests"
+  roots := #[
+    `VersoBlueprintTests.ComparatorFixtures.Match.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Match.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Sorry.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Sorry.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Statement.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Statement.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Definition.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Definition.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Hole.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Hole.Solution
+  ]
+
 @[default_target, test_driver]
 lean_lib VersoBlueprintTests where
   srcDir := "tests"
+  needs := #[
+    `+VersoBlueprintTests.ComparatorFixtures.Match.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Sorry.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Statement.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Definition.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Hole.Challenge:leanArts
+  ]
   roots := #[
     `VersoBlueprintTests.Blueprint.Support,
     `VersoBlueprintTests.BlueprintAssets,
@@ -75,6 +109,8 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintImportedContributions.AuthorityForward,
     `VersoBlueprintTests.BlueprintImportedContributions.AuthorityReverse,
     `VersoBlueprintTests.BlueprintAutoDeps,
+    `VersoBlueprintTests.BlueprintAxioms,
+    `VersoBlueprintTests.BlueprintComparator,
     `VersoBlueprintTests.BlueprintAttribute,
     `VersoBlueprintTests.BlueprintAttribute.OrderRoundtrip,
     `VersoBlueprintTests.BlueprintAttributeRendering,
@@ -82,6 +118,9 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintAttributeLateRendering,
     `VersoBlueprintTests.BlueprintBlockFolding,
     `VersoBlueprintTests.BlueprintCodeRenderMatrix,
+    `VersoBlueprintTests.BlueprintCodeSite,
+    `VersoBlueprintTests.BlueprintCodeSiteApi,
+    `VersoBlueprintTests.BlueprintDarkTheme,
     `VersoBlueprintTests.BlueprintDocstringReferences,
     `VersoBlueprintTests.BlueprintImportedDuplicates.Direct,
     `VersoBlueprintTests.BlueprintImportedDuplicates.ProviderA,
@@ -96,6 +135,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintProofLeanRefs,
     `VersoBlueprintTests.BlueprintProofLeanRefs.Roundtrip,
     `VersoBlueprintTests.BlueprintInlinePrecision,
+    `VersoBlueprintTests.BlueprintLeanSourceAnchors,
     `VersoBlueprintTests.BlueprintLinkHover,
     `VersoBlueprintTests.BlueprintMainWrapper,
     `VersoBlueprintTests.BlueprintPreviewResources,
@@ -108,6 +148,13 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintPreviewSchema,
     `VersoBlueprintTests.BlueprintPreviewSource,
     `VersoBlueprintTests.BlueprintPreviewWiring,
+    `VersoBlueprintTests.BlueprintNodeView,
+    `VersoBlueprintTests.BlueprintSideBySide,
+    `VersoBlueprintTests.BlueprintSidebar,
+    `VersoBlueprintTests.BlueprintStats,
+    `VersoBlueprintTests.BlueprintStatsPage,
+    `VersoBlueprintTests.BlueprintStatsRepo,
+    `VersoBlueprintTests.BlueprintStatsSource,
     `VersoBlueprintTests.BlueprintSource,
     `VersoBlueprintTests.SorryImport.Provider,
     `VersoBlueprintTests.SorryImport.Consumer,
@@ -123,7 +170,9 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintTeXCleanup,
     `VersoBlueprintTests.BlueprintTexMacros,
     `VersoBlueprintTests.BlueprintExternalMarkup,
+    `VersoBlueprintTests.BlueprintWorkQueue,
     `VersoBlueprintTests.ExternalDeclRender,
+    `VersoBlueprintTests.ResidentBuild,
     `VersoBlueprintTests.RuntimeCache,
     `VersoBlueprintTests.SerializedExtension,
     `VersoBlueprintTests.TestBlueprintRegistryMeta,

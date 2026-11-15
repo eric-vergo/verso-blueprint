@@ -5,6 +5,8 @@ Author: Emilio J. Gallego Arias
 -/
 
 import VersoBlueprint.Vbp
+import VersoBlueprint.VbpResident
+import VersoBlueprint.CodeSite.Main
 import Lake.CLI.Actions
 import Lake.Load.Workspace
 
@@ -14,13 +16,14 @@ open System
 namespace VersoBlueprint.Vbp.Main
 
 private def buildUsageLine : String :=
-  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--serve] [--port <n>]"
+  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--no-stats-page] [--serve] [--port <n>] [--resident]"
 
 private def mainCommandLines : List String := [
   "lake exe vbp discover",
   buildUsageLine,
   "lake exe vbp query [--site <dir>] <selector>",
-  "lake exe vbp check [--site <dir>]"
+  "lake exe vbp check [--site <dir>]",
+  "lake exe " ++ Informal.CodeSite.usage
 ]
 
 private def defaultHelpLines : List String := [
@@ -29,7 +32,9 @@ private def defaultHelpLines : List String := [
   "--verbose shows Blueprint generation phase progress during build",
   "query and check read _out/site",
   "--serve serves the generated html-multi directory after a successful build",
-  "--serve --port <n> serves on a fixed port"
+  "--serve --port <n> serves on a fixed port",
+  "--resident keeps the generator loaded and rebuilds on each `build` line read from stdin",
+  "code-site generates a site from compiled-code data (doc/schemas/code-site.schema.json)"
 ]
 
 private def buildOptionLines : List String := [
@@ -37,9 +42,12 @@ private def buildOptionLines : List String := [
   "--pdf               Build _out/site/pdf/main.pdf from the generated TeX",
   "--pdf-engine <cmd>  Use <cmd> for PDF compilation",
   "--pdf-runs <n>      Run the PDF engine <n> times",
+  "--reproducible      Omit build time and Git metadata, emit relative source paths",
+  "--no-stats-page     Leave the Project Stats page out of the site",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
-  "--port <n>          Serve on a fixed TCP port; requires --serve"
+  "--port <n>          Serve on a fixed TCP port; requires --serve",
+  "--resident          Build, then rebuild incrementally on each `build` line read from stdin"
 ]
 
 private def indentHelpLine (line : String) : String :=
@@ -261,8 +269,12 @@ structure BuildOptions where
   pdfEngine? : Option String := none
   pdfRuns? : Option Nat := none
   verbose : Bool := false
+  reproducible : Bool := false
+  /-- Leave the automatic Project Stats page out (the generator's `--no-stats-page`). -/
+  noStatsPage : Bool := false
   serve : Bool := false
   port? : Option Nat := none
+  resident : Bool := false
 
 private def maxTcpPort : Nat := 65535
 
@@ -310,7 +322,10 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
       else
         match arg, args with
         | "--verbose", args => parseBuildOptionsCore args { opts with verbose := true }
+        | "--reproducible", args => parseBuildOptionsCore args { opts with reproducible := true }
+        | "--no-stats-page", args => parseBuildOptionsCore args { opts with noStatsPage := true }
         | "--serve", args => parseBuildOptionsCore args { opts with serve := true }
+        | "--resident", args => parseBuildOptionsCore args { opts with resident := true }
         | "--port", raw :: args =>
             match parseTcpPort raw with
             | .ok port => parseBuildOptionsCore args { opts with port? := some port }
@@ -321,6 +336,8 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
 private def validateBuildOptions (opts : BuildOptions) : Except String BuildOptions :=
   if opts.port?.isSome && !opts.serve then
     .error "--port requires --serve"
+  else if opts.resident && opts.serve then
+    .error "--resident cannot be combined with --serve"
   else
     .ok opts
 
@@ -380,14 +397,24 @@ private def pdfGeneratorArgs (opts : BuildOptions) : Array String :=
   | some runs => args ++ #[Informal.PreviewManifest.pdfRunsFlag, toString runs]
   | none => args
 
+/-- The arguments the generator's `main` receives (what follows `--run <file>`). -/
+def generatorMainArgs (opts : BuildOptions) : Array String :=
+  let args := #["--output", opts.output.toString] ++ (if opts.verbose then #["--verbose"] else #[])
+  let args := args ++ pdfGeneratorArgs opts
+  let args := if opts.noStatsPage then args.push Informal.Commands.noStatsPageFlag else args
+  if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
+
 private def generateSite (opts : BuildOptions) : IO UInt32 := do
   match ← generatorContext with
   | .error err =>
       IO.eprintln err
       pure 1
   | .ok context =>
-      let args := generatorLeanArgs context.generatorFile opts.output opts.verbose ++ pdfGeneratorArgs opts
-      runGenerator context args
+      if opts.resident then
+        Resident.run context.workspace context.generatorFile (generatorMainArgs opts).toList
+      else
+        buildComparatorChallenge context.workspace
+        runGenerator context (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts)
 
 private def serveScript : String := String.intercalate "\n" [
   "import functools, http.server, socketserver, sys",
@@ -494,6 +521,7 @@ def main (args : List String) : IO UInt32 := do
   | "build" :: rest => build rest
   | "query" :: rest => query rest
   | "check" :: rest => check rest
+  | "code-site" :: rest => Informal.CodeSite.main rest
   | cmd :: _ =>
       IO.eprintln s!"unknown command '{cmd}'"
       IO.eprintln helpText
