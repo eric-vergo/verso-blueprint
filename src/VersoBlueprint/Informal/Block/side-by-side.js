@@ -80,9 +80,11 @@
     const startHeight = details.getBoundingClientRect().height;
     finish(details);
     const settings = motionSettings(details);
+    // A page that is not visible (a background tab or view) has nothing to animate, and its
+    // animation clock may not run.
     const canAnimate =
       animate && !reducedMotion.matches && settings.duration > 0 &&
-      typeof details.animate === "function";
+      document.visibilityState === "visible" && typeof details.animate === "function";
     if (!canAnimate) {
       details.open = open;
       return;
@@ -168,8 +170,22 @@
     });
   }
 
+  // Ends a running animation at its end state.
+  function settle(details) {
+    const animation = details._bpAnimation;
+    if (!animation) return;
+    const open = !details.hasAttribute("data-bp-closing");
+    finish(details);
+    details.open = open;
+  }
+
   function installProofToggles() {
     document.querySelectorAll(".bp_sbs[data-bp-node]").forEach(linkProofs);
+    // A page that is hidden mid-animation settles at once.
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") return;
+      document.querySelectorAll("details[data-bp-animating]").forEach(settle);
+    });
   }
 
   // A link into a proof opens it (and, through the toggle link, its partners).
