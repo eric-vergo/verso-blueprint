@@ -21,8 +21,10 @@ option `verso.blueprint.math.static` (default `true`) sends every formula to it.
   (`.lake/packages/leantex/fonts/newcomputermodern`, relative to the working directory of the
   build), or from the folder named by the environment variable `VERSO_BLUEPRINT_MATH_FONTS`.
   Without them every formula takes the browser path.
-* Inline formulas sit on the baseline (`vertical-align` from the formula's depth) and are
-  sized in `em` of the surrounding text, at KaTeX's 1.21 em; display formulas are centred.
+* Inline formulas sit on the baseline (`vertical-align` from the formula's depth); the picture
+  is sized in `em` of its element, whose font size (`css`) is the size KaTeX's formulas have on
+  the page: 1.21 em inside the 0.86 em of the `code` element they replace, and with the
+  side-by-side style's text-sized formulas, 1.04 em of that. Display formulas are centred.
 * The SVG has `role="img"` and the formula's source as its title.
 -/
 
@@ -73,15 +75,13 @@ def layout? (display : Bool) (source texPrelude : String) : IO (Option LeAnTeX.D
   layoutCache.modify (·.insert key r)
   return r
 
-/-- The size of a formula's em relative to the surrounding text, as KaTeX sets it. -/
-def emScale : Nat := 121
 
 /-- The em of the layout, in sp (ten points). -/
 def emSp : Int := 10 * 65536
 
-/-- A length in sp as `em` of the surrounding text, four decimals. -/
+/-- A length in sp as `em` of the formula's element, four decimals. -/
 def emText (sp : Int) : String :=
-  fixed (sp * emScale) (emSp * 100) 4 ++ "em"
+  fixed sp emSp 4 ++ "em"
 
 /-- The formula as an inline SVG element whose ids start with `idPrefix` (see the module
 docstring). -/
@@ -124,9 +124,13 @@ def accepted (display : Bool) (source texPrelude : String) : IO Bool := do
   if (← fonts?).isNone then return false
   return (← layout? display source texPrelude).isSome
 
-/-- The style rules of formulas typeset when the site is built. -/
+/-- The style rules of formulas typeset when the site is built: the size KaTeX's formulas have
+(see the module docstring), no line break inside a formula, display formulas centred. -/
 def css : String :=
-  ".bp_math.bp_math_static{white-space:nowrap}\n" ++
+  ".bp_math.bp_math_static{white-space:nowrap;font-size:1.0406em}\n" ++
+  "html:has(meta[name=\"verso-blueprint-default-style\"][content=\"sbs\"])" ++
+  ":not([data-bp-style]:not([data-bp-style=\"sbs\"])) main .bp_math.bp_math_static" ++
+  "{font-size:0.8944em}\n" ++
   ".bp_math.bp_math_static>svg{display:inline-block;overflow:visible}\n" ++
   ".bp_math.display.bp_math_static{display:block;text-align:center;margin:1em 0}\n" ++
   ".bp_math.display.bp_math_static>svg{max-width:100%}\n"
