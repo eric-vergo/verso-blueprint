@@ -130,6 +130,14 @@
   environment. The cache-in-place configuration is validated for supported VBP
   generation and Lean Beam; direct filesystem consumers may opt into
   restoration.
+- A few test modules read compiled modules from `.lake/build/lib/lean` while
+  they elaborate (`VersoBlueprintTests.BlueprintComparator` reads the compiled
+  Comparator challenges there). With artifacts kept in place in the cache, a
+  module whose result is already cached is not copied there, so such a test
+  fails when it is elaborated again (a fresh worktree on new contents, an edited
+  test) and passes once its result is cached. Run the tests of a fresh worktree
+  with the artifacts restored into the build folder:
+  `LAKE_RESTORE_ARTIFACTS=true scripts/lean-low-priority lake test`.
 - Preferred user-facing interface:
   - `lake exe vbp build ...`
 - Main build/test commands:
