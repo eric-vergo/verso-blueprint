@@ -95,9 +95,45 @@
       runPreviewHydrators(root, opts);
     }
     if (opts.renderMath !== false) {
+      placeStoredMath(root);
       renderBlueprintMath(root);
     }
     return true;
+  }
+
+  // Stored math. A formula typeset when the site was built can be kept once in
+  // the page, in an inert `<template data-bp-math-key>`, instead of in every
+  // fragment that shows it. Such a fragment has a reference in the formula's
+  // place: a `code` element with the same key and the TeX source. The reference
+  // is replaced by a copy of the template's nodes; markup is never built from
+  // text here. A reference without a template in the page is left as it is, for
+  // `renderBlueprintMath`.
+
+  let storedMathTemplates = null;
+
+  function storedMathTemplate(key) {
+    if (typeof document === "undefined" || typeof HTMLTemplateElement === "undefined") return null;
+    if (!storedMathTemplates) {
+      storedMathTemplates = new Map();
+      document.querySelectorAll("template[data-bp-math-key]").forEach(function (tpl) {
+        if (!(tpl instanceof HTMLTemplateElement)) return;
+        const tplKey = tpl.getAttribute("data-bp-math-key") || "";
+        if (tplKey && !storedMathTemplates.has(tplKey)) storedMathTemplates.set(tplKey, tpl);
+      });
+    }
+    return storedMathTemplates.get(key) || null;
+  }
+
+  function placeStoredMath(root) {
+    if (!isHydratableRoot(root)) return 0;
+    let placed = 0;
+    root.querySelectorAll("code[data-bp-math-key]").forEach(function (ref) {
+      const tpl = storedMathTemplate(ref.getAttribute("data-bp-math-key") || "");
+      if (!tpl) return;
+      ref.replaceWith(document.importNode(tpl.content, true));
+      placed += 1;
+    });
+    return placed;
   }
 
   export function renderBlueprintMath(root) {

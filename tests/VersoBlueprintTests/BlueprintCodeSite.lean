@@ -301,6 +301,72 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
     hasSubstr hostile "&lt;script&gt;" && !hasSubstr hostile "<script>" &&
     !hasSubstr hostile "javascript:"
 
+/-- The fixture with a statement on `Demo.double_eq` whose formulas use the prelude's macro,
+and the statement `other` on `Demo.double`. -/
+def mathFixture (other : String) : Project :=
+  let stated : Statement := { text := "For all $n$, $$\\twice n = n + n.$$"
+                              proof := some "Unfold $\\twice n$.", source := some "tex" }
+  let set (d : CodeSite.Declaration) : CodeSite.Declaration :=
+    if d.name == `Demo.double_eq then { d with statement := some stated }
+    else if d.name == `Demo.double then { d with statement := some { text := other } } else d
+  { fixture with modules := fixture.modules.map fun m => { m with declarations := m.declarations.map set }
+                 texPrelude := "\\newcommand{\\twice}{2}" }
+
+/-- The pages (`index.html` files) under a folder, as text. -/
+partial def pagesUnder (dir : System.FilePath) : IO (Array String) := do
+  let mut out := #[]
+  for e in ← dir.readDir do
+    if ← e.path.isDir then out := out ++ (← pagesUnder e.path)
+    else if e.fileName == "index.html" then out := out.push (← IO.FS.readFile e.path)
+  return out
+
+-- Statement formulas are typeset when the site is built: pictures on the chapter page, and in
+-- the node view a reference to the formula's template in the page of the graph, which holds
+-- each formula once. With every formula accepted no page loads KaTeX's files.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "code.json") (toJson (mathFixture "Twice $n$.")).compress
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"]
+  let html := root / "_out" / "html-multi"
+  let views ← IO.FS.readFile (html / "-verso-data" / "blueprint-node-views.json")
+  let graph ← IO.FS.readFile (html / "Dependency-Graph" / "index.html")
+  let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
+  let pages ← pagesUnder html
+  let keysOf (s : String) : List String :=
+    ((s.splitOn " data-bp-math-key=\"").drop 1).map fun t => (t.splitOn "\"").headD ""
+  let stored := keysOf graph
+  let refs := keysOf (views.replace "\\\"" "\"")
+  return code == 0 && refs.length == 4 && stored.length == 3 && refs.all stored.contains &&
+    stored.eraseDups.length == stored.length && stored.all refs.contains &&
+    !hasSubstr views "bp_math_static" && !hasSubstr views "<code class=\\\"bp_math " &&
+    hasSubstr views "\\\\twice n = n + n.</code>" &&
+    countSubstr chapter "data-bp-math-rendered=\"1\"" == 4 &&
+    !hasSubstr chapter "<code class=\"bp_math " && !hasSubstr chapter "<template class=\"bp_math" &&
+    pages.size > 3 && pages.all (fun p => !hasSubstr p "katex/katex.js" &&
+      !hasSubstr p "katex/katex.css" && !hasSubstr p "data-bp-glyphs")
+
+-- A formula that is not accepted keeps the browser path, alone: it stays TeX in the node view
+-- and on its page, the other statement's formulas are still typeset, and the pages keep KaTeX.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "code.json") (toJson (mathFixture "Half $\\frac{1}{$.")).compress
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"]
+  let html := root / "_out" / "html-multi"
+  let views ← IO.FS.readFile (html / "-verso-data" / "blueprint-node-views.json")
+  let graph ← IO.FS.readFile (html / "Dependency-Graph" / "index.html")
+  let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
+  return code == 0 && countSubstr views "bp_math_ref" == 3 &&
+    countSubstr views "<code class=\\\"bp_math inline\\\" data-bp-tex-prelude-id" == 1 &&
+    hasSubstr views ">\\\\frac{1}{</code>" &&
+    countSubstr graph "<template class=\"bp_math_stored\"" == 3 &&
+    countSubstr chapter "data-bp-math-rendered=\"1\"" == 3 &&
+    countSubstr chapter "<code class=\"bp_math inline\"" == 1 &&
+    hasSubstr graph "katex/katex.js" && hasSubstr chapter "katex/katex.js"
+
 -- `--challenge-not-built <reason>`: nothing is compared, and the headline says the challenge
 -- module was not built, with the reason.
 /-- info: true -/

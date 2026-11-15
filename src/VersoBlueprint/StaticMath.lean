@@ -39,8 +39,15 @@ before), and the option `verso.blueprint.math.static` (default `true`) sends eve
   page into one hidden `<svg>` at its end (`finishPage`). A fragment taken out of a page before
   that (a preview's HTML) keeps its own definitions. KaTeX's style sheet and script are removed
   from a page that has no formula for the browser to draw, unless the site's data files, which
-  previews, node views and hovers show on any page, have such formulas (including statements
-  kept as TeX between dollar signs for the page's script, as a site generated from code has).
+  previews, node views and hovers show on any page, have such formulas.
+* The formulas of the dependency graph's node views are kept in the pages that show them, not
+  in the node views' data: `finishSite` replaces each formula in `blueprint-node-views.json` by
+  a reference (`reference`: a `code` element with the TeX source and the formula's key) and
+  writes the formula once, in an inert `<template>` element, into every page that has a graph
+  (`storeMarkup`); its glyph definitions join the page's set. The page's script puts a copy of
+  the template's nodes in the reference's place when it shows a node view. A page that shows
+  node views without a graph of its own (one built by a script) has no templates: there a
+  reference shows its TeX source, typeset by KaTeX when the page loads it.
 -/
 
 namespace Informal.StaticMath
@@ -294,12 +301,14 @@ structure PageStats where
   clashes : Nat := 0
   /-- Pages whose KaTeX style sheet and script were removed. -/
   katexRemoved : Nat := 0
+  /-- Formulas of node views kept in the pages' templates (each once). -/
+  stored : Nat := 0
   deriving Repr
 
 /-- Whether a page has a formula for the browser to draw: a blueprint formula left to KaTeX
 (`<code class="bp_math …`) or Verso's own math (`class="math …`). -/
 def needsKaTeX (html : String) : Bool :=
-  (html.splitOn "<code class=\"bp_math").length > 1 || (html.splitOn "class=\"math ").length > 1
+  (html.splitOn "<code class=\"bp_math ").length > 1 || (html.splitOn "class=\"math ").length > 1
 
 /-- The tags of KaTeX's files in a page head. -/
 def katexTags : List String :=
@@ -344,6 +353,141 @@ def finishPage (html : String) (keepKaTeX : Bool) : String × PageStats := Id.ru
     st := { st with katexRemoved := 1 }
   return (out, st)
 
+/-! ### Formulas of node views, kept in the page -/
+
+/-- The file of the dependency graph's node views in a site's data folder. -/
+def nodeViewsFile : String := "blueprint-node-views.json"
+
+/-- How the element of a formula typeset at build time starts, up to its display mode. -/
+def staticOpen : String := "<span class=\"bp_math "
+
+/-- How the copyable source inside such an element starts. -/
+def sourceOpen : String := "<span class=\"bp_math_source\" aria-hidden=\"true\">"
+
+/-- A formula typeset at build time at the start of `piece`, a text that followed `staticOpen`:
+whether it is a display formula, its element without `staticOpen`, its source as written in the
+markup (escaped, without the math delimiters) and the text after the element. `none` when
+`piece` does not start with such an element as `Informal.Math` and `markup` write it. -/
+def staticElement? (piece : String) : Option (Bool × String × String × String) := do
+  let display ←
+    if piece.startsWith "inline bp_math_static\"" then some false
+    else if piece.startsWith "display bp_math_static\"" then some true
+    else none
+  let (body, tail) ← match piece.splitOn sourceOpen with
+    | body :: tail@(_ :: _) => some (body, sourceOpen.intercalate tail)
+    | _ => none
+  let close := "</span></span>"
+  let (source, rest) ← match tail.splitOn close with
+    | source :: rest@(_ :: _) => some (source, close.intercalate rest)
+    | _ => none
+  guard ((source.splitOn "<").length == 1)
+  let (openD, closeD) := if display then ("\\[", "\\]") else ("$", "$")
+  guard (source.startsWith openD && source.endsWith closeD &&
+    source.length ≥ openD.length + closeD.length)
+  let bare := ((source.drop openD.length).dropEnd closeD.length).toString
+  return (display, body ++ sourceOpen ++ source ++ close, bare, rest)
+
+/-- The key of a formula's element in a page's templates: derived from the element, so the
+same formula has the same key wherever it is shown. -/
+def storeKey (element : String) : String :=
+  "bpm-" ++ String.ofList (Nat.toDigits 16 (hash element).toNat) ++ "-" ++
+    String.ofList (Nat.toDigits 16 element.length)
+
+/-- The reference that stands for a stored formula in a node view: the TeX source in a `code`
+element of the browser path's classes (so the formula is still there, as text or for KaTeX,
+where no template is), with the template's key. `source` is escaped already. -/
+def reference (display : Bool) (key source : String) : String :=
+  s!"<code class=\"bp_math_ref bp_math {if display then "display" else "inline"}\" \
+    data-bp-math-key=\"{key}\" data-bp-tex-prelude-id=\"default\">{source}</code>"
+
+/-- The formulas kept for a site's pages: each element once, by key, in the order met. -/
+structure Store where
+  /-- The elements by key. -/
+  byKey : Std.HashMap String String := {}
+  /-- The keys, in the order met. -/
+  keys : Array String := #[]
+
+/-- The key under which `element` is in the store, added when it is new. Two different
+elements never share a key: the second gets the next free key after its own. -/
+def Store.add (st : Store) (element : String) : Store × String := Id.run do
+  let base := storeKey element
+  let mut key := base
+  let mut n := 1
+  while true do
+    match st.byKey[key]? with
+    | some e =>
+      if e == element then return (st, key)
+      key := s!"{base}-{n}"
+      n := n + 1
+    | none => break
+  return ({ byKey := st.byKey.insert key element, keys := st.keys.push key }, key)
+
+/-- `html` with each formula typeset at build time replaced by its reference, the formulas
+added to the store. Anything else is left as it is. -/
+def storeFormulas (st : Store) (html : String) : Store × String := Id.run do
+  match html.splitOn staticOpen with
+  | [] | [_] => return (st, html)
+  | first :: pieces =>
+    let mut st := st
+    let mut out := first
+    for piece in pieces do
+      match staticElement? piece with
+      | some (display, element, source, rest) =>
+        let (st', key) := st.add (staticOpen ++ element)
+        st := st'
+        out := out ++ reference display key source ++ rest
+      | none => out := out ++ staticOpen ++ piece
+    return (st, out)
+
+/-- The text of a node-views file with the formulas of its views moved to the store
+(`storeFormulas` on each entry's `html`); `none` when the file is not one. -/
+def storeNodeViews (st : Store) (text : String) : Option (Store × String) := do
+  let json ← (Lean.Json.parse text).toOption
+  let entries ← (json.getObjValAs? (Array Lean.Json) "entries").toOption
+  let mut st := st
+  let mut out : Array Lean.Json := #[]
+  for e in entries do
+    match e.getObjValAs? String "html" with
+    | .ok html =>
+      let (st', html') := storeFormulas st html
+      st := st'
+      out := out.push (e.setObjVal! "html" (.str html'))
+    | .error _ => out := out.push e
+  return (st, (json.setObjVal! "entries" (.arr out)).compress)
+
+/-- How the templates' container in a page starts. -/
+def storeOpen : String := "<div class=\"bp_math_store\" hidden=\"\">"
+
+/-- How the templates' container ends: its own comment, so that the container can be found
+again whatever its templates hold. -/
+def storeClose : String := "<!--bp_math_store--></div>"
+
+/-- The store as page markup: a hidden container of one inert `<template>` per formula, each
+with its key. Empty for an empty store. -/
+def storeMarkup (st : Store) : String :=
+  if st.keys.isEmpty then "" else
+  storeOpen ++ String.join (st.keys.toList.map fun key =>
+    s!"<template class=\"bp_math_stored\" data-bp-math-key=\"{key}\">\
+      {st.byKey.getD key ""}</template>") ++ storeClose
+
+/-- Whether a page shows node views: it has a dependency graph. -/
+def showsNodeViews (html : String) : Bool :=
+  (html.splitOn "class=\"bp_graph_fullwidth\"").length > 1
+
+/-- A page with the templates `templates` (`storeMarkup`) before `</body>`, in place of the
+container it had, if any. -/
+def withStore (html templates : String) : String :=
+  let html := match html.splitOn storeOpen with
+    | [before, after] =>
+      match after.splitOn storeClose with
+      | _ :: rest@(_ :: _) => before ++ storeClose.intercalate rest
+      | _ => html
+    | _ => html
+  if templates.isEmpty then html else
+  match html.splitOn "</body>" with
+  | [a, b] => a ++ templates ++ "</body>" ++ b
+  | _ => html ++ templates
+
 /-- The files under a folder, recursively, links not followed. -/
 partial def filesUnder (dir : System.FilePath) : IO (Array System.FilePath) := do
   let mut out := #[]
@@ -353,32 +497,14 @@ partial def filesUnder (dir : System.FilePath) : IO (Array System.FilePath) := d
     else if md.type == .file then out := out.push e.path
   return out
 
-/-- A text without the parts between each `opener` and the next `closer` (both kept out); an
-`opener` without a `closer` after it is kept with what follows it. -/
-def withoutBetween (s opener closer : String) : String :=
-  match s.splitOn opener with
-  | first :: rest =>
-    first ++ String.join (rest.map fun piece =>
-      match piece.splitOn closer with
-      | _ :: after@(_ :: _) => closer.intercalate after
-      | _ => opener ++ piece)
-  | [] => s
-
-/-- A data file's text (JSON-escaped HTML) without the TeX sources that build-time formulas
-carry for copying (`<span class="bp_math_source" …>…</span>`) and without docstrings (`<code
-class="docstring">`, `<pre class="docstring">`), which pages render as Markdown, not as TeX. -/
-def withoutSources (s : String) : String :=
-  let s := withoutBetween s "<span class=\\\"bp_math_source\\\"" "</span>"
-  let s := withoutBetween s "<code class=\\\"docstring\\\">" "</code>"
-  withoutBetween s "<pre class=\\\"docstring\\\">" "</pre>"
-
 /-- Whether a data file's text (JSON) has a formula for the browser to draw: a blueprint formula
-left to KaTeX, Verso's own math, or TeX between dollar signs, as the statements of a site
-generated from code carry them for the page's script to typeset (any `$` outside the sources of
-build-time formulas and outside docstrings counts, so a stray one only keeps KaTeX). -/
+left to KaTeX or Verso's own math, each a `code` element of its class. Other text is never
+typeset by a page's script, so a dollar sign in it (in a source comment, a docstring, the
+copyable source of a build-time formula) does not count; neither does a reference to a stored
+formula. -/
 def textNeedsKaTeX (s : String) : Bool :=
-  (s.splitOn "<code class=\\\"bp_math").length > 1 ||
-    (s.splitOn "class=\\\"math ").length > 1 || (withoutSources s).contains '$'
+  (s.splitOn "<code class=\\\"bp_math ").length > 1 ||
+    (s.splitOn "class=\\\"math ").length > 1
 
 /-- Whether a site's data files (`.json`: previews, node views, hovers, which any page may
 show) have a formula for the browser to draw (`textNeedsKaTeX`). -/
@@ -388,21 +514,32 @@ def dataNeedsKaTeX (files : Array System.FilePath) : IO Bool := do
       if textNeedsKaTeX (← IO.FS.readFile f) then return true
   return false
 
-/-- Finishes every page of a written site in `dir` (`finishPage`); KaTeX's files stay on every
-page when `dataNeedsKaTeX`. Returns the totals. -/
+/-- Finishes a written site in `dir`: the formulas of its node views go into templates in the
+pages that have a graph (`storeNodeViews`, `withStore`), then every page is finished
+(`finishPage`); KaTeX's files stay on every page when `dataNeedsKaTeX`. Returns the totals. -/
 def finishSite (dir : System.FilePath) : IO PageStats := do
   if !(← dir.isDir) then return {}
   let files ← filesUnder dir
+  let mut store : Store := {}
+  for f in files do
+    if f.fileName == some nodeViewsFile then
+      let text ← IO.FS.readFile f
+      if let some (store', text') := storeNodeViews store text then
+        store := store'
+        if text' != text then IO.FS.writeFile f text'
+  let templates := storeMarkup store
   let keep ← dataNeedsKaTeX files
-  let mut total : PageStats := {}
+  let mut total : PageStats := { stored := store.keys.size }
   for f in files do
     if f.extension != some "html" then continue
     let html ← IO.FS.readFile f
-    let (out, st) := finishPage html keep
+    let page := if !templates.isEmpty && showsNodeViews html then withStore html templates
+      else html
+    let (out, st) := finishPage page keep
     if out != html then IO.FS.writeFile f out
-    total := { kept := total.kept + st.kept, dropped := total.dropped + st.dropped,
-               clashes := total.clashes + st.clashes,
-               katexRemoved := total.katexRemoved + st.katexRemoved }
+    total := { total with kept := total.kept + st.kept, dropped := total.dropped + st.dropped,
+                          clashes := total.clashes + st.clashes,
+                          katexRemoved := total.katexRemoved + st.katexRemoved }
   return total
 
 end Informal.StaticMath

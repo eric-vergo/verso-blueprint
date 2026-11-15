@@ -201,12 +201,13 @@ def safePrelude (prelude : String) : String :=
   prelude.foldl (init := "") fun acc c =>
     if c == '<' then acc ++ "\\lt{}" else if c == '>' then acc ++ "\\gt{}" else acc.push c
 
-/-- `inline` with each formula as Blueprint math (`Informal.Math.Inline.bpMath`, rendered by the
-pages' KaTeX after `prelude`, also in the dependency graph's node view). -/
+/-- `inline` with each formula as Blueprint math (`Informal.Math.Inline.bpMath`, typeset after
+`prelude` when the site is built, or by the pages' KaTeX when it is not accepted then; also in
+the dependency graph's node view). -/
 partial def bpMathInline (prelude : String) : Inline Manual → Inline Manual
   | .math mode source =>
     .other (Informal.Math.Inline.bpMath
-      { mode, source, texPrelude := safePrelude prelude, static := false }) #[]
+      { mode, source, texPrelude := safePrelude prelude, static := true }) #[]
   | .link inls href => .link (inls.map (bpMathInline prelude)) href
   | .emph inls => .emph (inls.map (bpMathInline prelude))
   | .bold inls => .bold (inls.map (bpMathInline prelude))

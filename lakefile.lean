@@ -13,7 +13,7 @@ require subverso from git "https://github.com/eric-vergo/subverso"@"f53c070f0357
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
 -- Typesets blueprint math when the site is built (`VersoBlueprint.StaticMath`).
-require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"45cae009ea2be14dc9c0fc850005dfcaebd70db4"
+require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"9badbe4cac48c2061f738e114dc6cb0b66c316be"
 
 package VersoBlueprint where
   leanOptions := #[⟨`experimental.module, true⟩]
