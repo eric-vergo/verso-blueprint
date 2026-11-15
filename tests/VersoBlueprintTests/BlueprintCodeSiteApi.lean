@@ -278,7 +278,10 @@ def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
     module := `VersoBlueprintTests.ComparatorFixtures.Match.Solution
     source := "tests/VersoBlueprintTests/ComparatorFixtures/Match/Solution.lean"
     declarations := #[{ name := `CmpMatch.double_eq, kind := "theorem" }] }] }
-  try k root project finally IO.FS.removeDirAll root
+  -- the link goes first: removing the folder through it would delete this package's build
+  try k root project finally
+    try IO.FS.removeFile (root / ".lake" / "build" / "lib" / "lean") catch _ => pure ()
+    IO.FS.removeDirAll root
 
 -- With a challenge, the headline compares it as a Blueprint site does; the theorem's node is
 -- its declaration.
