@@ -127,7 +127,9 @@
   `LAKE_ARTIFACT_CACHE=true` and `LAKE_RESTORE_ARTIFACTS=false`, discovers the
   nearest `lean-toolchain`, and preserves explicit Lake cache overrides. Use
   `scripts/with-blueprint-lake-cache --print-config` to inspect the effective
-  environment. The cache-in-place configuration is validated for supported VBP
+  environment. The cache lives in the main checkout and every worktree writes
+  into it, also one outside the checkout; a scratch worktree that should not
+  share it sets `BP_LAKE_ARTIFACT_CACHE_ROOT` to a folder of its own. The cache-in-place configuration is validated for supported VBP
   generation and Lean Beam; direct filesystem consumers may opt into
   restoration.
 - A few test modules read compiled modules from `.lake/build/lib/lean` while

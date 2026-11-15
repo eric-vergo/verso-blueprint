@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import VersoBlueprint.StaticMath
 import Lean
 import Lean.Elab.Command
 import Std.Data.HashMap
@@ -2914,6 +2915,10 @@ private def emitBlueprintHtml
     Informal.DeclarationSource.setEnabled false
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
+  -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
+  let finished ← Informal.StaticMath.finishSite (outDirForMode prepared.config.toConfig mode)
+  if finished.clashes > 0 then
+    Verso.reportError s!"Blueprint math: {finished.clashes} glyph outlines share an id"
   for step in extraSteps do
     step prepared
 

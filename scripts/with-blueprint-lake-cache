@@ -13,6 +13,12 @@ Run a command with Blueprint's shared, toolchain-scoped Lake artifact cache.
 Explicit LAKE_CACHE_DIR, LAKE_ARTIFACT_CACHE, and LAKE_RESTORE_ARTIFACTS values
 are preserved. BP_LAKE_ARTIFACT_CACHE_ROOT can override the shared cache root
 while retaining toolchain scoping.
+
+The default root is .worktrees/_lake-artifact-cache in the main checkout, found
+through Git, so every worktree of the repository writes into it, including one
+outside the checkout (a scratch worktree under /tmp, say). To keep a scratch
+worktree's artifacts out of it, give that worktree its own root:
+  BP_LAKE_ARTIFACT_CACHE_ROOT=/tmp/my-cache scripts/with-blueprint-lake-cache ...
 EOF
 }
 

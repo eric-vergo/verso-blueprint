@@ -256,6 +256,33 @@ def packageRoot : IO System.FilePath := do
   let file : System.FilePath := "tests/VersoBlueprintTests/BlueprintCodeSiteApi.lean"
   return (← IO.currentDir) / (file.parent.bind (·.parent) |>.bind (·.parent) |>.getD ".")
 
+/-- Removes a folder tree without following symbolic links: a link is removed, never what it
+points to, so a scratch project that links this package's build cannot delete it. -/
+partial def removeTreeNoFollow (p : System.FilePath) : IO Unit := do
+  let md ← p.symlinkMetadata
+  if md.type == .dir then
+    for e in ← p.readDir do removeTreeNoFollow e.path
+    IO.FS.removeDir p
+  else IO.FS.removeFile p
+
+-- Removing a tree that holds a link to a folder removes the link, not the folder's files.
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let base := System.FilePath.mk s!"/tmp/vbp-remove-tree-test-{← IO.monoNanosNow}"
+  let target := base / "target"
+  let scratch := base / "scratch"
+  IO.FS.createDirAll target
+  IO.FS.createDirAll scratch
+  IO.FS.writeFile (target / "keep.olean") "x"
+  let _ ← IO.Process.output { cmd := "ln", args := #["-s", target.toString,
+    (scratch / "lean").toString] }
+  removeTreeNoFollow scratch
+  let kept ← (target / "keep.olean").pathExists
+  let gone := !(← scratch.pathExists)
+  removeTreeNoFollow base
+  return kept && gone
+
 /-- A project whose challenge is the `Match` fixture (compiled with this package's tests): the
 challenge and solution sources, `comparator.json`, and the compiled modules beside them. -/
 def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
@@ -278,10 +305,8 @@ def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
     module := `VersoBlueprintTests.ComparatorFixtures.Match.Solution
     source := "tests/VersoBlueprintTests/ComparatorFixtures/Match/Solution.lean"
     declarations := #[{ name := `CmpMatch.double_eq, kind := "theorem" }] }] }
-  -- the link goes first: removing the folder through it would delete this package's build
-  try k root project finally
-    try IO.FS.removeFile (root / ".lake" / "build" / "lib" / "lean") catch _ => pure ()
-    IO.FS.removeDirAll root
+  -- the tree holds a link to this package's build: it is removed without following links
+  try k root project finally removeTreeNoFollow root
 
 -- With a challenge, the headline compares it as a Blueprint site does; the theorem's node is
 -- its declaration.

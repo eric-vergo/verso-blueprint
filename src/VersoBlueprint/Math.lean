@@ -122,8 +122,13 @@ inline_extension Inline.bpMath (data : BpMathData) where
     let some d ← Informal.ExtensionDecode.decode? (α := BpMathData) data
         (fun _ => s!"Malformed blueprint math payload during traversal: {data}")
       | pure none
-    let assets ← if ← isStatic d then pure { extraCss := [Informal.StaticMath.css] }
-      else pure (mathHtmlAssets d.texPrelude)
+    -- The prelude table and the browser script go on every page, even when this formula is
+    -- typeset at build time: a page can show other formulas later (previews, the graph's node
+    -- views, code-site statements), and those that take the browser path need them.
+    let assets := mathHtmlAssets d.texPrelude
+    let assets ← if ← isStatic d then
+        pure (assets.combine { extraCss := [Informal.StaticMath.css] })
+      else pure assets
     modify fun st => st.modifyHtmlAssets fun a => a.combine assets
     pure none
   toTeX :=

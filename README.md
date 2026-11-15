@@ -241,14 +241,30 @@ Blueprint supports inline math such as ``$`n + 0 = n` `` and display math such a
 
 When the site is generated, formulas are typeset by
 [LeAnTeX](https://github.com/eric-vergo/LeAnTeX)'s KaTeX-compatible layout and
-written into the page as inline SVG (New Computer Modern glyph outlines in the
-text colour), so they need no script. A formula LeAnTeX does not accept is
-rendered by KaTeX in the browser as before, and `set_option
+written into the page as inline SVG, so they need no script. A formula LeAnTeX
+does not accept is rendered by KaTeX in the browser as before, and `set_option
 verso.blueprint.math.static false` (in a file, or for a whole project in the
-lakefile's `leanOptions`) sends every formula to KaTeX. The fonts are read from
-LeAnTeX's copy in the project's package folder
-(`.lake/packages/leantex/fonts/newcomputermodern`) or from the folder named by
-`VERSO_BLUEPRINT_MATH_FONTS`; without them every formula takes the KaTeX path.
+lakefile's `leanOptions`) sends every formula to KaTeX.
+
+- Each formula carries its MathML for screen readers and its TeX source for
+  copying, both hidden from sight; the picture itself is hidden from screen
+  readers.
+- An inline formula wraps where KaTeX allows a line break (after relations and
+  binary operators); a display formula wider than its column scrolls.
+- Glyph outlines are written once per page, and KaTeX's style sheet and script
+  are left out of pages that cannot need them.
+- The fonts are read from LeAnTeX's package (found on Lean's search path, so the
+  working directory does not matter) or from the folder named by
+  `VERSO_BLUEPRINT_MATH_FONTS`. Without them every formula takes the KaTeX path
+  and the build prints one warning naming the folders it looked in.
+
+The glyphs in generated pages are outlines of New Computer Modern fonts
+(`NewCMMath-Book`, `NewCMMath-Bold`, `NewCM10-Book`, `NewCM10-BookItalic`,
+`NewCM10-BoldItalic`), which are distributed under the GUST Font License (the
+LaTeX Project Public License, with the request that modified versions be
+renamed); LeAnTeX ships them with their licence text
+(`fonts/newcomputermodern/License.txt` in its repository). LeAnTeX itself is
+under the Apache 2.0 licence.
 Math in docstrings is rendered by KaTeX.
 
 Blueprint nodes can also carry raw external markup through labeled `tex` and
