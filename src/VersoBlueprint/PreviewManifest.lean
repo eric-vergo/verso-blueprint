@@ -787,6 +787,21 @@ private def vendoredD3Js : String := include_str "../../static-web/vendor/d3/d3.
 private def vendoredD3GraphvizJs : String :=
   include_str "../../static-web/vendor/d3-graphviz/d3-graphviz.min.js"
 
+/--
+The licence and notice files of the vendored libraries, written next to them in every site
+(`static-web/vendor/README.md`), with their paths in the site's data directory.
+-/
+def vendoredLicenseFiles : Array (String × String) := #[
+  ("vendor/d3/LICENSE", include_str "../../static-web/vendor/d3/LICENSE"),
+  ("vendor/d3-graphviz/LICENSE", include_str "../../static-web/vendor/d3-graphviz/LICENSE"),
+  ("vendor/d3-graphviz/LICENSE-hpcc-js-wasm",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-hpcc-js-wasm"),
+  ("vendor/d3-graphviz/LICENSE-graphviz",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-graphviz"),
+  ("vendor/d3-graphviz/LICENSE-expat",
+    include_str "../../static-web/vendor/d3-graphviz/LICENSE-expat")
+]
+
 private def relationPanelModuleMjs : String := include_str "Informal/Block/relation-panel.mjs"
 
 private def previewRuntimeBaseModuleFilename : String := "preview-runtime-base.mjs"
@@ -846,7 +861,7 @@ private def pageRuntimeModules : Array (String × String) := #[
   ("Informal/Block/relation-panel.mjs", relationPanelModuleMjs),
   ("vendor/d3/d3.min.js", vendoredD3Js),
   ("vendor/d3-graphviz/d3-graphviz.min.js", vendoredD3GraphvizJs)
-]
+] ++ vendoredLicenseFiles
 
 private def writeDataFile (dataDir : System.FilePath) (relativePath contents : String) : IO Unit := do
   let path := dataDir / relativePath

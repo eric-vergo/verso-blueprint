@@ -20,7 +20,7 @@ import pytest
 from playwright.sync_api import Page
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
-from support import PACKAGE_ROOT, find_free_port, wait_for_server
+from support import PACKAGE_ROOT, find_free_port, wait_for_server, assert_vendored_licenses
 
 FIXTURE = Path(__file__).parent / "code_site_fixture"
 
@@ -207,3 +207,7 @@ def test_contents_backdrop_closes_the_panel(page: Page, code_site_url: str):
     assert page.evaluate("document.getElementById('toggle-toc').checked")
     page.locator(".toc-backdrop").click(position={"x": 560, "y": 400})
     assert not page.evaluate("document.getElementById('toggle-toc').checked")
+
+
+def test_code_site_ships_vendored_licences(code_site_dir: Path):
+    assert_vendored_licenses(code_site_dir)
