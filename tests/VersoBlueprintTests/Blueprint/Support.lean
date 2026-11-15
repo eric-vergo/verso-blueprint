@@ -38,9 +38,11 @@ def traverseManualDocBlocksAndState
     (impls : ExtensionImpls)
     (doc : Doc.VersoDoc Genre.Manual)
     (logError : String → IO Unit := fun message => throw <| IO.userError message)
-    (model : Informal.RenderModel := by exact blueprint_render_model%) :
+    (model : Informal.RenderModel := by exact blueprint_render_model%)
+    (prepare : Doc.Part Genre.Manual → Doc.Part Genre.Manual := id) :
     IO (Array (Doc.Block Genre.Manual) × TraverseState) :=
-  Informal.traverseManualBlocks (collectBlocks doc.toPart) (model.withExtensions impls) logError
+  Informal.traverseManualBlocks (collectBlocks (prepare doc.toPart)) (model.withExtensions impls)
+    logError
 
 private def testLogger : Logger IO where
   log severity text _loc :=
@@ -59,11 +61,13 @@ def renderManualBlocksTeXWithState (impls : ExtensionImpls)
 def renderManualDocHtmlAndState
     (impls : ExtensionImpls)
     (doc : Doc.VersoDoc Genre.Manual)
-    (model : Informal.RenderModel := by exact blueprint_render_model%) : IO (Output.Html × TraverseState) := do
+    (model : Informal.RenderModel := by exact blueprint_render_model%)
+    (prepare : Doc.Part Genre.Manual → Doc.Part Genre.Manual := id) :
+    IO (Output.Html × TraverseState) := do
   let opts : Doc.Html.Options := {
     headerLevel := 1
   }
-  let (blocks, st) ← traverseManualDocBlocksAndState impls doc (model := model)
+  let (blocks, st) ← traverseManualDocBlocksAndState impls doc (model := model) (prepare := prepare)
   let ctxt : TraverseContext := {}
   let definitionIds : Lean.NameMap String := {}
   let linkTargets : Code.LinkTargets TraverseContext := {}
@@ -82,8 +86,9 @@ def renderManualDocHtmlAndState
   pure (html, st)
 
 def renderManualDocHtml (impls : ExtensionImpls) (doc : Doc.VersoDoc Genre.Manual)
-    (model : Informal.RenderModel := by exact blueprint_render_model%) : IO Output.Html := do
-  let (html, _st) ← renderManualDocHtmlAndState impls doc (model := model)
+    (model : Informal.RenderModel := by exact blueprint_render_model%)
+    (prepare : Doc.Part Genre.Manual → Doc.Part Genre.Manual := id) : IO Output.Html := do
+  let (html, _st) ← renderManualDocHtmlAndState impls doc (model := model) (prepare := prepare)
   pure html
 
 def renderManualDocHtmlStringAndState
@@ -94,8 +99,9 @@ def renderManualDocHtmlStringAndState
   pure (html.asString, st)
 
 def renderManualDocHtmlString (impls : ExtensionImpls) (doc : Doc.VersoDoc Genre.Manual)
-    (model : Informal.RenderModel := by exact blueprint_render_model%) : IO String := do
-  let html ← renderManualDocHtml impls doc (model := model)
+    (model : Informal.RenderModel := by exact blueprint_render_model%)
+    (prepare : Doc.Part Genre.Manual → Doc.Part Genre.Manual := id) : IO String := do
+  let html ← renderManualDocHtml impls doc (model := model) (prepare := prepare)
   pure html.asString
 
 def buildManualPreviewDataFiles
