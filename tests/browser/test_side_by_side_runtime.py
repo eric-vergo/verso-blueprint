@@ -252,8 +252,9 @@ class TestSideBySideRuntime:
         legend.locator("summary").click()
         for glyph in ["✓", "◐", "⚠", "✗", "○"]:
             expect(legend.locator("dt", has_text=glyph)).to_be_visible()
+        # the mark's title says what was checked, in words
         title = page.locator(".bp_sbs .bp_status_glyph").first.get_attribute("title")
-        assert title and "(" in title
+        assert title and "Lean" in title and len(title.split()) >= 3
 
     def test_dark_code_tokens_are_readable(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page

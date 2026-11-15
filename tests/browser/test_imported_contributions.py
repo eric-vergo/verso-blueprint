@@ -149,8 +149,13 @@ def test_repeated_external_panels_have_distinct_targets(named_site, page: Page):
     assert href
     page.goto(urljoin(f"{server}/", href))
     expect(page.locator(":target")).to_contain_text("facetExternal")
-    # The declaration row belongs to the completed statement's companion panel.
+    # The declaration row belongs to the completed statement's companion panel: the panel
+    # follows its statement, after the line that names the statement's source.
     owner_id = page.locator(":target").evaluate(
-        'row => row.closest(".bp_code_panel_wrapper").previousElementSibling.id'
+        """row => {
+            let node = row.closest(".bp_code_panel_wrapper").previousElementSibling;
+            while (node && !node.id) node = node.previousElementSibling;
+            return node ? node.id : "";
+        }"""
     )
     assert owner_id == selected_id
