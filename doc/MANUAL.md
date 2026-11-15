@@ -2522,8 +2522,8 @@ The site is an ordinary Blueprint site:
   theorems, everything else is a definition, numbered by chapter. A node with a
   statement in the data shows it as on a written Blueprint: in its chapter card
   and in the graph's node view, beside the Lean side, its title in bold, its
-  formulas rendered by the page's KaTeX, its proof below it (folded in the node
-  view); the statement's Markdown is read with raw HTML shown as text and link
+  formulas typeset when the site is built (by KaTeX in the page when one is not
+  accepted then), its proof below it (folded in the node view); the statement's Markdown is read with raw HTML shown as text and link
   targets other than web, mail and site-relative ones dropped. A node without
   one shows the Lean side alone. The Lean side is an API entry: the signature
   and the source excerpt read from `--root`,
