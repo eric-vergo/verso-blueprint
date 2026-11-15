@@ -253,6 +253,13 @@ lakefile's `leanOptions`) sends every formula to KaTeX.
   binary operators); a display formula wider than its column scrolls.
 - Glyph outlines are written once per page, and KaTeX's style sheet and script
   are left out of pages that cannot need them.
+- The formulas of the dependency graph's node views are kept once in the page
+  that has the graph, in inert `<template>` elements; a node view refers to them
+  by key and the page shows copies of them. A page that shows node views without
+  a graph of its own has no templates, and shows such a formula's TeX source
+  (typeset by KaTeX where the page loads it).
+- The statements of a site generated from code (`vbp code-site`) are typeset the
+  same way.
 - The fonts are read from LeAnTeX's package (found on Lean's search path, so the
   working directory does not matter) or from the folder named by
   `VERSO_BLUEPRINT_MATH_FONTS`. Without them every formula takes the KaTeX path
