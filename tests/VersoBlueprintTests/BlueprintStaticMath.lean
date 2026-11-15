@@ -116,18 +116,18 @@ def near (a b : Float) : Bool := (a - b).abs < 0.001
       hasSubstr kept "katex/katex.js" && hasSubstr codePage "katex/katex.css"
     )
 
--- A site's data decides whether KaTeX stays on its pages: statements kept as TeX between dollar
--- signs (a site generated from code shows them in its node views, typeset by the page's script)
--- need it; the copyable sources of build-time formulas and Markdown docstrings do not.
+-- A site's data decides whether KaTeX stays on its pages: a formula left to the browser needs
+-- it; a build-time formula with its copyable source, a reference to a stored formula, and text
+-- that merely has dollar signs (a docstring, a comment in highlighted source) do not.
 /-- info: true -/
 #guard_msgs in
 #eval
-  let codeSite := r#"{"html":"<div class=\"bp_sbs_informal\">\n<p>\n  $q_k \\equiv 1$.</p>"}"#
+  let browser := r#"{"html":"<p>Hence <code class=\"bp_math inline\">q_k \\equiv 1</code>.</p>"}"#
   let static := r#"{"html":"<span class=\"bp_math inline bp_math_static\"><svg></svg><span class=\"bp_math_source\" aria-hidden=\"true\">$x$</span></span>"}"#
-  let docstring := r#"{"7":"<code class=\"docstring\">the interval $[a, b]$.</code>"}"#
-  let unclosed := r#"{"7":"<code class=\"docstring\">no end", "8":"<p>$x$</p>"}"#
-  StaticMath.textNeedsKaTeX codeSite && !StaticMath.textNeedsKaTeX static &&
-    !StaticMath.textNeedsKaTeX docstring && StaticMath.textNeedsKaTeX unclosed
+  let stored := r#"{"html":"<code class=\"bp_math_ref bp_math inline\" data-bp-math-key=\"bpm-1-2\">x</code>"}"#
+  let text := r#"{"7":"<code class=\"docstring\">the interval $[a, b]$.</code><span class=\"comment\">-- $A$</span>"}"#
+  StaticMath.textNeedsKaTeX browser && !StaticMath.textNeedsKaTeX static &&
+    !StaticMath.textNeedsKaTeX stored && !StaticMath.textNeedsKaTeX text
 
 /-- A node view's statement around the given formulas (already rendered), as a node view has
 it. -/
