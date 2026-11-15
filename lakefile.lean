@@ -4,9 +4,9 @@ open Lake DSL
 -- Pin the matching Lean 4.35 stable dependency stack.
 require verso from git "https://github.com/leanprover/verso"@"v4.35.0"
 require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.35.0"
--- Side-by-side nodes need `SubVerso.Module.findDecl?` (eric-vergo/subverso
--- `feat/declaration-source`, proposed upstream). Return to the upstream tag once
--- it is released there.
+-- Side-by-side nodes need `SubVerso.Module.findDecl?`, which is on the branch
+-- `feat/declaration-source` of the eric-vergo/subverso fork and not in an
+-- upstream SubVerso release. Return to the upstream tag if it is released there.
 require subverso from git "https://github.com/eric-vergo/subverso"@"feat/declaration-source"
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
