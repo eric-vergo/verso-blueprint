@@ -237,8 +237,19 @@ Current behavior:
 
 Blueprint supports inline math such as ``$`n + 0 = n` `` and display math such as
 ``$$`\sum_{i=0}^{n} i = \frac{n(n+1)}{2}` ``. It also supports TeX preludes via
-`tex_prelude` and best-effort KaTeX linting during elaboration. KaTeX is the
-renderer used by the generated HTML.
+`tex_prelude` and best-effort KaTeX linting during elaboration.
+
+When the site is generated, formulas are typeset by
+[LeAnTeX](https://github.com/eric-vergo/LeAnTeX)'s KaTeX-compatible layout and
+written into the page as inline SVG (New Computer Modern glyph outlines in the
+text colour), so they need no script. A formula LeAnTeX does not accept is
+rendered by KaTeX in the browser as before, and `set_option
+verso.blueprint.math.static false` (in a file, or for a whole project in the
+lakefile's `leanOptions`) sends every formula to KaTeX. The fonts are read from
+LeAnTeX's copy in the project's package folder
+(`.lake/packages/leantex/fonts/newcomputermodern`) or from the folder named by
+`VERSO_BLUEPRINT_MATH_FONTS`; without them every formula takes the KaTeX path.
+Math in docstrings is rendered by KaTeX.
 
 Blueprint nodes can also carry raw external markup through labeled `tex` and
 `md` code blocks. These blocks are Level 2 informal representations in the
