@@ -26,11 +26,18 @@ structure RenderModel where
   stats : Stats.ProjectStats := {}
 deriving Inhabited
 
-def RenderModel.fromJsonString! (serialized : String) : RenderModel := Id.run do
-  match Json.parse serialized >>=
-      fromJson? (α := Array RenderNode × Graph.GraphModel × Commands.Summary × Stats.ProjectStats) with
+/-- Reads a render model serialized by `RenderModel.captureJson`; the error says what did not read
+back. -/
+def RenderModel.fromJsonString? (serialized : String) : Except String RenderModel := do
+  let (nodes, graph, summary, stats) ← Json.parse serialized >>=
+    fromJson? (α := Array RenderNode × Graph.GraphModel × Commands.Summary × Stats.ProjectStats)
+  return { nodes, graph, summary, stats }
+
+/-- `RenderModel.fromJsonString?` for a model `blueprint_render_model%` has already read back. -/
+def RenderModel.fromJsonString! (serialized : String) : RenderModel :=
+  match RenderModel.fromJsonString? serialized with
+  | .ok model => model
   | .error error => panic! s!"Invalid Blueprint render model: {error}"
-  | .ok (nodes, graph, summary, stats) => return { nodes, graph, summary, stats }
 
 /--
 The serialized render model of the Blueprint state in the current environment: what
@@ -45,9 +52,13 @@ def RenderModel.captureJson : CoreM String := do
   let stats ← (← Stats.ProjectStats.capture graph).withHeadline
   return (toJson (nodes, graph, summary, stats)).compress
 
-/-- Capture runtime data without carrying a Lean environment into the generator. -/
+/-- Capture runtime data without carrying a Lean environment into the generator. The model is
+read back here, so a model that would not read back fails the elaboration with the reason instead of
+the generator at run time. -/
 elab "blueprint_render_model%" : term => do
   let serialized ← RenderModel.captureJson
+  if let .error error := RenderModel.fromJsonString? serialized then
+    throwError "The Blueprint render model of this environment does not read back: {error}"
   Lean.Elab.Term.elabTerm (← `(RenderModel.fromJsonString! $(quote serialized))) none
 
 
