@@ -1240,14 +1240,20 @@ class TestGraphLayoutRuntime:
         assert metrics["canvasHeight"] >= 0.6 * metrics["viewport"] - 2, metrics
         assert_graph_has_zoom_handlers(page)
         target = None
+        # the part of the canvas inside the window
+        canvas = page.locator(".bp_graph_canvas").first.bounding_box()
+        assert canvas is not None
+        view = page.viewport_size
+        left, top = max(canvas["x"], 0), max(canvas["y"], 0)
+        right = min(canvas["x"] + canvas["width"], view["width"])
+        bottom = min(canvas["y"] + canvas["height"], view["height"])
         for candidate in page.locator(".bp_graph_canvas svg g.node[tabindex='0']").all():
             box = candidate.bounding_box()
-            canvas = page.locator(".bp_graph_canvas").first.bounding_box()
-            if box and canvas and box["x"] > canvas["x"] and box["x"] + box["width"] < canvas["x"] + canvas["width"] \
-                    and box["y"] > canvas["y"] and box["y"] + box["height"] < canvas["y"] + canvas["height"]:
+            if box and box["x"] > left and box["x"] + box["width"] < right \
+                    and box["y"] > top and box["y"] + box["height"] < bottom:
                 target = box
                 break
-        assert target is not None, "no node fully inside the canvas"
+        assert target is not None, "no node fully inside the visible canvas"
         x = target["x"] + target["width"] / 2
         y = target["y"] + target["height"] / 2
         page.mouse.move(x, y)
