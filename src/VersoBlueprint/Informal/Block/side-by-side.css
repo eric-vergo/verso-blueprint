@@ -529,6 +529,12 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
   display: none;
 }
 
+/* Stacked, the nodes of a run are spaced by a margin instead of the padding
+   that the rule above removes. */
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_run > .bp_sbs + .bp_sbs {
+  margin-top: var(--bp-sbs-node-gap);
+}
+
 /* Print: one column per node. */
 @media print {
   .bp_sbs_grid {
@@ -546,8 +552,21 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
     display: none;
   }
 
-  .bp_sbs_run > .bp_sbs + .bp_sbs {
+  /* The run's padding gives way to one margin between nodes, and a targeted
+     node prints without its tint. Each rule matches its screen rule's weight. */
+  .bp_sbs_run > .bp_sbs > .bp_sbs_grid {
+    padding-block: 0;
+  }
+
+  .bp_sbs_run > .bp_sbs + .bp_sbs,
+  html[data-bp-style] .bp_sbs_run > .bp_sbs + .bp_sbs {
     margin-top: 1rem;
+  }
+
+  .bp_sbs_run > .bp_sbs:is(:target, :has(:target)) > .bp_sbs_grid {
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .bp_sbs_formal {

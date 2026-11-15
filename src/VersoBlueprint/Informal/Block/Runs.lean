@@ -20,20 +20,19 @@ namespace Informal.SideBySideRuns
 
 In the side-by-side layout, consecutive Blueprint blocks form a *run*: one element
 (`div.bp_sbs_run`) that holds the nodes and their proofs, so the stylesheet can space a run as a
-unit and draw one column divider through it. Anything else between two blocks (prose, a code
-block, a heading) ends the run.
+unit and draw one column divider through it. Anything else between two blocks that shows
+something on the page (prose, a code block, a heading) ends the run; a block that renders
+nothing (group metadata, hidden external markup) neither joins nor ends one.
 
-`groupRuns` wraps the runs of a document before traversal. When a run is rendered, each
-proof that directly follows its statement node (with the proof's Lean references panel, if any)
-moves into the node's informal column, so the statement, its folded proof and the Lean source
-form one unit whether or not the page script runs.
+`groupRuns` wraps each stretch of blocks from one Blueprint block to another before traversal.
+Whether a block between them ends the run is decided on its rendered output, when the run is
+rendered. Each proof that directly follows its statement node (with the proof's Lean references
+panel, if any) moves into the node's informal column, so the statement, its folded proof and the
+Lean source form one unit whether or not the page script runs.
 -/
 
 /-- The name of Blueprint's informal block extension (statements and proofs). -/
 def informalBlockName : Lean.Name := `Informal.Block.informal
-
-/-- Blocks that render nothing and so neither join nor end a run on their own. -/
-def transparentBlockNames : List Lean.Name := [`Informal.Block.groupMetadata]
 
 /-- HTML class of a run element. -/
 def runClass : String := "bp_sbs_run"
@@ -62,10 +61,16 @@ private def proofLabel? : Html → Option String
     if attr? attrs "data-bp-facet" == some "proof" then attr? attrs "data-bp-node" else none
   | _ => none
 
-/-- Flatten nested sequences, dropping empty ones. -/
-private partial def flattenInto (acc : Array Html) : Html → Array Html
-  | .seq xs => xs.foldl flattenInto acc
+/-- Append the items of `html` to `acc`, flattening nested sequences and dropping empty ones. -/
+def flattenInto (acc : Array Html) : Html → Array Html
+  | .seq xs => xs.attach.foldl (init := acc) fun acc ⟨x, _⟩ => flattenInto acc x
   | h => acc.push h
+
+/-- Whether `html` shows nothing: it has no element, and its text is only whitespace. -/
+def rendersNothing (html : Html) : Bool :=
+  (flattenInto #[] html).all fun
+    | .text _ s => s.all Char.isWhitespace
+    | _ => false
 
 /-- Append `extra` to the node's informal column. -/
 private def appendToInformal (node : Html) (extra : Array Html) : Html :=
@@ -99,11 +104,32 @@ def attachProofs (items : Array Html) : Array Html := Id.run do
       out := out.push (if attached.isEmpty then item else appendToInformal item attached)
   return out
 
-/-- A rendered run: the run element around its parts, each proof inside its node. -/
-def renderRun (parts : Array Html) : Html :=
-  .tag "div" #[("class", runClass)] (.seq (attachProofs (parts.foldl flattenInto #[])))
+/--
+Render a run from its blocks' renderings, each paired with whether the block is a Blueprint
+block. A run element holds the Blueprint blocks, each proof inside its node; another block that
+renders nothing is dropped, and one that shows something ends the run element and stands between
+it and the next.
+-/
+def renderRun (parts : Array (Bool × Html)) : Html := Id.run do
+  let mut out : Array Html := #[]
+  let mut run : Array Html := #[]
+  for (member, html) in parts do
+    if member then
+      run := flattenInto run html
+    else if !rendersNothing html then
+      out := close out run |>.push html
+      run := #[]
+  return .seq (close out run)
+where
+  close (out run : Array Html) : Array Html :=
+    if run.isEmpty then out else out.push (.tag "div" #[("class", runClass)] (.seq (attachProofs run)))
 
--- A run of consecutive side-by-side blocks, rendered as one `div.bp_sbs_run`.
+/-- Whether `block` is a Blueprint block, which takes part in runs. -/
+def isRunMember : Block Manual → Bool
+  | .other b _ => b.name == informalBlockName
+  | _ => false
+
+-- A stretch of blocks from one Blueprint block to another, rendered as runs (see `renderRun`).
 block_extension Block.sideBySideRun where
   traverse _ _ _ := pure none
   toTeX := some <| fun _goI goB _id _data blocks => do
@@ -111,59 +137,71 @@ block_extension Block.sideBySideRun where
   toHtml :=
     open Verso.Doc.Html in
     some <| fun _goI goB _id _data blocks => do
-      let parts ← blocks.mapM goB
+      let parts ← blocks.mapM fun b => return (isRunMember b, ← goB b)
       pure <| renderRun parts
 
-/-- Whether `block` takes part in runs (`some true`), is transparent (`none`), or ends one. -/
-private def runRole? : Block Manual → Option Bool
-  | .other b _ =>
-    if b.name == informalBlockName then some true
-    else if transparentBlockNames.contains b.name then none
-    else some false
-  | _ => some false
-
 /--
-Wrap each maximal run of consecutive Blueprint blocks of `blocks` in a
-`Block.sideBySideRun`. Blocks that render nothing (group metadata) stay inside a run
-without ending it; a run never starts or ends with them. Blocks outside runs are searched for
-runs in their own contents.
+Wrap each maximal stretch of `blocks` that begins and ends with a Blueprint block in a
+`Block.sideBySideRun`; the blocks before the first and after the last stay outside.
 -/
-partial def groupBlocks (blocks : Array (Block Manual)) : Array (Block Manual) := Id.run do
-  let flat := blocks.foldl (init := #[]) fun acc b =>
-    match b with
-    | .concat bs => acc ++ bs
-    | b => acc.push b
+def wrapRuns (blocks : Array (Block Manual)) : Array (Block Manual) := Id.run do
   let mut out : Array (Block Manual) := #[]
   let mut run : Array (Block Manual) := #[]
-  -- transparent blocks seen since the last run member
+  -- other blocks seen since the last Blueprint block of the run
   let mut pending : Array (Block Manual) := #[]
-  for b in flat do
-    match runRole? b with
-    | some true =>
+  for b in blocks do
+    if isRunMember b then
       run := run ++ pending |>.push b
       pending := #[]
-    | none =>
-      if run.isEmpty then out := out.push b else pending := pending.push b
-    | some false =>
-      out := flush out run ++ pending |>.push (descend b)
-      run := #[]
-      pending := #[]
-  return flush out run ++ pending
-where
-  flush (out run : Array (Block Manual)) : Array (Block Manual) :=
-    if run.isEmpty then out else out.push (.other Block.sideBySideRun run)
-  descend : Block Manual → Block Manual
-    | .other b contents => .other b (groupBlocks contents)
-    | .blockquote contents => .blockquote (groupBlocks contents)
-    | .ul items => .ul (items.map fun ⟨bs⟩ => ⟨groupBlocks bs⟩)
-    | .ol start items => .ol start (items.map fun ⟨bs⟩ => ⟨groupBlocks bs⟩)
-    | .dl items => .dl (items.map fun ⟨t, bs⟩ => ⟨t, groupBlocks bs⟩)
-    | b => b
+    else if run.isEmpty then
+      out := out.push b
+    else
+      pending := pending.push b
+  return (if run.isEmpty then out else out.push (.other Block.sideBySideRun run)) ++ pending
+
+mutual
+/--
+The blocks that `block` stands for at its own level, with the runs of its contents grouped: the
+blocks of a concatenation (at any depth), a Blueprint block as it is, and any other block with
+{name}`groupBlocks` applied to the blocks it contains.
+-/
+def prepareBlock : Block Manual → Array (Block Manual)
+  | .concat bs => bs.attach.flatMap fun ⟨b, _⟩ => prepareBlock b
+  | .other ext contents =>
+    if ext.name == informalBlockName then #[.other ext contents]
+    else #[.other ext (groupBlocks contents)]
+  | .blockquote bs => #[.blockquote (groupBlocks bs)]
+  | .ul items => #[.ul (items.attach.map fun ⟨⟨bs⟩, _⟩ => ⟨groupBlocks bs⟩)]
+  | .ol start items => #[.ol start (items.attach.map fun ⟨⟨bs⟩, _⟩ => ⟨groupBlocks bs⟩)]
+  | .dl items => #[.dl (items.attach.map fun ⟨⟨t, bs⟩, _⟩ => ⟨t, groupBlocks bs⟩)]
+  | b => #[b]
+termination_by b => sizeOf b
+decreasing_by
+  all_goals (try decreasing_tactic)
+  all_goals
+    have := Array.sizeOf_lt_of_mem ‹_ ∈ items›
+    grind
+
+/--
+Group the runs of `blocks` (see {name}`wrapRuns`), after flattening concatenations and grouping
+inside every block that contains blocks.
+-/
+def groupBlocks (blocks : Array (Block Manual)) : Array (Block Manual) :=
+  wrapRuns (blocks.attach.flatMap fun ⟨b, _⟩ => prepareBlock b)
+termination_by sizeOf blocks
+decreasing_by have := Array.sizeOf_lt_of_mem ‹_ ∈ blocks›; omega
+end
 
 /-- Wrap the runs of Blueprint blocks in every part of a document (see {name}`groupBlocks`). -/
-partial def groupRuns (part : Part Manual) : Part Manual :=
+def groupRuns (part : Part Manual) : Part Manual :=
   { part with
     content := groupBlocks part.content
-    subParts := part.subParts.map groupRuns }
+    subParts := part.subParts.attach.map fun ⟨p, _⟩ => groupRuns p }
+termination_by sizeOf part
+decreasing_by
+  have := Array.sizeOf_lt_of_mem ‹_ ∈ part.subParts›
+  cases part
+  simp only [Part.subParts, Lean.Doc.Part.mk.sizeOf_spec] at this ⊢
+  omega
 
 end Informal.SideBySideRuns

@@ -361,6 +361,21 @@ _RUN_GEOMETRY_JS = """
 })
 """
 
+# The vertical space between the visible content of consecutive nodes of the run that holds the
+# node labelled `label`: from the bottom of one node's columns to the top of the next one's.
+_RUN_NODE_GAPS_JS = """
+(label) => {
+  const run = document.querySelector(`.bp_sbs_run:has(> .bp_sbs[data-bp-node="${label}"])`);
+  const extent = (node) => {
+    const cols = [...node.querySelectorAll(':scope > .bp_sbs_grid > :is(.bp_sbs_informal, .bp_sbs_formal)')]
+      .map((c) => c.getBoundingClientRect()).filter((r) => r.height > 0);
+    return [Math.min(...cols.map((r) => r.top)), Math.max(...cols.map((r) => r.bottom))];
+  };
+  const nodes = [...run.querySelectorAll(':scope > .bp_sbs')].map(extent);
+  return nodes.slice(1).map((n, i) => n[0] - nodes[i][1]);
+}
+"""
+
 _FIRST_PROSE_SUMMARY = (
     '.bp_sbs[data-bp-node="runs_first"] .bp_sbs_informal > details.bp_kind_proof_wrapper > summary'
 )
@@ -432,6 +447,8 @@ class TestSideBySideRuns:
         expect(prose).to_have_attribute("open", "")
         expect(lean).to_have_attribute("open", "")
         expect(summary).to_have_attribute("aria-expanded", "true")
+        # the Lean proof's own (hidden) toggle says it is open too
+        expect(lean.locator(":scope > summary")).to_have_attribute("aria-expanded", "true")
         expect(lean.locator("code.hl.lean.block")).to_be_visible()
         page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
         assert page.evaluate("() => document.activeElement && document.activeElement.matches('summary')")
@@ -441,6 +458,66 @@ class TestSideBySideRuns:
         page.wait_for_function("() => !document.querySelector('[data-bp-animating]')")
         expect(prose).not_to_have_attribute("open", "")
         expect(lean).not_to_have_attribute("open", "")
+        expect(lean.locator(":scope > summary")).to_have_attribute("aria-expanded", "false")
+        assert_no_runtime_errors(errors)
+
+    @pytest.mark.parametrize("style", [None, "sbs", "blueprint", "modern", "bold"])
+    def test_nodes_of_a_run_are_spaced_in_every_style(
+        self, style, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        page.evaluate(
+            "(s) => s === null ? document.documentElement.removeAttribute('data-bp-style')"
+            "                  : document.documentElement.setAttribute('data-bp-style', s)",
+            style,
+        )
+        gaps = page.evaluate(_RUN_NODE_GAPS_JS, "runs_first")
+        assert len(gaps) >= 2, gaps
+        # the nodes never touch: at least half the node gap between one node's content and the next
+        assert all(gap >= 15.5 for gap in gaps), (style, gaps)
+
+    def test_print_spaces_nodes_once_and_drops_the_target_tint(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        proof_id = page.locator(
+            '.bp_sbs[data-bp-node="runs_definition"] .bp_sbs_informal [id]'
+        ).first.get_attribute("id") or "runs_definition"
+        page.goto(side_by_side_server + runs_page_path(side_by_side_site_dir) + "#" + proof_id)
+        page.wait_for_load_state("networkidle")
+        page.emulate_media(media="print")
+        state = page.evaluate(
+            """() => {
+              const run = document.querySelector('.bp_sbs_run:has(> .bp_sbs[data-bp-node="runs_first"])');
+              const grids = [...run.querySelectorAll(':scope > .bp_sbs > .bp_sbs_grid')];
+              const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+              const target = run.querySelector(':scope > .bp_sbs:is(:target, :has(:target)) > .bp_sbs_grid');
+              return {
+                padding: grids.map((g) => [getComputedStyle(g).paddingTop, getComputedStyle(g).paddingBottom]),
+                gaps: grids.slice(1).map((g, i) => g.getBoundingClientRect().top - grids[i].getBoundingClientRect().bottom),
+                rem,
+                target: target && [getComputedStyle(target).backgroundColor, getComputedStyle(target).boxShadow],
+              };
+            }"""
+        )
+        assert all(p == ["0px", "0px"] for p in state["padding"]), state
+        assert all(abs(gap - state["rem"]) <= 0.5 for gap in state["gaps"]), state
+        assert state["target"] is not None, state
+        assert state["target"][0] in ("rgba(0, 0, 0, 0)", "transparent") and state["target"][1] == "none", state
+
+    def test_malformed_fragment_leaves_the_page_script_running(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        errors = record_runtime_errors(page)
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + runs_page_path(side_by_side_site_dir) + "#%E0%A4%A")
+        page.wait_for_load_state("networkidle")
+        # the steps after the deep link ran: the status legend and the fitted display math
+        expect(page.locator(".bp_status_legend")).to_have_count(1)
+        expect(page.locator('.bp_sbs[data-bp-node="runs_first"]')).to_have_attribute("data-bp-proofs-linked", "")
+        page.evaluate("() => { window.location.hash = '%E0%A4%A'; }")
+        page.wait_for_timeout(100)
+        assert not [e for e in errors if "URIError" in e], errors
         assert_no_runtime_errors(errors)
 
     def test_lean_only_node_keeps_its_lean_toggle(
