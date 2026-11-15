@@ -116,6 +116,18 @@ def near (a b : Float) : Bool := (a - b).abs < 0.001
       hasSubstr kept "katex/katex.js" && hasSubstr codePage "katex/katex.css"
     )
 
+-- A site's data decides whether KaTeX stays on its pages: statements kept as TeX between dollar
+-- signs (a site generated from code shows them in its node views, typeset by the page's script)
+-- need it; the copyable sources of build-time formulas and Markdown docstrings do not.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let codeSite := r#"{"html":"<div class=\"bp_sbs_informal\">\n<p>\n  $q_k \\equiv 1$.</p>"}"#
+  let static := r#"{"html":"<span class=\"bp_math inline bp_math_static\"><svg></svg><span class=\"bp_math_source\" aria-hidden=\"true\">$x$</span></span>"}"#
+  let docstring := r#"{"7":"<code class=\"docstring\">the interval $[a, b]$.</code>"}"#
+  StaticMath.textNeedsKaTeX codeSite && !StaticMath.textNeedsKaTeX static &&
+    !StaticMath.textNeedsKaTeX docstring
+
 -- The fonts come from LeAnTeX's package, found where the build's modules are, not from the
 -- working directory; when they are missing, the warning names the folders looked in.
 /-- info: true -/
