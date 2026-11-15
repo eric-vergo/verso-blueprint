@@ -721,7 +721,7 @@ structure InformalBlockRenderModel where
   formalColumn? : Option Verso.Output.Html := none
   /--
   Render the block as a side-by-side node even without a Lean column (a
-  statement with no Lean declaration): the same card, one full-width column.
+  statement with no Lean declaration): one full-width column.
   -/
   sideBySideNode : Bool := false
   wrapperClass? : Option String := none
@@ -833,9 +833,9 @@ def htmlClassAttrs (className : String) : Array (String × String) :=
 /--
 Node of the side-by-side layout: the informal block on the left, the Lean column
 on the right. Without a Lean column (a statement with no Lean declaration) the
-node keeps the same card with the informal block as its only, full-width column
-(`bp_sbs_single`). Proofs of the node that follow it on the page are moved into
-the left column by the page script.
+informal block is the node's only, full-width column (`bp_sbs_single`). Proofs
+of the node that directly follow it are placed in the left column when its run
+is rendered (`Informal.SideBySideRuns`).
 -/
 def renderSideBySideNode (label : String) (informal : Verso.Output.Html)
     (formal? : Option Verso.Output.Html) : Verso.Output.Html :=
