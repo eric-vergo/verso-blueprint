@@ -39,7 +39,8 @@ before), and the option `verso.blueprint.math.static` (default `true`) sends eve
   page into one hidden `<svg>` at its end (`finishPage`). A fragment taken out of a page before
   that (a preview's HTML) keeps its own definitions. KaTeX's style sheet and script are removed
   from a page that has no formula for the browser to draw, unless the site's data files, which
-  previews and hovers show on any page, have such formulas.
+  previews, node views and hovers show on any page, have such formulas (including statements
+  kept as TeX between dollar signs for the page's script, as a site generated from code has).
 -/
 
 namespace Informal.StaticMath
@@ -352,15 +353,39 @@ partial def filesUnder (dir : System.FilePath) : IO (Array System.FilePath) := d
     else if md.type == .file then out := out.push e.path
   return out
 
+/-- A text without the parts between each `opener` and the next `closer` (both kept out); an
+`opener` without a `closer` after it is kept with what follows it. -/
+def withoutBetween (s opener closer : String) : String :=
+  match s.splitOn opener with
+  | first :: rest =>
+    first ++ String.join (rest.map fun piece =>
+      match piece.splitOn closer with
+      | _ :: after@(_ :: _) => closer.intercalate after
+      | _ => opener ++ piece)
+  | [] => s
+
+/-- A data file's text (JSON-escaped HTML) without the TeX sources that build-time formulas
+carry for copying (`<span class="bp_math_source" …>…</span>`) and without docstrings (`<code
+class="docstring">`, `<pre class="docstring">`), which pages render as Markdown, not as TeX. -/
+def withoutSources (s : String) : String :=
+  let s := withoutBetween s "<span class=\\\"bp_math_source\\\"" "</span>"
+  let s := withoutBetween s "<code class=\\\"docstring\\\">" "</code>"
+  withoutBetween s "<pre class=\\\"docstring\\\">" "</pre>"
+
+/-- Whether a data file's text (JSON) has a formula for the browser to draw: a blueprint formula
+left to KaTeX, Verso's own math, or TeX between dollar signs, as the statements of a site
+generated from code carry them for the page's script to typeset (any `$` outside the sources of
+build-time formulas and outside docstrings counts, so a stray one only keeps KaTeX). -/
+def textNeedsKaTeX (s : String) : Bool :=
+  (s.splitOn "<code class=\\\"bp_math").length > 1 ||
+    (s.splitOn "class=\\\"math ").length > 1 || (withoutSources s).contains '$'
+
 /-- Whether a site's data files (`.json`: previews, node views, hovers, which any page may
-show) have a formula for the browser to draw. -/
+show) have a formula for the browser to draw (`textNeedsKaTeX`). -/
 def dataNeedsKaTeX (files : Array System.FilePath) : IO Bool := do
   for f in files do
     if f.extension == some "json" then
-      let s ← IO.FS.readFile f
-      if (s.splitOn "<code class=\\\"bp_math").length > 1 ||
-          (s.splitOn "class=\\\"math ").length > 1 then
-        return true
+      if textNeedsKaTeX (← IO.FS.readFile f) then return true
   return false
 
 /-- Finishes every page of a written site in `dir` (`finishPage`); KaTeX's files stay on every
