@@ -40,6 +40,24 @@ private def manualImpls : ExtensionImpls := extension_impls%
       !hasSubstr svg "<script" && !hasSubstr svg "<text" && !hasSubstr svg "font-family"
     )
 
+-- Every attribute of a picture has a value: a stretched delimiter, a root and a brace are
+-- written without empty attributes (an empty `preserveAspectRatio` is not valid SVG), and every
+-- tag is closed.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let sources := [r#"\Big| x \Big|"#, r#"\left( \frac{a}{b} \right)"#,
+      r#"\sqrt{x} + \overbrace{a+b}"#, r#"\Bigg\| y \Bigg\|"#]
+    let mut ok := true
+    for src in sources do
+      let some svg ← StaticMath.render? false src "" "a1-" | return false
+      -- the marker of a picture's glyph definitions is the one attribute without a value
+      let svg := svg.replace "<defs data-bp-glyphs=\"\">" "<defs>"
+      ok := ok && !hasSubstr svg "=\"\"" && !hasSubstr svg "preserveAspectRatio=\" " &&
+        countSubstr svg "<svg" == countSubstr svg "</svg>" && countSubstr svg "<svg" ≥ 1
+    pure ok
+
 /-- The value in em of an attribute or style property of a picture. -/
 def emValue (svg name : String) : Option Float := do
   let after ← ((svg.splitOn (name ++ "=\"")).drop 1).head? <|>
