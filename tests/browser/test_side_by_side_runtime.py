@@ -509,6 +509,33 @@ class TestSideBySideRuns:
         )
         assert state and all(s == [True, 0, False] for s in state), state
 
+    def test_hidden_page_opens_at_once_and_settles(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        # a page that is not visible has nothing to animate (and its animation clock may not run)
+        self.open_runs(page, side_by_side_server, side_by_side_site_dir)
+        summary = page.locator(_FIRST_PROSE_SUMMARY)
+        page.evaluate("() => Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })")
+        summary.click()
+        state = page.evaluate(
+            """() => [...document.querySelectorAll('.bp_sbs[data-bp-node="runs_first"] details')]
+                  .map((d) => [d.open, d.getAnimations().length])"""
+        )
+        assert state and all(s == [True, 0] for s in state), state
+        # visible again, a closing runs; hidden mid-way, it settles closed at once
+        page.evaluate("() => { delete document.visibilityState; }")
+        assert page.evaluate("() => document.visibilityState") == "visible"
+        summary.click()
+        page.evaluate(
+            """() => { Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+                       document.dispatchEvent(new Event('visibilitychange')); }"""
+        )
+        state = page.evaluate(
+            """() => [...document.querySelectorAll('.bp_sbs[data-bp-node="runs_first"] details')]
+                  .map((d) => [d.open, d.hasAttribute('data-bp-animating'), d.getAnimations().length])"""
+        )
+        assert state and all(s == [False, False, 0] for s in state), state
+
     def test_without_scripts_both_proofs_open_natively(
         self, browser, side_by_side_server: str, side_by_side_site_dir: Path
     ):
