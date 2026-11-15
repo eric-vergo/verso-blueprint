@@ -10,6 +10,12 @@ import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.MathLint
 import VersoBlueprint.Macros
 import VersoBlueprint.TeX
+import VersoBlueprint.StaticMath
+
+register_option verso.blueprint.math.static : Bool := {
+  defValue := true
+  descr := "if true, typeset blueprint math with LeAnTeX when the site is built and write it as inline SVG; formulas LeAnTeX does not accept, and every formula when false, are rendered by KaTeX in the browser"
+}
 
 open Verso Doc Elab
 open Verso.Genre Manual
@@ -28,7 +34,19 @@ structure BpMathData where
   mode : MathMode
   source : String
   texPrelude : String := ""
+  /-- Whether the formula is typeset when the site is built (`verso.blueprint.math.static`). -/
+  static : Bool := true
 deriving FromJson, ToJson, Repr, Quote
+
+/-- Whether blueprint math is typeset when the site is built. -/
+def staticEnabled (opts : Options) : Bool :=
+  opts.get verso.blueprint.math.static.name verso.blueprint.math.static.defValue
+
+/-- Whether a formula is written as inline SVG rather than left to the browser. -/
+private def isStatic (data : BpMathData) : IO Bool :=
+  if data.static then
+    Informal.StaticMath.accepted (data.mode matches .display) data.source data.texPrelude
+  else pure false
 
 private def mathClasses (mode : MathMode) : String :=
   "bp_math " ++ match mode with
@@ -101,12 +119,12 @@ inline_extension Inline.bpMath (data : BpMathData) where
   data := toJson data
   usePackages := Informal.TeX.standardMathUsePackages
   traverse _id data _contents := do
-    let some { texPrelude, .. } ← Informal.ExtensionDecode.decode? (α := BpMathData) data
+    let some d ← Informal.ExtensionDecode.decode? (α := BpMathData) data
         (fun _ => s!"Malformed blueprint math payload during traversal: {data}")
       | pure none
-    modify fun st =>
-      st.modifyHtmlAssets fun assets =>
-        assets.combine (mathHtmlAssets texPrelude)
+    let assets ← if ← isStatic d then pure { extraCss := [Informal.StaticMath.css] }
+      else pure (mathHtmlAssets d.texPrelude)
+    modify fun st => st.modifyHtmlAssets fun a => a.combine assets
     pure none
   toTeX :=
     open Verso.Output.TeX in
@@ -123,10 +141,17 @@ inline_extension Inline.bpMath (data : BpMathData) where
               .raw s!"\\[{source}\\]"
   toHtml :=
     open Verso.Doc.Html in
-    some <| fun _goI _id data _contents => do
-      let some { mode, source, texPrelude } ← Informal.ExtensionDecode.decode? (α := BpMathData) data
-          (fun _ => s!"Malformed blueprint math payload: {data}")
+    some <| fun _goI id data _contents => do
+      let some d@{ mode, source, texPrelude, .. } ←
+          Informal.ExtensionDecode.decode? (α := BpMathData) data
+            (fun _ => s!"Malformed blueprint math payload: {data}")
         | pure .empty
+      if d.static then
+        let svg? ← Informal.StaticMath.render? (mode matches .display) source texPrelude
+          s!"bpm{id}-"
+        if let some svg := svg? then
+          return .tag "span" #[("class", mathClasses mode ++ " bp_math_static"),
+            ("data-bp-math-rendered", "1")] (.text false svg)
       let attrs :=
         if texPrelude.isEmpty then
           #[("class", mathClasses mode)]
@@ -136,18 +161,20 @@ inline_extension Inline.bpMath (data : BpMathData) where
 
 /-- Build the serialized inline node shared by both the plain and linted elaboration paths. -/
 private def mkBpMathInlineTermCore [Monad m] [MonadQuotation m]
-    (mode : MathMode) (source texPrelude : String) : m (TSyntax `term) := do
-  let data : BpMathData := { mode, source, texPrelude }
+    (mode : MathMode) (source texPrelude : String) (static : Bool) : m (TSyntax `term) := do
+  let data : BpMathData := { mode, source, texPrelude, static }
   ``(
     Verso.Doc.Inline.other
       (Informal.Math.Inline.bpMath $(quote data))
       #[]
   )
 
+/-- The math node of a formula outside the blueprint's own text (docstrings), which keeps the
+browser path. -/
 def mkBpMathInlineTerm [Monad m] [MonadEnv m] [MonadQuotation m]
     (mode : MathMode) (source : String) : m (TSyntax `term) := do
   let texPrelude ← Informal.Macros.getTexPrelude
-  mkBpMathInlineTermCore mode source texPrelude
+  mkBpMathInlineTermCore mode source texPrelude false
 
 /-- Same as `mkBpMathInlineTerm`, but emits an immediate warning before packaging the node. -/
 def mkBpMathInlineTermLinted [Monad m] [MonadEnv m] [MonadQuotation m]
@@ -156,7 +183,7 @@ def mkBpMathInlineTermLinted [Monad m] [MonadEnv m] [MonadQuotation m]
     (ref : TSyntax `str) (mode : MathMode) (source : String) : m (TSyntax `term) := do
   let texPrelude ← Informal.Macros.getTexPrelude
   lintBpMathTerm ref mode source texPrelude
-  mkBpMathInlineTermCore mode source texPrelude
+  mkBpMathInlineTermCore mode source texPrelude (staticEnabled (← getOptions))
 
 @[inline_expander Lean.Doc.Syntax.inline_math]
 public meta def _root_.Informal.Math.inlineMathExpand : InlineExpander

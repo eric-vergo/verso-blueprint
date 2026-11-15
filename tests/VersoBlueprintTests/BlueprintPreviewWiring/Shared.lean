@@ -59,6 +59,8 @@ tex_prelude r#"
 \newcommand{\previewmacro}{\mathsf{Preview}}
 "#
 
+-- These checks are about the prelude's wiring on the browser path.
+set_option verso.blueprint.math.static false in
 #docs (Genre.Manual) previewWiringDoc "Blueprint Preview Wiring" :=
 :::::::
 :::definition "def:preview.base"

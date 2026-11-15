@@ -205,7 +205,8 @@ def safePrelude (prelude : String) : String :=
 pages' KaTeX after `prelude`, also in the dependency graph's node view). -/
 partial def bpMathInline (prelude : String) : Inline Manual → Inline Manual
   | .math mode source =>
-    .other (Informal.Math.Inline.bpMath { mode, source, texPrelude := safePrelude prelude }) #[]
+    .other (Informal.Math.Inline.bpMath
+      { mode, source, texPrelude := safePrelude prelude, static := false }) #[]
   | .link inls href => .link (inls.map (bpMathInline prelude)) href
   | .emph inls => .emph (inls.map (bpMathInline prelude))
   | .bold inls => .bold (inls.map (bpMathInline prelude))

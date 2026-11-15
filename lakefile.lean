@@ -12,6 +12,8 @@ require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"
 require subverso from git "https://github.com/eric-vergo/subverso"@"f53c070f0357f5dcf3b03b8924deb714294dac69"
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
+-- Typesets blueprint math when the site is built (`VersoBlueprint.StaticMath`).
+require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"0b90627a2a2d8f4660dcfcbc0a3ced93ba161191"
 
 package VersoBlueprint where
   leanOptions := #[⟨`experimental.module, true⟩]
@@ -143,6 +145,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintMainWrapper,
     `VersoBlueprintTests.BlueprintPreviewResources,
     `VersoBlueprintTests.BlueprintMathLint,
+    `VersoBlueprintTests.BlueprintStaticMath,
     `VersoBlueprintTests.BlueprintMetadataPanel,
     `VersoBlueprintTests.BlueprintIssueUrl,
     `VersoBlueprintTests.BlueprintNumbering,
