@@ -67,33 +67,89 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   text-underline-offset: 0.15em;
 }
 
+/* The look of the side-by-side layout. Each value is a custom property, so a
+   site can retune it with one declaration on `:root`. */
+:root {
+  /* space between the two columns */
+  --bp-sbs-column-gap: 2.25rem;
+  /* the column divider: a hairline in the page's soft border colour */
+  --bp-sbs-divider-width: 1px;
+  --bp-sbs-divider-color: var(--bp-color-border-soft);
+  /* space between the nodes of a run, and around a run */
+  --bp-sbs-node-gap: 2rem;
+  --bp-sbs-run-margin: 1.5rem;
+  /* the node a link landed on */
+  --bp-sbs-target-surface: var(--bp-color-focus-surface);
+  --bp-sbs-target-bleed: 0.75rem;
+  /* the proof toggle: the longest an opening or closing takes, and its easing */
+  --bp-sbs-proof-duration: 200ms;
+  --bp-sbs-proof-easing: cubic-bezier(0.2, 0, 0, 1);
+}
+
 .bp_sbs {
   container-type: inline-size;
   margin: 1.1rem 0 1.35rem;
 }
 
+/* A run: consecutive nodes (and their proofs) of a page, spaced as one unit. */
+.bp_sbs_run {
+  margin: var(--bp-sbs-run-margin) 0;
+}
+
+.bp_sbs_run > .bp_sbs {
+  margin: 0;
+}
+
 .bp_sbs_grid {
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  column-gap: 2.25rem;
+  column-gap: var(--bp-sbs-column-gap);
   /* The node title and the first line of Lean code share a baseline. */
   align-items: first baseline;
-  padding: 1rem 1.25rem 1.05rem;
-  border: 1px solid var(--bp-color-border-soft);
-  border-radius: var(--bp-radius-lg);
-  background: var(--bp-color-surface);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
-/* A statement without Lean declarations: the same card, one full-width column. */
+/* Nodes of the page have no card: the space of a run is padding inside each
+   node, so that the dividers of consecutive nodes meet and read as one line
+   through the run. Prose (or anything else that is not a node) ends a run and
+   its line. */
+.bp_sbs_run > .bp_sbs > .bp_sbs_grid {
+  position: relative;
+  padding-block: calc(var(--bp-sbs-node-gap) / 2);
+}
+
+.bp_sbs_run > .bp_sbs:first-child > .bp_sbs_grid {
+  padding-top: 0;
+}
+
+.bp_sbs_run > .bp_sbs:last-child > .bp_sbs_grid {
+  padding-bottom: 0;
+}
+
+/* The divider sits in the middle of the column gap. The informal column takes
+   0.92 of the 2 fractions left after the gap. */
+.bp_sbs_run > .bp_sbs:not(.bp_sbs_single) > .bp_sbs_grid::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc((100% - var(--bp-sbs-column-gap)) * 0.46 + var(--bp-sbs-column-gap) / 2);
+  width: var(--bp-sbs-divider-width);
+  margin-left: calc(var(--bp-sbs-divider-width) / -2);
+  background: var(--bp-sbs-divider-color);
+  pointer-events: none;
+}
+
+/* A statement without Lean declarations: one full-width column. */
 .bp_sbs_single > .bp_sbs_grid {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.bp_sbs:target .bp_sbs_grid,
-.bp_sbs:has(> .bp_sbs_grid > .bp_sbs_informal > .bp_wrapper:target) .bp_sbs_grid {
-  border-color: var(--bp-color-focus-border);
-  box-shadow: 0 0 0 3px var(--bp-color-focus-ring);
+/* The node a link landed on (a link to the statement, its proof or one of its
+   declarations) is tinted; the tint bleeds past the text so nothing moves. */
+.bp_sbs_run > .bp_sbs:is(:target, :has(:target)) > .bp_sbs_grid {
+  border-radius: var(--bp-radius-lg);
+  background: var(--bp-sbs-target-surface);
+  box-shadow: 0 0 0 var(--bp-sbs-target-bleed) var(--bp-sbs-target-surface);
 }
 
 .bp_sbs_informal,
@@ -291,8 +347,24 @@ main .bp_status_legend {
   color: var(--bp-color-link, #1d4ed8);
 }
 
-.bp_sbs_informal details.bp_kind_proof_wrapper[open] .bp_heading_title_row::after {
+.bp_sbs_informal details.bp_kind_proof_wrapper[open]:not([data-bp-closing]) .bp_heading_title_row::after {
   content: "[hide]";
+}
+
+/* With the page script, the prose proof's "Proof [show]" opens the Lean proofs
+   of its node too; their own toggles give way to it, and a closed Lean proof
+   takes no room. Without the script both toggles stay. */
+.bp_sbs[data-bp-proofs-linked] .bp_sbs_formal details.bp_decl_source_proof > summary {
+  display: none;
+}
+
+.bp_sbs[data-bp-proofs-linked] .bp_sbs_formal details.bp_decl_source_proof:not([open]) {
+  display: none;
+}
+
+/* A proof that is opening or closing clips its content to the animated height. */
+details[data-bp-animating] {
+  overflow: hidden;
 }
 
 /* Right column: one card per defining command. The code comes first, so its
@@ -401,7 +473,7 @@ main .bp_status_legend {
   color: var(--bp-color-link, #1d4ed8);
 }
 
-.bp_decl_source_proof[open] > summary::after {
+.bp_decl_source_proof[open]:not([data-bp-closing]) > summary::after {
   content: " [hide]";
 }
 
@@ -431,7 +503,12 @@ html:has(.bp_sbs) .tippy-box[data-theme~='lean'] .hover-info > code {
   .bp_sbs_formal {
     margin-top: 0.85rem;
     padding-top: 0.75rem;
-    border-top: 1px solid var(--bp-color-border-soft);
+    border-top: var(--bp-sbs-divider-width) solid var(--bp-sbs-divider-color);
+  }
+
+  /* stacked columns have no column divider */
+  .bp_sbs_grid::before {
+    display: none;
   }
 }
 
@@ -448,6 +525,10 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_formal {
   margin-top: 0.6rem;
 }
 
+html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
+  display: none;
+}
+
 /* Print: one column per node. */
 @media print {
   .bp_sbs_grid {
@@ -459,6 +540,14 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_formal {
 
   .bp_sbs {
     break-inside: avoid-page;
+  }
+
+  .bp_sbs_grid::before {
+    display: none;
+  }
+
+  .bp_sbs_run > .bp_sbs + .bp_sbs {
+    margin-top: 1rem;
   }
 
   .bp_sbs_formal {

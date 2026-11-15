@@ -1,8 +1,8 @@
 /*
  * Node view (`Informal.NodeView`): one Blueprint node as a unit, the informal
  * statement beside its Lean declarations. The body reuses the side-by-side
- * card (`.bp_sbs`), so this file only adds the header, the footer and the
- * dependency graph's wide panel.
+ * grid (`.bp_sbs`); this file adds the card around it, the header, the footer
+ * and the dependency graph's wide panel.
  */
 
 .bp_node_view {
@@ -51,6 +51,15 @@ a.bp_node_view_title:hover {
 
 .bp_node_view .bp_node_view_body {
   margin: 0;
+}
+
+/* Unlike the nodes of a page, the view is a card. */
+.bp_node_view_body > .bp_sbs_grid {
+  padding: 1rem 1.25rem 1.05rem;
+  border: 1px solid var(--bp-color-border-soft);
+  border-radius: var(--bp-radius-lg);
+  background: var(--bp-color-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .bp_node_view_relations {
