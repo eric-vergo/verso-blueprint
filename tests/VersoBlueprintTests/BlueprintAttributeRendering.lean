@@ -334,7 +334,7 @@ private def substringsInOrder (text : String) : List String → Bool
       hasSubstr html "First imported docstring list item." &&
       hasSubstr html "Second imported docstring list item." &&
       3 ≤ (html.splitOn "<ul>").length &&
-      hasSubstr html "<code class=\"bp_math inline\">1 + 1 = 2</code>" &&
+      hasSubstr html "<title>1 + 1 = 2</title>" &&
       hasSubstr html "<code class=\"bp_math inline\">2 + 2 = 4</code>" &&
       hasSubstr html "hybridSharedFirst" &&
       hasSubstr html "hybridSharedSecond" &&

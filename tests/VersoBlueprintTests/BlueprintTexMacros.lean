@@ -39,6 +39,8 @@ tex_prelude r#"\newcommand{\widgetmacro}{\mathsf{Widget}}"#
       ]
     )
 
+-- These checks are about the prelude's wiring on the browser path.
+set_option verso.blueprint.math.static false in
 #docs (Genre.Manual) widgetPreviewDoc "Blueprint Widget Preview" :=
 :::::::
 :::definition "widget_preview"
