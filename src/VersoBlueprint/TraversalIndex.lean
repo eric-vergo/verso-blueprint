@@ -343,6 +343,14 @@ def required [FromJson α] (state : TraverseState) (name : Name) : Except String
 def saveData [ToJson α] (state : TraverseState) (name : Name) (data : α) : TraverseState :=
   saveObjectData state spec.name name.toString (toJson data)
 
+/-- One field of a captured overview, without decoding the rest of it; `none` when the overview
+or the field is absent, or the field is `null`. For renderers that need a small part of a large
+overview once per block. -/
+def field? (state : TraverseState) (name : Name) (field : String) : Option Json := do
+  let object ← state.getDomainObject? spec.name name.toString
+  let value ← (object.data.getObjVal? field).toOption
+  if value.isNull then none else some value
+
 end RenderOverviews
 
 namespace InlineCode

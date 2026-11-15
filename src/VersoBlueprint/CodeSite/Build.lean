@@ -424,10 +424,12 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     identity, layout, modules := modules.qsort (·.name.toString < ·.name.toString)
     declarations, sources
     progress := Stats.progressOf graph
+    leanProgress := Stats.leanProgressOf state graph
     graph := Stats.graphSizeOf graph
     trust := Stats.trustLedgerOf state graph
     headline
     hasComparatorChallenge := challenge.isSome
+    claims := ← Stats.Claims.atRoot? root
   }
 
 /-- The compiled-module directories of the project at `root`: its own build, its packages'
@@ -508,11 +510,13 @@ def modelOf (root : System.FilePath) (project : Project) (state : Environment.St
 
 /-! ## The document -/
 
-/-- The site's title: the data's, else the README's first heading, else the Lake package's
-name, else the project root's folder name. -/
+/-- The site's title: the data's, else the README's first heading when it names the project
+(`Stats.ProjectIdentity.shownTitle?`: not "Readme"), else the Lake package's name, else the
+project root's folder name. -/
 def titleOf (root : System.FilePath) (project : Project) (identity : Stats.ProjectIdentity) :
     String :=
-  project.title <|> identity.title <|> identity.name |>.getD (root.fileName.getD "Lean project")
+  project.title <|> identity.shownTitle? <|> identity.name |>.getD
+    (root.fileName.getD "Lean project")
 
 /-- Above this many declarations the dependency graph opens on its module view. -/
 def moduleViewThreshold : Nat := 300
@@ -534,10 +538,15 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
     else
       s!"; {stated} of them have an informal statement, shown beside the Lean side, the \
         others show their Lean side alone."
+  let statements := if stated == 0 then statements else
+    statements ++ " An informal statement is shown with its source; no tool has checked that \
+      it says the same as the Lean statement."
   let mut blocks := #[
     para #[.text s!"This site was generated from the compiled Lean code: {decls} declarations \
       in {project.modules.size} modules, one chapter per module. Each declaration is a node \
-      of the ", .link #[.text "dependency graph"] "Dependency-Graph/", .text statements]]
+      of the ", .link #[.text "dependency graph"] "Dependency-Graph/", .text statements],
+    para #[.text "Nodes are named by their declarations and carry no numbers: nothing here is \
+      the numbering of a paper."]]
   if let some toolchain := project.toolchain then
     blocks := blocks.push (para #[.text "Toolchain: ", .code toolchain])
   unless project.unbuilt.isEmpty do
@@ -559,12 +568,20 @@ def declSearchBlock (d : Declaration) : Block Manual :=
   .other (Block.declSearch d.name) text
 
 /-- A declaration's node blocks: the statement block (its informal statement as contents, empty
-without one) and, when the statement has an informal proof, the proof block. -/
+without one) and, when the statement has an informal proof, the proof block. The blocks carry no
+number (a node is named by its declaration) and the statement block names where the data found
+the statement (`Statement.source`), which the page shows under it. -/
 def nodeBlocks (d : Declaration) (prelude : String := "") : Array (Block Manual) :=
   let statement := (d.statement.map (statementBlocks · prelude)).getD #[]
+  -- No numbers: the order of declarations in a module is not a numbering a reader could cite,
+  -- and "Theorem 2.28" would read as a result of the project's manuscript.
   let proof := (d.statement.bind (proofBlocks? · prelude)).map fun blocks =>
-    #[.other (Informal.Block.informal { label := d.name, count := 0, isProof := true }) blocks]
-  #[.other (Informal.Block.informal { label := d.name, count := 0 }) statement] ++ proof.getD #[]
+    #[.other (Informal.Block.informal
+      { label := d.name, count := 0, isProof := true, numberingMode := .none }) blocks]
+  let source := d.statement.map fun s => s.source.getD "project"
+  #[.other (Informal.Block.informal
+      { label := d.name, count := 0, numberingMode := .none, statementSource := source })
+      statement] ++ proof.getD #[]
 
 /-- A module's page: where its source is, its module docstrings (`text?`, its source text), and
 for each declaration its search entries and its node blocks (formulas after `prelude`). -/
@@ -576,7 +593,8 @@ def moduleChapter (m : Module) (text? : Option String := none) (prelude : String
     #[declSearchBlock d] ++ nodeBlocks d prelude
   { title := #[.code m.module.toString]
     titleString := m.module.toString
-    metadata := none
+    -- unnumbered, as the nodes are: a module's place in the list is not a chapter of a paper
+    metadata := some { number := false }
     content := intro ++ docs ++ nodes
     subParts := #[] }
 

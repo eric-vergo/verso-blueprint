@@ -66,6 +66,22 @@ deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 private def trimText (s : String) : String := s.trimAscii.copy
 
+/-- README headings that name no project: a file that starts with one of them (in any case) has
+no title of its own. -/
+def genericTitles : Array String :=
+  #["readme", "read me", "introduction", "overview", "about", "home", "welcome",
+    "documentation", "getting started", "description", "summary", "project"]
+
+/-- Whether a README heading is one of `genericTitles`, punctuation and case aside. -/
+def isGenericTitle (title : String) : Bool :=
+  let t := (title.trimAscii.copy.toLower.toList.filter fun c => c.isAlphanum || c == ' ')
+  genericTitles.contains (String.ofList t).trimAscii.copy
+
+/-- The README's first heading when it names the project; a generic heading ("Readme") is no
+title, and pages fall back to the document's title or the package's name. -/
+def ProjectIdentity.shownTitle? (identity : ProjectIdentity) : Option String :=
+  identity.title.filter (!isGenericTitle ·)
+
 /-- Collapse runs of whitespace into single spaces and trim the ends. -/
 private def collapseWhitespace (s : String) : String :=
   " ".intercalate ((s.split Char.isWhitespace).toList.map (·.copy) |>.filter (!·.isEmpty))

@@ -26,7 +26,7 @@ private def view : NodeView.NodeView := {
   label := "thm:x"
   title := "Theorem 1.2"
   href? := some "Chapter/#thm-x"
-  status := (.proved, "Proved in Lean")
+  status := (.proved, "Lean proof complete: no sorry in it or in what it uses")
   informal? := some (.text true "Every x is fine.")
   lean := #[.tag "div" #[("class", "card")] (.text true "theorem x : True")]
   leanDecls := #[`Foo.x, `Foo.x]
@@ -46,7 +46,8 @@ private def view : NodeView.NodeView := {
     appearsBefore out "class=\"bp_sbs_informal\"" "class=\"bp_sbs_formal\"" &&
     hasSubstr out "Every x is fine." && hasSubstr out "theorem x : True" &&
     hasSubstr out "href=\"Chapter/#thm-x\"" &&
-    hasSubstr out "bp_status_glyph_proved" && hasSubstr out "Proved in Lean" &&
+    hasSubstr out "bp_status_glyph_proved" &&
+    hasSubstr out "Lean proof complete: no sorry in it or in what it uses" &&
     hasSubstr out "data-bp-node-link=\"def:y\"" && hasSubstr out "href=\"Chapter/#def-y\"" &&
     hasSubstr out "data-bp-node-link=\"thm:z\"" &&
     appearsBefore out ">Uses<" ">Used by<" &&

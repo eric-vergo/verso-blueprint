@@ -393,7 +393,7 @@ def main() -> int:
     if docstringed_defs_panel.count('bp_external_decl_kind">def</span>') < 2:
         fail("documented multi-definition panel missing visible def kind markers")
     if not re.search(
-        r'<span class="bp_external_decl_kind">def</span>.*?<div class="bp_external_decl_kicker_status">\s*<span class="bp_external_status_badge bp_external_decl_header_status bp_external_decl_ok">complete</span>',
+        r'<span class="bp_external_decl_kind">def</span>.*?<div class="bp_external_decl_kicker_status">\s*<span class="bp_external_status_badge bp_external_decl_header_status bp_external_decl_ok">no sorry</span>',
         docstringed_defs_panel,
         re.S,
     ):

@@ -45,7 +45,7 @@ private def summaryOverviewSection (data : Summary) (rows : SummaryRows) : Outpu
         {{summaryCard
             "Fully closed"
             (toString data.coverageSplit.fullyClosed)
-            (Option.some "Local code and prerequisite closure are both complete.")
+            (Option.some "The node's Lean code has no sorry, and neither has any node it depends on.")
             (accent? := StatusColors.formalizedWithAncestors)}}
         {{summaryCard
             "Actionable priorities"
@@ -336,15 +336,15 @@ private def summaryStructureSection (data : Summary) (rows : SummaryRows) : Outp
               (accent? := StatusColors.readyBorder)}}
           {{summaryOptionalCard
               (data.coverageSplit.formalizedWithoutAncestors > 0)
-              "Formalized, ancestors open"
+              "Lean complete, dependencies open"
               (toString data.coverageSplit.formalizedWithoutAncestors)
-              (Option.some "Local Lean work is done, but prerequisite closure is still open.")
+              (Option.some "The node's Lean code has no sorry; a node it depends on is not complete.")
               (accent? := StatusColors.formalizedBorder)}}
           {{summaryOptionalCard
               (data.coverageSplit.fullyClosed > 0)
               "Fully closed"
               (toString data.coverageSplit.fullyClosed)
-              (Option.some "Local code and ancestor closure are both complete.")
+              (Option.some "The node's Lean code has no sorry, and neither has any node it depends on.")
               (accent? := StatusColors.formalizedWithAncestors)}}
           {{summaryOptionalWarnCard
               (data.coverageSplit.blockedOrIncomplete > 0)

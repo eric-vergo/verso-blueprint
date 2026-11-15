@@ -224,6 +224,7 @@ private def occurrenceNumber (data : BlockData) : String :=
   match data.numberingMode with
   | .local => s!"{data.count}"
   | .global => s!"{data.globalCount.getD data.count}"
+  | .none => NodeDisplay.labelText data.label
   | .sub =>
       match data.partPrefix with
       | some numberPrefix => s!"{numberPrefix}.{data.count}"
@@ -231,12 +232,14 @@ private def occurrenceNumber (data : BlockData) : String :=
 
 /-- One presentation boundary for captured identity and optional document numbering. -/
 def BlockData.display (data : BlockData) (st : TraverseState)
-    (fallbackPrefix? : Option String := none) : NodeDisplay := {
-  label := data.label
-  kind := data.kind
-  number? := (Informal.TraversalIndex.Nodes.occurrence? st data.label).map fun stored =>
-    occurrenceNumber (data.withStoredNumbering stored.toBlockPresentation fallbackPrefix?)
-}
+    (fallbackPrefix? : Option String := none) : NodeDisplay :=
+  let resolved := (Informal.TraversalIndex.Nodes.occurrence? st data.label).map fun stored =>
+    data.withStoredNumbering stored.toBlockPresentation fallbackPrefix?
+  let unnumbered := resolved.any (·.numberingMode == .none)
+  { label := data.label
+    kind := data.kind
+    number? := if unnumbered then none else resolved.map occurrenceNumber
+    unnumbered }
 
 /-- Resolve node presentation without turning an elaboration count into a document number. -/
 def Informal.TraversalIndex.Nodes.display? (st : TraverseState) (label : Data.Label) : Option NodeDisplay := do

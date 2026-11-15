@@ -32,6 +32,7 @@ import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Resolve
 import VersoBlueprint.RenderingResolution
 import VersoBlueprint.Source.Metadata
+import VersoBlueprint.Stats.Claims
 import VersoBlueprint.TeX
 import VersoBlueprint.TraversalIndex
 import VersoBlueprint.Profiling
@@ -58,6 +59,18 @@ open CodeSummary
 Elaboration, traversal, and rendering are standard, using {ref VersoManual} helpers for custom blocks and inlines.
 
 -/
+
+/-- The author's claim about one of the block's Lean declarations, when the project supplies
+claims (they are captured with the project statistics). Only the claims are decoded, and only
+when the project has the file. -/
+private def claimFor? (state : TraverseState) (data : BlockData) :
+    Option Informal.ClaimView.ClaimView := do
+  let code ← data.codeData
+  let json ← Informal.TraversalIndex.RenderOverviews.field? state `stats "claims"
+  let claims ← (fromJson? (α := Informal.Stats.Claims) json).toOption
+  let names := code.externalDecls.map (·.canonical) ++
+    code.literateDeclarations.declarations.map (·.name)
+  names.findSome? claims.view?
 
 open Verso.Doc.Html in
 /-- Render this occurrence with relation previews restricted to the resources
@@ -149,7 +162,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
         return renderInformalBlockModel {
           data
           context := InformalBlockRenderContext.forBlock data
-            ((data.display s).number?.getD data.label.toString)
+            ((data.display s).number?.getD (NodeDisplay.labelText data.label))
             (proofCaption? := some (data.displayTitle s))
             (attrs := attrs)
             (headerExtras := headerExtras)
@@ -163,6 +176,10 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           formalColumn?
           -- statements without Lean declarations get the same card (one column)
           sideBySideNode := sideBySide && !data.isProof
+          statementSourceNote := !data.isProof && data.codeData.any (!·.isEmpty) &&
+            (!blocks.isEmpty || selectedMarkupAndContent?.isSome)
+          claim := if data.isProof then .empty else
+            ((claimFor? s data).map (·.render)).getD .empty
         }
 
 /- Informal custom blocks -/

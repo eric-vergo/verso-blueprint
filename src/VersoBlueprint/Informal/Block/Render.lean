@@ -7,7 +7,10 @@ Author: Emilio J. Gallego Arias
 import VersoManual
 import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.Block.Model
+import VersoBlueprint.Axioms
+import VersoBlueprint.ClaimView
 import VersoBlueprint.Informal.MetadataView
+import VersoBlueprint.Meaning
 
 namespace Informal
 
@@ -726,6 +729,12 @@ structure InformalBlockRenderModel where
   sideBySideNode : Bool := false
   wrapperClass? : Option String := none
   showHeader : Bool := true
+  /-- The block is a statement with a written body and Lean declarations: it gets the line that
+  names where its text comes from (`renderStatementSource`), under the statement. -/
+  statementSourceNote : Bool := false
+  /-- The author's claim about the statement's Lean declaration, rendered
+  (`Informal.ClaimView`): shown under the statement, after the source line. -/
+  claim : Verso.Output.Html := .empty
 
 /--
 Genre-neutral inputs for the reusable Blueprint informal-block shell.
@@ -830,22 +839,27 @@ def renderInformalBlockHtml (data : BlockData) (ctx : InformalBlockRenderContext
 def htmlClassAttrs (className : String) : Array (String × String) :=
   if className.isEmpty then #[] else #[("class", className)]
 
+/-- The line under an informal statement that stands beside Lean code: where the text comes from,
+and that nothing compared it with the Lean statement (`Informal.Meaning.sourceLine`). -/
+def renderStatementSource (source : Option String) : Verso.Output.Html :=
+  .tag "p" #[("class", "bp_statement_source"), ("data-bp-statement-source", (source.getD "blueprint")),
+      ("title", Informal.Meaning.uncheckedNote)]
+    (.text true (Informal.Meaning.sourceLine source))
+
 /--
-Node of the side-by-side layout: the informal block on the left, the Lean column
-on the right. Without a Lean column (a statement with no Lean declaration) the
-informal block is the node's only, full-width column (`bp_sbs_single`). Proofs
-of the node that directly follow it are placed in the left column when its run
-is rendered (`Informal.SideBySideRuns`).
+A node as a unit: the informal statement on the left and its Lean declarations on the right.
+`sourceNote` goes under the informal statement (`renderStatementSource`).
 -/
 def renderSideBySideNode (label : String) (informal : Verso.Output.Html)
-    (formal? : Option Verso.Output.Html) : Verso.Output.Html :=
+    (formal? : Option Verso.Output.Html) (sourceNote : Verso.Output.Html := .empty) :
+    Verso.Output.Html :=
   open Verso.Output.Html in
   match formal? with
   | some formal =>
     {{
       <div class="bp_sbs" data-bp-node={{label}}>
         <div class="bp_sbs_grid">
-          <div class="bp_sbs_informal">{{informal}}</div>
+          <div class="bp_sbs_informal">{{informal}}{{sourceNote}}</div>
           <div class="bp_sbs_formal">{{formal}}</div>
         </div>
       </div>
@@ -859,17 +873,21 @@ def renderSideBySideNode (label : String) (informal : Verso.Output.Html)
       </div>
     }}
 
-/-- A status glyph of the side-by-side layout: its symbol, CSS modifier and meaning. -/
+/-- A status glyph of the side-by-side layout: its symbol, CSS modifier and meaning. Every
+meaning is about the node's Lean code; none is about its informal statement. -/
 structure StatusGlyphKind where
   glyph : String
   modifier : String
   meaning : String
 
 namespace StatusGlyphKind
-def proved : StatusGlyphKind := ⟨"✓", "proved", "Proved in Lean"⟩
-def incomplete : StatusGlyphKind := ⟨"◐", "partial", "Stated in Lean, proof incomplete"⟩
+def proved : StatusGlyphKind :=
+  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses"⟩
+def incomplete : StatusGlyphKind :=
+  ⟨"◐", "partial", "Lean code incomplete: a sorry in the proof or in what it uses"⟩
 def problem : StatusGlyphKind :=
-  ⟨"⚠", "problem", "Lean statement has a gap, an axiom or an unverified type"⟩
+  ⟨"⚠", "problem", "Lean code needs a look: a sorry in the statement, an axiom (declared, or \
+    used beyond Lean's standard three), or code that could not be inspected"⟩
 def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"⟩
 def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 
@@ -877,18 +895,46 @@ def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 def all : Array StatusGlyphKind := #[proved, incomplete, problem, missing, noLean]
 end StatusGlyphKind
 
-/-- The status glyph of a node and its tooltip (the glyph's meaning, then the detailed status). -/
+/-- What the Lean code of a node of this kind is: a proof, or a definition. -/
+private def leanCodeNoun (kind : Data.NodeKind) : String :=
+  if kind.isTheoremLike then "Lean proof" else "Lean definition"
+
+/-- What a declaration free of `sorry` still rests on, from its axioms outside Lean's standard
+three: compiled code (`native_decide` and similar tactics) and other axioms, by name. -/
+def extraAxiomsText (axioms : Array Lean.Name) : String :=
+  let compiled := axioms.filter (Data.AxiomClass.ofName · == .compilerTrusted)
+  let other := axioms.filter (Data.AxiomClass.ofName · != .compilerTrusted)
+  let names (xs : Array Lean.Name) := ", ".intercalate (xs.toList.map (·.toString))
+  let parts :=
+    (if other.isEmpty then [] else
+      [s!"{if other.size == 1 then "an axiom" else "axioms"} outside Lean's standard three \
+        ({names other})"]) ++
+    (if compiled.isEmpty then [] else [s!"the result of compiled code ({names compiled})"])
+  " and ".intercalate parts
+
+/-- The status glyph of a node and its text (the glyph's meaning for this node, then the
+detailed status where it adds something). A node whose Lean code has no `sorry` but depends on
+an axiom outside Lean's standard three does not get the check mark: the text names the axiom. -/
 def statusGlyph (mark? : Option BlockStatusMark) : StatusGlyphKind × String :=
   match mark? with
   | none => (.noLean, StatusGlyphKind.noLean.meaning)
   | some mark =>
     let status := mark.status
-    let kind :=
-      if status.isProved then StatusGlyphKind.proved
-      else if status.isMissing then .missing
-      else if status.hasTypeGap || status.hasUnverifiedType then .problem
-      else .incomplete
-    (kind, s!"{kind.meaning} ({mark.title})")
+    if status.isProved then
+      let noun := leanCodeNoun mark.kind
+      if mark.extraAxioms.isEmpty then
+        (.proved, s!"{noun} complete: no sorry in it or in what it uses")
+      else
+        (.problem, s!"{noun} without sorry, resting on {extraAxiomsText mark.extraAxioms}")
+    else if status.isAxiomLike then
+      (.problem, "Declared without a proof or a body (an axiom or an opaque constant): \
+        assumed, not proved")
+    else
+      let kind :=
+        if status.isMissing then StatusGlyphKind.missing
+        else if status.hasTypeGap || status.hasUnverifiedType then .problem
+        else .incomplete
+      (kind, s!"{kind.meaning} ({mark.title})")
 
 private def statusGlyphSpan (kind : StatusGlyphKind) (attrs : Array (String × String)) :
     Verso.Output.Html :=
@@ -903,6 +949,11 @@ def renderStatusGlyph (mark? : Option BlockStatusMark) : Verso.Output.Html :=
 /-- Element id of the status glyph legend template (see `statusLegendTemplate`). -/
 def statusLegendId : String := "bp-status-legend"
 
+/-- The sentence that closes the status legend: what no mark is about. -/
+def statusLegendNote : String :=
+  "A mark is about the Lean code only. No tool checks that an informal statement says the same \
+    as the Lean statement."
+
 /--
 The legend of the status glyphs, as a `<template>` for the page head. The
 side-by-side page script shows it, folded, in the sidebar foot (or at the end of
@@ -912,16 +963,21 @@ def statusLegendTemplate : Verso.Output.Html :=
   open Verso.Output.Html in
   let rows := StatusGlyphKind.all.map fun kind =>
     {{<dt>{{statusGlyphSpan kind #[("aria-hidden", "true")]}}</dt><dd>{{.text true kind.meaning}}</dd>}}
-  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl></details></template>}}
+  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl><p class="bp_status_legend_note">{{.text true statusLegendNote}}</p></details></template>}}
 
 /-- Render a complete informal block model, including companion panels. -/
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=
   let blockHtml := renderInformalBlockHtml model.data model.context model.content
     (showHeader := model.showHeader)
+  let note := if model.statementSourceNote then renderStatementSource model.data.statementSource
+    else .empty
+  let note := Verso.Output.Html.seq #[note, model.claim]
   let blockHtml :=
     match model.formalColumn? with
-    | some formal => renderSideBySideNode model.data.label.toString blockHtml (some formal)
+    | some formal => renderSideBySideNode model.data.label.toString blockHtml (some formal) note
     | none =>
+      -- without a Lean column the Lean code is a panel below: the line still follows the statement
+      let blockHtml := Verso.Output.Html.seq #[blockHtml, note]
       if model.sideBySideNode then renderSideBySideNode model.data.label.toString blockHtml none
       else blockHtml
   let html := Verso.Output.Html.seq (#[blockHtml] ++ model.companionPanels)

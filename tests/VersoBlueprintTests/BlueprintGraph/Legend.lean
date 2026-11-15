@@ -28,7 +28,9 @@ def groupLegend : Array LegendGroup := groupGraphLegendGroups
   let hasIncompleteProofLabel : Bool :=
     defaultLegend.any fun group => (group.items.any (·.label == proofStatusIncompleteText))
   let hasUpdatedProofLabel : Bool :=
-    defaultLegend.any fun group => (group.items.any (·.label == proofStatusFormalizedAncestorsText))
+    defaultLegend.any fun group => (group.items.any fun item =>
+      item.label == proofStatusFormalizedAncestorsLabel &&
+        item.label == "Lean code without sorry, dependencies too")
   let warningHasNoIncompleteCodeItem : Bool :=
     !(defaultLegend.any fun group => (group.items.any (·.label == proofStatusIncompleteText) && group.title == "Warning Markers"))
   let hasWarningMarkerTitle : Bool :=

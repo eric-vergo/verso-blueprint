@@ -24,7 +24,8 @@ The API is organized into:
 - Lean environment bridge (`analyzeDeclaration`).
 -/
 
-/-- True only when the declaration is fully proved. -/
+/-- True only when a closed inspection of the declaration and everything it uses found no
+`sorry`. It says nothing about the axioms the declaration depends on. -/
 def ProvedStatus.isProved : ProvedStatus → Bool
   | .proved => true
   | _ => false
@@ -186,9 +187,9 @@ def ProvedStatus.presentation (status : ProvedStatus) (present : Bool := true) :
     match status with
     | .proved =>
       {
-        summaryText := "complete"
-        externalPanelText := "complete"
-        externalHeaderText := "complete"
+        summaryText := "no sorry"
+        externalPanelText := "no sorry"
+        externalHeaderText := "no sorry"
         codeDeclClass := "bp_code_decl_status_ok"
         externalDeclClass := "bp_external_decl_ok"
         codeEntryClassSuffix := "proved"

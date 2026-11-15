@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import Lean
 import Verso
 import VersoManual
+import VersoBlueprint.Axioms
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.LeanCodePreviewKey
@@ -340,14 +341,18 @@ private def renderCodeEntryWrap (href : Option String) (title previewTitle : Str
     (ariaLabel? := if href.isNone then some title else none)
 
 /-- Axis wording follows the same semantic evidence as the completion mark.
-Zero observed reference counts cannot establish verified coverage. -/
-private def completionAxisText (health : Informal.Graph.CodeHealth) : String :=
+Zero observed reference counts cannot establish verified coverage. The words are about the Lean
+code alone: "no sorry" says that the inspection found none in the statement (or the proof) or in
+anything it uses, and nothing about an informal statement. A definition's second axis is its
+body. -/
+private def completionAxisText (kind : Data.NodeKind) (health : Informal.Graph.CodeHealth) :
+    String :=
   let status := health.provedStatus
   let axisText (complete hasGap unverified : Bool) (otherAxisBlocker : String) :=
     if !health.hasAssociatedCode then "unassociated"
     else if status.isMissing then "missing declaration"
     else if status.isAxiomLike then "axiom-like (no body)"
-    else if complete then "completed"
+    else if complete then "no sorry"
     else if hasGap then "blocked by sorry"
     else if status.hasUnlocalizedSorry then "unknown (sorry location unavailable)"
     else if unverified then "unverified"
@@ -357,41 +362,44 @@ private def completionAxisText (health : Informal.Graph.CodeHealth) : String :=
     "blocked by sorry in body"
   let proof := axisText health.localProofFormalized status.hasProofGap status.hasUnverifiedProof
     "blocked by sorry in statement"
-  s!"Statement: {statement}; Proof: {proof}"
+  let second := if kind.isTheoremLike then "Lean proof" else "Lean body"
+  s!"Lean statement: {statement}; {second}: {proof}"
 
 /--
 Use the observed declaration evidence for the completion mark. Axis counts
 cannot distinguish inherited, direct, or unknown origins.
 -/
-private def completionStatusMark (health : Informal.Graph.CodeHealth) : BlockStatusMark :=
+private def completionStatusMark (kind : Data.NodeKind) (extraAxioms : Array Name)
+    (health : Informal.Graph.CodeHealth) : BlockStatusMark :=
   let status := health.provedStatus
-  let title := completionAxisText health
+  let title := completionAxisText kind health
   if status.isProved then
-    {
-      status
-      title
-    }
+    { status, title, kind, extraAxioms }
   else
-    {
-      status
-      title
-      symbolOverride? := some "⚠"
-    }
+    { status, title, kind, extraAxioms, symbolOverride? := some "⚠" }
 
-private def statusMarkFromHealth (health : Informal.Graph.CodeHealth) : BlockStatusMark :=
+private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
+    (health : Informal.Graph.CodeHealth) : BlockStatusMark :=
   if health.hasMissingExternalDecls then
     {
       status := .missing
-      title := s!"{completionAxisText health}; Lean declarations: {health.presentDecls} present, {health.missingDecls} missing"
+      title := s!"{completionAxisText kind health}; Lean declarations: {health.presentDecls} present, {health.missingDecls} missing"
+      kind, extraAxioms
     }
   else
     if health.hasAxiomLike then
-      {
-        status := .axiomLike
-        title := completionAxisText health
-      }
+      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms }
     else
-      completionStatusMark health
+      completionStatusMark kind extraAxioms health
+
+/-- The axioms the present declarations of `source` depend on other than `sorryAx` and Lean's
+standard three, each once, in display order. -/
+def extraAxiomsOf (source : BlockCodeData) : Array Name :=
+  let all := (source.externalDecls.filter (·.present)).flatMap (·.axioms) ++
+    source.literateDeclarations.declarations.flatMap (·.axioms)
+  Data.sortAxioms <| all.filter fun a =>
+    let cls := Data.AxiomClass.ofName a
+    cls == .other || cls == .compilerTrusted
 
 private def sortDeclsByCommand (decls : Array CodeDeclData) : Array CodeDeclData :=
   decls.qsort (fun a b =>
@@ -470,7 +478,7 @@ private def renderInlinePanelIndicator (label : Data.Label) (cdata : ComputedDat
             else
               s!"{decl.name}: {statusView.summaryText}"
           else
-            s!"{decl.name}: complete"
+            s!"{decl.name}: no sorry"
         {{
           <span class={{cls}} title={{title}} style={{s!"flex: {weight} 1 0%"}}></span>
         }}
@@ -607,7 +615,7 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let source := cdata.source.getD {}
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
   let renderHealth := externalRenderHealth source.externalDecls
-  let statusMark := statusMarkFromHealth health
+  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
   let title := if source.isEmpty then "No associated Lean declarations" else
     appendRenderHealthSummary
       (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
@@ -621,7 +629,8 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
 def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option BlockStatusMark :=
   let source := source?.getD {}
   if source.isEmpty then none else
-    some (statusMarkFromHealth (Informal.Graph.codeHealthOfBlockSource kind {} source?))
+    some (statusMarkFromHealth kind (extraAxiomsOf source)
+      (Informal.Graph.codeHealthOfBlockSource kind {} source?))
 
 end CodeSummary
 end Informal

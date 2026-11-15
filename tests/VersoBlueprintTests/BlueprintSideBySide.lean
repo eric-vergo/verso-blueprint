@@ -170,7 +170,10 @@ private def fakeModule : SubVerso.Module.Module := {
       hasSubstr out "bp_external_decl_item" &&
       -- the status glyph, whose tooltip starts with its meaning, and the folded proof
       hasSubstr out "class=\"bp_status_glyph" &&
-      Informal.StatusGlyphKind.all.any (fun kind => hasSubstr out s!"title=\"{kind.meaning}") &&
+      hasSubstr out "title=\"Lean " &&
+      -- under the statement: where it comes from, and that nothing compared it with the Lean
+      hasSubstr out "class=\"bp_statement_source\" data-bp-statement-source=\"blueprint\"" &&
+      hasSubstr out "Informal statement from the blueprint · not checked against the Lean statement" &&
       hasSubstr out "<details class=\"bp_wrapper bp_kind_proof_wrapper" &&
       -- no separate Lean code panel for the statement
       !hasSubstr out "Lean code for Theorem" &&
