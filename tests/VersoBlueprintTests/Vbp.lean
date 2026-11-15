@@ -519,8 +519,8 @@ private def jsonArrayHasNullField (values : Array Json) (field : String) : Bool 
       health.localProofFormalized == proofComplete &&
       (match heading.statusMark with
        | some mark => mark.status == health.provedStatus &&
-           mark.title.contains "Statement: completed" == statementComplete &&
-           mark.title.contains "Proof: completed" == proofComplete
+           mark.title.contains "Lean statement: no sorry" == statementComplete &&
+           mark.title.contains "Lean proof: no sorry" == proofComplete
        | none => false) &&
       (match jsonArrayField? json "declarations" with
        | some rows => rows.size == 2 && jsonArrayHasStringField rows "facet" "statement" &&

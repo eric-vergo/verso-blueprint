@@ -195,7 +195,7 @@ class TestPreviewRuntimeRegressions:
         ).first
         expect(doc_def).to_have_count(1)
         expect(doc_def).to_have_attribute("data-kind", "def")
-        expect(doc_def.locator(".bp_external_decl_header_status").first).to_contain_text("complete")
+        expect(doc_def.locator(".bp_external_decl_header_status").first).to_contain_text("no sorry")
         doc_def_header = doc_def.locator(".bp_external_decl_kicker").first
         expect(doc_def_header.locator(".bp_external_decl_kind").first).to_contain_text("def")
         expect(doc_def_header.locator("code")).to_have_count(0)
@@ -266,7 +266,7 @@ class TestPreviewRuntimeRegressions:
 
         stage = page.locator('[data-decl="PreviewRuntimeShowcase.CodePanelDecls.PreviewStage"]').first
         expect(stage).to_have_attribute("data-kind", "inductive")
-        expect(stage.locator(".bp_external_decl_header_status").first).to_contain_text("complete")
+        expect(stage.locator(".bp_external_decl_header_status").first).to_contain_text("no sorry")
         expect(stage.locator(".bp_external_decl_kind").first).to_contain_text("inductive")
         expect(stage.locator(".bp_external_decl_kicker").first).to_contain_text("2 constructors")
         expect(stage.locator(".bp_external_decl_body").first).to_contain_text("Constructors")
@@ -280,7 +280,7 @@ class TestPreviewRuntimeRegressions:
 
         cls = page.locator('[data-decl="PreviewRuntimeShowcase.CodePanelDecls.PreviewFold"]').first
         expect(cls).to_have_attribute("data-kind", "class")
-        expect(cls.locator(".bp_external_decl_header_status").first).to_contain_text("complete")
+        expect(cls.locator(".bp_external_decl_header_status").first).to_contain_text("no sorry")
         expect(cls.locator(".bp_external_decl_kind").first).to_contain_text("class")
         expect(cls.locator(".bp_external_decl_kicker").first).to_contain_text("2 methods")
         expect(cls.locator(".bp_external_decl_body").first).to_contain_text("Methods")

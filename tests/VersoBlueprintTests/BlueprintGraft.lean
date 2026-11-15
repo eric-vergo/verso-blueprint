@@ -514,9 +514,9 @@ private def exportInBothModes (state : TraverseState) :
   let html ← renderManualBlocksHtmlWithState blocks manualImpls state
   let rendered := html.asString
   unless (rendered.splitOn "identical-code-panel").length == 3 &&
-      hasSubstr rendered "firstPanelDecl: complete" &&
-      hasSubstr rendered "secondPanelDecl: complete" &&
-      !hasSubstr rendered "emptyPanelDecl: complete" do
+      hasSubstr rendered "firstPanelDecl: no sorry" &&
+      hasSubstr rendered "secondPanelDecl: no sorry" &&
+      !hasSubstr rendered "emptyPanelDecl: no sorry" do
     throw <| IO.userError "Panel rendering conflated identity, equal HTML or empty output"
   let (files, errors) ← exportInBothModes state
   unless errors.isEmpty && (files.manifest.findEntry? keys[0]!).isSome &&

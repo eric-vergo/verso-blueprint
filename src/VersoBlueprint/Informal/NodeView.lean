@@ -6,6 +6,7 @@ Author: Eric Vergo
 
 import VersoManual
 import VersoBlueprint.Axioms
+import VersoBlueprint.ClaimView
 import VersoBlueprint.Informal.Block.Render
 import VersoBlueprint.LeanSourceAnchor
 
@@ -33,6 +34,11 @@ Layout rules:
   each marked with its class (`Informal.Data.AxiomClass`): a `sorry`, an extra
   axiom and a proof that trusts compiled code come first, the standard axioms
   last, and "none" when the declarations use no axiom at all.
+
+Informal text never stands beside Lean code without its source: under the statement a line
+names where it comes from and says that no tool compared it with the Lean statement, and an
+author's claim about a manuscript (`claim?`) is shown in the same column, labelled as the
+author's, with its attestations as people's statements.
 
 The markup reuses the side-by-side classes (`bp_sbs`, `bp_sbs_grid`,
 `bp_sbs_informal`, `bp_sbs_formal`), so the view looks like a side-by-side node
@@ -79,6 +85,14 @@ structure NodeView where
   uses : Array Link := #[]
   /-- Nodes that use this node. -/
   usedBy : Array Link := #[]
+  /-- Where the informal statement comes from, when not the Blueprint itself (a site generated
+  from code names `docstring`, `tex`, …). Shown under the statement when the node also has
+  Lean declarations. -/
+  informalSource : Option String := none
+  /-- The author's claim about the node's Lean declaration, when the project supplies one. -/
+  claim? : Option ClaimView.ClaimView := none
+  /-- The address of the explanation of the marks, when the site has one. -/
+  meaningHref? : Option String := none
 deriving Inhabited
 
 /-- The link to a node's neighbourhood on the dependency graph's page (its ego view):
@@ -156,6 +170,25 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
       | none => h
     else none
   let lean := if v.lean.isEmpty then none else some (Verso.Output.Html.seq v.lean)
+  -- Informal text beside Lean code: its source, and the sentence that nothing compared them.
+  let meaning : Verso.Output.Html := match v.meaningHref? with
+    | some href => Verso.Output.Html.seq #[.text true " ",
+        .tag "a" #[("href", href), ("class", "bp_meaning_link")]
+          (.text true Informal.Meaning.linkText)]
+    | none => .empty
+  let sourceNote : Verso.Output.Html :=
+    .tag "p" #[("class", "bp_statement_source"),
+        ("data-bp-statement-source", v.informalSource.getD "blueprint")]
+      (Verso.Output.Html.seq #[.text true s!"Informal statement from \
+        {Informal.Meaning.sourcePhrase v.informalSource}. {Informal.Meaning.uncheckedNote}", meaning])
+  let informal : Option Verso.Output.Html :=
+    if lean.isSome then informal.map fun h => Verso.Output.Html.seq #[h, sourceNote] else informal
+  let claim : Option Verso.Output.Html :=
+    if lean.isSome then v.claim?.map (·.render v.meaningHref?) else none
+  let informal : Option Verso.Output.Html := match informal, claim with
+    | some h, some c => some (Verso.Output.Html.seq #[h, c])
+    | none, some c => some c
+    | h, none => h
   let columns : Array Verso.Output.Html :=
     (informal.map fun h => {{<div class="bp_sbs_informal">{{h}}</div>}}).toArray ++
     (lean.map fun h => {{<div class="bp_sbs_formal">{{h}}</div>}}).toArray

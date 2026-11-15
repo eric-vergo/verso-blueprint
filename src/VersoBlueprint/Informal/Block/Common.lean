@@ -54,6 +54,11 @@ structure BlockStatusMark where
   status : Data.ProvedStatus := .incomplete {}
   title : String
   symbolOverride? : Option String := none
+  /-- The node's kind: a theorem-like node's Lean code is a proof, a definition's is not. -/
+  kind : Data.NodeKind := .theorem
+  /-- The axioms the node's Lean declarations depend on other than `sorryAx` and Lean's
+  standard three: what a status of "no `sorry`" still rests on. -/
+  extraAxioms : Array Lean.Name := #[]
 deriving Repr, Inhabited
 
 def BlockStatusMark.text (s : BlockStatusMark) : String :=

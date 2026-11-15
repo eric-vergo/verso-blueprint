@@ -60,8 +60,8 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
       !info.isEmpty &&
       info.any (·.location == Data.SorryWhere.proof) &&
       !info.any (·.location == Data.SorryWhere.statement) &&
-      hasSubstr mark.title "Statement: completed" &&
-      hasSubstr mark.title "Proof: blocked by sorry"
+      hasSubstr mark.title "Lean statement: no sorry" &&
+      hasSubstr mark.title "Lean proof: blocked by sorry"
     | _ => false
   | none => false
 
@@ -89,8 +89,8 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
       !info.isEmpty &&
       info.any (·.location == Data.SorryWhere.proof) &&
       !info.any (·.location == Data.SorryWhere.statement) &&
-      hasSubstr mark.title "Statement: blocked by sorry in body" &&
-      hasSubstr mark.title "Proof: blocked by sorry"
+      hasSubstr mark.title "Lean statement: blocked by sorry in body" &&
+      hasSubstr mark.title "Lean body: blocked by sorry"
     | _ => false
   | none => false
 
@@ -124,7 +124,7 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
   hasSubstr html "class=\"bp_code_decl_item\"" &&
   hasSubstr html "inlineDef" &&
   hasSubstr html "inlineThm" &&
-  hasSubstr html ">[complete]</span>" &&
+  hasSubstr html ">[no sorry]</span>" &&
   hasSubstr html ">[sorry in proof]</span>"
 
 /-- info: true -/
@@ -196,8 +196,8 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
   match (CodeSummary.renderParts data { source := data.codeData } (fun _ => none)).statusMark with
   | some mark => mark.status == status &&
       !mark.status.hasProofGap && !mark.status.containsExplicitSorry &&
-      hasSubstr mark.title "Statement: blocked by sorry" &&
-      hasSubstr mark.title "Proof: unknown (sorry location unavailable)"
+      hasSubstr mark.title "Lean statement: blocked by sorry" &&
+      hasSubstr mark.title "Lean proof: unknown (sorry location unavailable)"
   | none => false
 
 /-- info: true -/
@@ -226,11 +226,11 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
       codeData := some { externalDecls := #[ref] } }
     match (CodeSummary.renderParts data { source := data.codeData } (fun _ => none)).statusMark with
     | some mark => mark.status == status &&
-        mark.title.startsWith s!"Statement: {statement}; Proof: {proof}"
+        mark.title.startsWith s!"Lean statement: {statement}; Lean proof: {proof}"
     | none => false
   let hidden : ProvedStatus := .incomplete { unverified := #[{
     location := .proof, declaration := `Hidden.clean, reason := .bodyUnavailable }] }
-  check hidden "completed" "unverified" &&
+  check hidden "no sorry" "unverified" &&
     check (.incomplete {}) "unverified" "unverified" &&
     check .missing "missing declaration" "missing declaration" &&
     check (.incomplete {

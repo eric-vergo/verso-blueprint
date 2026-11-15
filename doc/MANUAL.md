@@ -1453,12 +1453,21 @@ layout on:
   run, 1.5rem), `--bp-sbs-target-surface` and `--bp-sbs-target-bleed` (the
   tint of a linked node), `--bp-sbs-proof-duration` (200ms, the length of every
   opening and closing, long proofs included) and `--bp-sbs-proof-easing`.
-- The node title carries a status glyph: ✓ the Lean declarations are complete,
-  ◐ the statement is formalized but a proof is incomplete, ⚠ the statement
-  depends on `sorry`, an axiom, or unverified code, ✗ a declaration is missing,
-  ○ no Lean declaration is attached. The glyph's tooltip gives its meaning and
-  the details. A folded "Status legend" lists the glyphs: in the sidebar foot
-  when the site has a sidebar, otherwise at the end of the page.
+- The node title carries a status glyph, which is about the node's Lean code
+  and nothing else: ✓ the Lean declarations, and everything they use, contain
+  no `sorry` (the tooltip says "Lean proof complete" for a theorem and "Lean
+  definition complete" for a definition); ◐ a `sorry` in the proof or in what
+  it uses; ⚠ a `sorry` in the statement, an axiom beyond Lean's standard three
+  (also when there is no `sorry`: the tooltip names the axiom, or the compiled
+  code the proof rests on), or code that could not be inspected; ✗ a
+  declaration is missing; ○ no Lean declaration is attached. The glyph's
+  tooltip gives its meaning and the details. A folded "Status legend" lists
+  the glyphs and ends with what no mark is about: "No tool checks that an
+  informal statement says the same as the Lean statement." It sits in the
+  sidebar foot when the site has a sidebar, otherwise at the end of the page.
+- Under a statement that has Lean declarations a small line names where the
+  text comes from and says the same in short: "Informal statement from the
+  blueprint · not checked against the Lean statement".
 - The relation and Lean chips of the title row (`uses N`, `used by N`,
   `✓ L∃∀N`) are shown small and muted at the right of the title; counts of
   zero are hidden.
@@ -1651,6 +1660,11 @@ which widens to hold it:
 - above, the node's status glyph and status text (where a `sorry` is, an
   axiom-like declaration); below, links to the nodes it uses and the nodes
   that use it, which switch the panel to that node;
+- under the informal statement, when the node also has Lean declarations, its
+  source and the sentence "No tool has checked that this text says the same as
+  the Lean statement.", with a link to the explanation on the Project Stats
+  page; and the author's claim about the declaration, when the project has one
+  ("Author's claims" below);
 - an *Axioms* row listing the axioms the node's Lean declarations depend on,
   as `#print axioms` reports them, each with its class: a `sorry`
   (`sorryAx`), an extra axiom (one the project or a dependency declares) and
@@ -1902,14 +1916,34 @@ form is described in `doc/schemas/project-stats.schema.json`.
 - **Build**: each file is either imported by the generator, compiled by
   another build target, or in no build.
 - **Progress**: nodes by the dependency graph's fill status, for the whole
-  project and per chapter (the first directory of the nodes' page addresses).
+  project and per chapter (the first directory of the nodes' page addresses);
+  and by kind group (`leanProgress`): for theorem-like nodes and for
+  definitions, how many there are, how many are *Lean complete* (the node's
+  Lean declarations, with everything they use, contain no `sorry`), how many of
+  those have only Lean-complete dependencies, and how many have an informal
+  statement (a statement with a body).
 - **Trust**: declarations with a `sorry` of their own or through a dependency,
-  with axioms outside Lean's standard three, or with proofs that trust compiled
-  code (`native_decide`), plus Lean names that are missing and labels nobody
-  defines.
+  with axioms outside Lean's standard three, or with proofs that rest on the
+  result of compiled code (`native_decide`), plus Lean names that are missing
+  and labels nobody defines.
 - **Headline**: the theorems of the project's Comparator challenge, compared
   with its solution (see below). A project without a challenge has no
   headline, and `hasComparatorChallenge` is false.
+- **Claims**: what the project's author says its Lean declarations state, from
+  `informal-claims.json` (see "Author's claims" below).
+
+The project is the folder the generator runs in. A Blueprint that is a Lake
+package of its own inside the project it describes (a `blueprint/` folder with
+its own `lakefile`) names the project's root where its generator is defined,
+relative to that folder:
+
+```lean
+set_option verso.blueprint.projectRoot ".."
+```
+
+The statistics are then the project's (its README, license, sources and
+Comparator challenge), and the Blueprint package's own files are not counted
+among them.
 
 The statistics hold no version-control data, and every path in them is
 relative to the project root, so they do not change between `--reproducible`
@@ -1938,7 +1972,8 @@ file `lake comparator` reads:
 
 Without that file, a project whose sources contain `Comparator/Challenge.lean`
 has the challenge `Comparator.Challenge` and the solution `Comparator.Solution`;
-every theorem the challenge states is judged and no axiom list is stated. The
+every theorem the challenge states is judged, and the axioms a proof may use
+are Lean's standard three (`propext`, `Classical.choice`, `Quot.sound`). The
 challenge needs a library of its own in the Lake configuration, since nothing
 imports it (it declares the same names as the solution):
 
@@ -1967,8 +2002,10 @@ signature), and:
   compiled modules. Otherwise the first declaration that differs is named;
 - whether the solution's proof is free of `sorry`, directly or through what it
   uses, and the axioms it depends on, sorted by class as in node views;
-- whether those axioms are all in `permitted_axioms`, when the file lists them;
-- **proved**: the same statement and no `sorry`;
+- whether those axioms are all in `permitted_axioms`, when the file lists them,
+  and the axioms the verdict does not allow (`axiomsNotAllowed`): those outside
+  that list, or outside Lean's standard three when there is no list;
+- **proved**: the same statement, no `sorry` and no axiom that is not allowed;
 - the Blueprint node whose Lean declarations include the theorem.
 
 The other declarations the challenge introduces (its definitions) are listed
@@ -1983,9 +2020,48 @@ builds the challenge whenever it goes through Lake (when it starts, and on
 `build --full`); a challenge edited after that shows as out of date once the
 model is captured again.
 
-This comparison is a summary for readers, not a verdict: `lake comparator`
-remains the authority (it also rechecks the solution with the kernel in a
-sandbox).
+What this comparison is not. It reads the compiled modules of the build the
+site is generated from, and the axioms as Lean reports them for that build. It
+does not build the project from its sources in a sandbox and does not replay
+any proof in a kernel; `lake comparator` does both, and is the tool to run
+before relying on a result. Neither says what a statement means: that a Lean
+statement is the theorem of a manuscript is for a reader to judge, which is why
+the page shows the challenge's docstring under its own caption and never under
+the verdict.
+
+#### Author's claims
+
+A project can say which result of which manuscript a Lean declaration is meant
+to state, so that a reader knows what to compare. `informal-claims.json` at the
+project root:
+
+```json
+{
+  "source": { "title": "…", "authors": "…", "version": "v2", "url": "https://…" },
+  "claims": [
+    { "declaration": "Project.main_theorem",
+      "reference": "Theorem 2.2",
+      "statement": "The informal statement, as plain text.",
+      "attestations": [
+        { "by": "A. Reader", "date": "2026-01-31", "note": "compared with v2" } ] }
+  ]
+}
+```
+
+Every field but `declaration` is optional; there is one claim per declaration.
+`reference` is the result's own number in the source: a site never numbers a
+node as if it were the manuscript. An attestation records that a person says
+they compared the claim with the Lean statement.
+
+The file is separate from `comparator.json` on purpose: that file configures a
+judgement a tool makes, and nothing in a claim is judged. A claim is shown as
+text under the caption "Author's claim", with the sentence "No tool has checked
+that this text says the same as the Lean statement." and its attestations as
+"Attested by NAME, DATE: NOTE", closed by "An attestation is a person's
+statement, not a check." It appears on the headline card of a judged theorem,
+in the node view of the declaration's node, and, for other declarations, in an
+"Author's claims" band of the Project Stats page. No status, count or colour
+depends on it.
 
 ### Project Stats page
 
@@ -1994,27 +2070,45 @@ an unnumbered "Project Stats" page at the end of its table of contents, so it
 is reached from the site's navigation like the summary and the dependency
 graph. It shows the project statistics on one page, in this order:
 
-1. **Identity**: the README's heading (or the document's title) and first
-   paragraph, the license (or "No license file"), the Lean version, the
-   packages the project requires directly with the revision it asked for and
-   the locked commit, and the generator's sidebar links.
-2. **Headline result**: a card per theorem of the Comparator challenge, with
-   its node, its statement and docstring as the challenge writes them, the
-   verdict ("Proved", "Same statement; the proof uses sorry", "Statement
-   differs", "Not in the solution") and the axioms of the solution's proof. A
-   project without a challenge gets one line saying that a challenge would add
-   a headline.
-3. **How far along**: the nodes by progress status as one bar with counts, a
-   legend, a link to the work-queue page when the site has one, and a table
-   with one row per chapter.
+1. **Identity**: the README's heading (or the document's title; a heading that
+   names no project, such as "Readme", is passed over for the package's name)
+   and first paragraph, the license (or "No license file"), the Lean version,
+   the packages the project requires directly with the revision it asked for
+   and the locked commit, the sentence that the page reports on this one build
+   ("No other toolchain or revision was checked."), and the generator's sidebar
+   links.
+2. **Headline result**: a card per theorem of the Comparator challenge: the
+   verdict, worded about the Lean statement ("Lean statement proved", "Same
+   Lean statement as the challenge; the proof uses sorry", "…; the proof rests
+   on an axiom …", "Lean statement differs from the challenge", "Not in the
+   solution"); the Lean statement as the challenge writes it; the axioms of the
+   solution's proof; then, under their own captions, the challenge's docstring
+   and the author's claim. Under the cards: what the comparison is and is not.
+   A project without a challenge gets one line saying that a challenge would
+   add a headline.
+3. **How far along**: how many nodes are theorems and how many definitions;
+   how many of each are Lean complete; how many nodes have an informal
+   statement, with the sentence that no tool has checked any of them against
+   the Lean statements; then the nodes by progress status as one bar with
+   counts, a legend, a link to the work-queue page when the site has one, and
+   a table with one row per chapter. The page never says "proved" of a
+   definition or of a count of nodes.
 4. **How big**: Lean files, lines (code, comment and blank), declarations by
    kind, Blueprint nodes by kind, chapters and dependencies.
 5. **Does it build**: how many Lean files the site's build compiled, how many
    declarations have a `sorry` of their own, and the Lean files on disk that
    are in no build.
-6. **Trust**: the nodes whose declarations have a `sorry` (their own or through
-   a dependency), use axioms beyond Lean's standard three or trust compiled
-   code (`native_decide`), plus Lean names not found and references to no node.
+6. **What the Lean code rests on**: the nodes whose declarations have a `sorry`
+   (their own or through a dependency), use axioms beyond Lean's standard three
+   or rest on the result of compiled code (`native_decide`), plus Lean names
+   not found and references to no node.
+7. **What this page reports, and what it does not**: a short explanation of
+   the marks (Lean complete, axioms, the headline's verdict, this build) ending
+   with what no tool checks: that a Lean statement says what an informal
+   statement, a docstring or a manuscript says. Notes elsewhere on the site
+   link to it ("What this means"). A viewer that documents the marks itself
+   can show one more link there: it is hidden unless the page's root element
+   has `data-lean-links`, and its address is `lean:help/marks`.
 
 It ends with a link to the summary page for the detailed breakdown. The page
 is plain HTML and CSS: the bars use the shared status colour tokens, each
@@ -2519,12 +2613,18 @@ The site is an ordinary Blueprint site:
   read from its source as Markdown with raw HTML shown as text, formulas between
   `$…$` and `$$…$$` and in Verso's docstring syntax, `` $`…` `` and
   `` $$`…` ``), with a node per declaration: theorems are
-  theorems, everything else is a definition, numbered by chapter. A node with a
+  theorems, everything else is a definition. Nothing is numbered: a node is
+  titled by its kind and its declaration's name, a chapter by its module, and
+  the front page says so, because a number on such a site would read as the
+  number of a result in the project's manuscript. A node with a
   statement in the data shows it as on a written Blueprint: in its chapter card
   and in the graph's node view, beside the Lean side, its title in bold, its
   formulas typeset when the site is built (by KaTeX in the page when one is not
-  accepted then), its proof below it (folded in the node view); the statement's Markdown is read with raw HTML shown as text and link
-  targets other than web, mail and site-relative ones dropped. A node without
+  accepted then), its proof below it (folded in the node view); the statement's
+  Markdown is read with raw HTML shown as text and link
+  targets other than web, mail and site-relative ones dropped. Under the
+  statement a line names its `source` ("Informal statement from the docstring ·
+  not checked against the Lean statement"). A node without
   one shows the Lean side alone. The Lean side is an API entry: the signature
   and the source excerpt read from `--root`,
   highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
@@ -2580,6 +2680,10 @@ Current options:
     are controlled by the sub-numbering options below
   - `global`: document-order numbering such as `Theorem 27`
   - `local`: unprefixed local numbering without a chapter prefix
+  - `none`: no numbers; a block is titled by its kind and its label (`Theorem
+    Project.main_theorem`). For documents whose order is not a numbering a
+    reader could cite: a site generated from code uses it, so that no number
+    there can be taken for the number of a result in a manuscript
 - `verso.blueprint.subNumberingPrefix`
   - default: `full`
   - `full`: use the full numbered section path, such as `1.3`

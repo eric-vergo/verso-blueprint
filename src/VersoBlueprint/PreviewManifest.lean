@@ -2552,7 +2552,10 @@ axioms its declarations depend on.
 Lean hovers are registered in the cache's hover table `hoverState`.
 -/
 private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entry)
-    (hoverState : Verso.Code.Hover.State Output.Html) :
+    (hoverState : Verso.Code.Hover.State Output.Html)
+    (informalSource : Name → Option String := fun _ => none)
+    (claimOf : Array Name → Option Informal.ClaimView.ClaimView := fun _ => none)
+    (meaningHref? : Option String := none) :
     IO (NodeViewFile × Verso.Code.Hover.State Output.Html) := do
   let index := manifest.index
   let bodies : Std.HashMap String String :=
@@ -2595,6 +2598,9 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         axioms? := nodeAxioms? entry.codeData
         uses := nodeViewLinks entry.uses
         usedBy := nodeViewLinks entry.usedBy
+        informalSource := informalSource node.label
+        claim? := claimOf (decls.map (·.canonical))
+        meaningHref?
       }
       entries := entries.push { label, html := view.render.asString }
   pure ({ entries }, hoverState)
@@ -2665,9 +2671,16 @@ def buildPreviewDataFiles
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint resource {entry.key}: {error}")
     pure ({ key := entry.key, html := html.asString } : HtmlCache.Entry)
+  let claims? : Option Informal.Stats.Claims :=
+    (Informal.TraversalIndex.RenderOverviews.required (α := Informal.Stats.ProjectStats) state
+      `stats).toOption.bind (·.claims)
   let (nodeViews, hoverState) ←
     withTimedBuildProgress verbose "building dependency-graph node views" <|
       buildNodeViews manifest resolvedEntries hoverState
+        (informalSource := fun label =>
+          (Informal.TraversalIndex.Nodes.occurrence? state label).bind (·.statementSource))
+        (claimOf := fun decls => claims?.bind fun claims => decls.findSome? claims.view?)
+        (meaningHref? := Informal.Commands.meaningHref? state)
   let hoverDocs ← hoverState.dedup.contentId.toArray.mapM fun (id, html) => do
     let html ← match resolve html with
       | .ok html => pure html

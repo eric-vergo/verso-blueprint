@@ -270,9 +270,9 @@ class TestBlueprintSlidesRuntime:
         )
         expect(code_panel.locator(".bp_code_decl_item")).to_have_count(2)
         decl_items = code_panel.locator(".bp_code_decl_item").all_inner_texts()
-        assert any("collatzStep" in item and "[complete]" in item for item in decl_items)
+        assert any("collatzStep" in item and "[no sorry]" in item for item in decl_items)
         assert any(
-            "collatzTerminatesAtOne" in item and "[complete]" in item
+            "collatzTerminatesAtOne" in item and "[no sorry]" in item
             for item in decl_items
         )
         code_panel_metrics = code_panel.evaluate(
