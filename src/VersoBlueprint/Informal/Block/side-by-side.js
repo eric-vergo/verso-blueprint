@@ -75,37 +75,67 @@
     return details.open && !details.hasAttribute("data-bp-closing");
   }
 
-  function setOpen(details, open, animate) {
-    if (isOpening(details) === open) return;
-    const startHeight = details.getBoundingClientRect().height;
-    finish(details);
-    const settings = motionSettings(details);
+  // Records on a proof's own toggle whether it is open.
+  function markExpanded(details, open) {
+    const summary = details.querySelector(":scope > summary");
+    if (summary) summary.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  // Opens or closes the proofs in `list` together. The heights of all of them are
+  // read in three passes (now, closed, open) rather than three per proof, so a node
+  // with many Lean proofs costs three layouts.
+  function setOpen(list, open, animate) {
+    const changing = list.filter(function (details) {
+      return isOpening(details) !== open;
+    });
+    if (changing.length === 0) return;
+    changing.forEach(function (details) {
+      markExpanded(details, open);
+    });
+    const settings = motionSettings(changing[0]);
     // A page that is not visible (a background tab or view) has nothing to animate, and its
     // animation clock may not run.
     const canAnimate =
       animate && !reducedMotion.matches && settings.duration > 0 &&
-      document.visibilityState === "visible" && typeof details.animate === "function";
+      document.visibilityState === "visible" && typeof changing[0].animate === "function";
     if (!canAnimate) {
-      details.open = open;
+      changing.forEach(function (details) {
+        finish(details);
+        details.open = open;
+      });
       return;
     }
-    // The heights at both ends (a closed Lean proof whose toggle gives way takes no room).
-    details.open = false;
-    const closedHeight = details.getBoundingClientRect().height;
-    details.open = true;
-    const openHeight = details.getBoundingClientRect().height;
-    if (!open) details.setAttribute("data-bp-closing", "");
-    details.setAttribute("data-bp-animating", "");
-    const animation = details.animate(
-      [{ height: startHeight + "px" }, { height: (open ? openHeight : closedHeight) + "px" }],
-      { duration: settings.duration, easing: settings.easing }
-    );
-    details._bpAnimation = animation;
-    animation.onfinish = function () {
-      if (details._bpAnimation !== animation) return;
-      finish(details);
-      details.open = open;
+    const height = function (details) {
+      return details.getBoundingClientRect().height;
     };
+    const startHeights = changing.map(height);
+    changing.forEach(finish);
+    // The heights at both ends (a closed Lean proof whose toggle gives way takes no room).
+    changing.forEach(function (details) {
+      details.open = false;
+    });
+    const closedHeights = changing.map(height);
+    changing.forEach(function (details) {
+      details.open = true;
+    });
+    const openHeights = changing.map(height);
+    changing.forEach(function (details, i) {
+      if (!open) details.setAttribute("data-bp-closing", "");
+      details.setAttribute("data-bp-animating", "");
+      const animation = details.animate(
+        [
+          { height: startHeights[i] + "px" },
+          { height: (open ? openHeights[i] : closedHeights[i]) + "px" }
+        ],
+        { duration: settings.duration, easing: settings.easing }
+      );
+      details._bpAnimation = animation;
+      animation.onfinish = function () {
+        if (details._bpAnimation !== animation) return;
+        finish(details);
+        details.open = open;
+      };
+    });
   }
 
   function onToggleClick(summary, handler) {
@@ -139,13 +169,9 @@
       summary.setAttribute("aria-expanded", details.open ? "true" : "false");
       onToggleClick(summary, function () {
         const open = !isOpening(details);
-        summary.setAttribute("aria-expanded", open ? "true" : "false");
-        setOpen(details, open, true);
-        if (linked && details === controller) {
-          lean.forEach(function (partner) {
-            setOpen(partner, open, true);
-          });
-        }
+        const group = [details];
+        if (linked && details === controller) Array.prototype.push.apply(group, lean);
+        setOpen(group, open, true);
       });
       // Opened or closed another way (a link into the proof, find in page).
       details.addEventListener("toggle", function () {
@@ -165,7 +191,9 @@
     controller.addEventListener("toggle", function () {
       if (controller._bpAnimation) return;
       lean.forEach(function (details) {
-        if (!details._bpAnimation) details.open = controller.open;
+        if (details._bpAnimation) return;
+        details.open = controller.open;
+        markExpanded(details, controller.open);
       });
     });
   }
@@ -190,7 +218,13 @@
 
   // A link into a proof opens it (and, through the toggle link, its partners).
   function openTarget() {
-    const id = decodeURIComponent((window.location.hash || "").slice(1));
+    const fragment = (window.location.hash || "").slice(1);
+    let id = fragment;
+    try {
+      id = decodeURIComponent(fragment);
+    } catch (error) {
+      // A malformed escape: look the fragment up as it is.
+    }
     if (!id) return;
     const target = document.getElementById(id);
     if (!target) return;

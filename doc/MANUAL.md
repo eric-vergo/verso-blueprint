@@ -1433,10 +1433,12 @@ layout on:
   places them, so this holds without scripts too.
 - Nodes have no card. Consecutive Blueprint blocks form a *run*
   (`div.bp_sbs_run`); prose, a code block or a heading between two blocks ends
-  it. One hairline divider in the middle of the column gap runs through the
-  whole run; a statement without Lean declarations takes the full width and
-  interrupts it. The node a link lands on (its statement, its proof or one of
-  its declarations) is tinted.
+  it, while a block that renders nothing (group metadata, hidden external
+  markup) does not. One hairline divider in the middle of the column gap runs
+  through the whole run; a statement without Lean declarations takes the full
+  width and interrupts it. The node a link lands on (its statement, its proof or
+  one of its declarations) is tinted on screen, not in print. Other styles and
+  print stack the columns and keep the nodes of a run apart.
 - With the page script, "Proof [show]" on the prose side opens and closes the
   prose proof and the node's Lean proofs together, and the Lean proofs' own
   toggles are hidden; a node with Lean proofs but no prose proof keeps
