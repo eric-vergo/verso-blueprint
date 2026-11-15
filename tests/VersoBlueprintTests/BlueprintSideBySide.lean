@@ -239,6 +239,38 @@ private def segment (s needle : String) (n : Nat) : String :=
       appearsBefore ungrouped "class=\"bp_sbs_formal\"" "First proof."
     )
 
+/-! A block that renders nothing (here hidden external markup, the default display) between two
+Blueprint blocks does not end their run. -/
+
+#docs (Genre.Manual) hiddenBetweenDoc "Hidden Between Doc" :=
+:::::::
+:::theorem "thm:hiddenA" (lean := "Nat.add")
+Statement before the hidden block.
+:::
+
+```tex "thm:hiddenA" (slot := statement)
+\begin{theorem}Hidden source text.\end{theorem}
+```
+
+:::definition "def:hiddenB" (lean := "Nat.mul")
+Statement after the hidden block.
+:::
+:::::::
+
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let out ← DeclarationSource.withEnabled true <|
+      renderManualDocHtmlString manualImpls hiddenBetweenDoc
+        (prepare := Informal.SideBySideRuns.groupRuns)
+    let run := "<div class=\"bp_sbs_run\">"
+    pure (
+      countSubstr out run == 1 &&
+      hasSubstr (segment out run 0) "data-bp-node=\"«thm:hiddenA»\"" &&
+      hasSubstr (segment out run 0) "data-bp-node=\"«def:hiddenB»\"" &&
+      !hasSubstr out "Hidden source text.")
+
 open Verso.Output in
 /-- A side-by-side node and a proof of it, as rendered (attributes only). -/
 private def node (label : String) : Html :=
@@ -255,21 +287,38 @@ open Verso.Output in
 private def panel : Html := .tag "div" #[("class", "bp_wrapper bp_code_panel_wrapper")] .empty
 
 -- Proofs move into the node they directly follow, with their references panel; a proof of
--- another node, or one after other content, stays where it is.
+-- another node stays where it is.
 /-- info: true -/
 #guard_msgs in
 #eval
   open Verso.Output in
-  let out := Informal.SideBySideRuns.renderRun
-    #[node "a", .seq #[proof "a", panel], node "b", proof "c", .text true "x", proof "b"]
+  let out := Informal.SideBySideRuns.renderRun <| #[node "a", .seq #[proof "a", panel], node "b",
+    proof "c", proof "b"].map (true, ·)
   let s := out.asString
   countSubstr s "<div class=\"bp_sbs_run\">" == 1 &&
     appearsBefore s "proof a" "class=\"bp_sbs_formal\"" &&
     appearsBefore s "bp_code_panel_wrapper" "data-bp-node=\"b\"" &&
     appearsBefore s "data-bp-node=\"b\"" "proof c" &&
-    -- `b`'s proof follows other content, so it is not attached
+    -- `b`'s proof follows another node's proof, so it is not attached
     appearsBefore s "proof c" "proof b" &&
     appearsBefore (segment s "data-bp-node=\"b\"" 0) "class=\"bp_sbs_formal\"" "proof c"
+
+-- Between Blueprint blocks, a block that renders nothing (or only whitespace) is dropped and the
+-- run goes on, so a proof after it is still attached; one that shows something ends the run.
+/-- info: true -/
+#guard_msgs in
+#eval
+  open Verso.Output in
+  let out := Informal.SideBySideRuns.renderRun #[(true, node "a"), (false, .empty),
+    (false, .seq #[.text true "\n  ", .seq #[]]), (true, proof "a"), (false, .text true "prose"),
+    (true, node "b")]
+  let s := out.asString
+  countSubstr s "<div class=\"bp_sbs_run\">" == 2 &&
+    appearsBefore s "proof a" "class=\"bp_sbs_formal\"" &&
+    appearsBefore s "proof a" "prose" && appearsBefore s "prose" "data-bp-node=\"b\"" &&
+    -- the first run element is closed before the prose
+    (let pre := (s.splitOn "prose").headD ""
+     countSubstr pre "</div>" == countSubstr pre "<div")
 
 /-- A stand-in for a block of the given extension (only its name matters for grouping). -/
 private def blockOf (name : Name) (contents : Array (Doc.Block Genre.Manual) := #[]) :
@@ -286,15 +335,26 @@ private def shape : Doc.Block Genre.Manual → String
   | .para _ => "p"
   | _ => "?"
 
--- Grouping: maximal runs; group metadata inside a run stays there, at its edges it stays
+-- Grouping: each stretch from one Blueprint block to another, whatever lies between (whether
+-- that ends the run is decided when it renders); blocks before the first and after the last stay
 -- outside; containers are searched for runs of their own.
-/-- info: "run[n,g,n],p,g,run[n],o[run[n,n]],run[n]" -/
+/-- info: "g,run[n,g,n,p,g,n,o[run[n,n]],n],p" -/
 #guard_msgs in
 #eval
   let n := blockOf Informal.SideBySideRuns.informalBlockName
   let g := blockOf `Informal.Block.groupMetadata
   let p : Doc.Block Genre.Manual := .para #[]
   String.intercalate "," ((Informal.SideBySideRuns.groupBlocks
-    #[n, g, n, p, g, n, blockOf `Other #[n, n], .concat #[n]]).toList.map shape)
+    #[g, n, g, n, p, g, n, blockOf `Other #[n, n], .concat #[n], p]).toList.map shape)
+
+-- Concatenations are flattened at any depth, and the blocks inside them are searched too.
+/-- info: "run[n,n,n,?,o[run[n,n]],n]" -/
+#guard_msgs in
+#eval
+  let n := blockOf Informal.SideBySideRuns.informalBlockName
+  String.intercalate "," ((Informal.SideBySideRuns.groupBlocks
+    #[n, .concat #[.concat #[n, .concat #[n]]],
+      .concat #[.blockquote #[] , blockOf `Other #[.concat #[n, .concat #[n]]]], n]).toList.map
+    shape)
 
 end Verso.VersoBlueprintTests.BlueprintSideBySide
