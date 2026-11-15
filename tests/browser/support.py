@@ -75,3 +75,23 @@ def blueprint_render_api_script(body: str) -> str:
 
 def wait_for_blueprint_render_api(page: Page) -> None:
     page.evaluate(blueprint_render_api_script("return true;"))
+
+
+VENDORED_LICENSE_FILES = (
+    "d3/LICENSE",
+    "d3-graphviz/LICENSE",
+    "d3-graphviz/LICENSE-hpcc-js-wasm",
+    "d3-graphviz/LICENSE-graphviz",
+    "d3-graphviz/LICENSE-expat",
+)
+
+
+def assert_vendored_licenses(site_dir: Path) -> None:
+    """The site ships each vendored library's licence and notice files next to its script, the
+    same bytes as the repository's `static-web/vendor/` copies."""
+    vendor = site_dir / "-verso-data" / "vendor"
+    assert (vendor / "d3" / "d3.min.js").is_file(), vendor
+    for name in VENDORED_LICENSE_FILES:
+        shipped = vendor / name
+        assert shipped.is_file(), shipped
+        assert shipped.read_bytes() == (PACKAGE_ROOT / "static-web" / "vendor" / name).read_bytes(), name

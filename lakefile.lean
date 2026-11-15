@@ -27,11 +27,12 @@ input_file mathLintWorkerJs where
   path := "static-web/katex-lint.mjs"
   text := true
 
--- The graph's browser libraries, shipped with every site (static-web/vendor/README.md).
+-- The graph's browser libraries and their licences, shipped with every site
+-- (static-web/vendor/README.md).
 input_dir vendoredWebAssets where
   path := "static-web/vendor"
   text := true
-  filter := .extension <| .mem #["js"]
+  filter := .any #[PathPat.extension (.mem #["js"]), PathPat.fileName (.startsWith "LICENSE")]
 
 -- Optional VIR resource API; neither the core library nor generator imports it.
 lean_lib VersoBlueprintVir where

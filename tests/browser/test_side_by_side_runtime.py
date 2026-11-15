@@ -1,5 +1,6 @@
 """Browser checks for the side-by-side node layout (`--side-by-side`)."""
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -9,13 +10,16 @@ from playwright.sync_api import Page, expect
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from scripts.blueprint_harness_utils import lean_low_priority_command
-from support import PACKAGE_ROOT, assert_no_runtime_errors, find_free_port, record_runtime_errors, wait_for_server
+from support import PACKAGE_ROOT, assert_no_runtime_errors, assert_vendored_licenses, find_free_port, record_runtime_errors, wait_for_server
 
 
 @pytest.fixture(scope="session")
 def side_by_side_site_dir() -> Path:
     output_dir = canonical_test_blueprint_output_dir("preview_runtime_showcase", Path(__file__))
     output_dir = output_dir.parent / (output_dir.name + "-side-by-side")
+    # start empty, so the checks see only what this build writes
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     project_dir = PACKAGE_ROOT / "tests" / "test_blueprints" / "preview_runtime_showcase"
     subprocess.run(
@@ -57,6 +61,10 @@ def side_by_side_server(side_by_side_site_dir: Path):
     yield url
     proc.terminate()
     proc.wait()
+
+
+def test_blueprint_site_ships_vendored_licences(side_by_side_site_dir: Path):
+    assert_vendored_licenses(side_by_side_site_dir)
 
 
 def side_by_side_page_path(site_dir: Path) -> str:

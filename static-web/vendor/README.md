@@ -2,7 +2,8 @@
 
 The dependency graph's renderer ships with every generated site, so a site's pages draw the graph
 without loading anything from the network. The files are redistributed unmodified under their
-licences, which sit next to them. `vbp`/the generator writes them to `-verso-data/vendor/` and
+licences, which sit next to them. `vbp`/the generator writes them, with those licence and notice
+files (`LICENSE*`), to `-verso-data/vendor/` and
 `Commands/graph.mjs` loads them from there (relative to its own URL); a page can still pass other
 URLs through the graph options' `libraries` field.
 
