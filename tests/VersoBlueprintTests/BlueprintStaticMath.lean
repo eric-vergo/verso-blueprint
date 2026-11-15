@@ -125,8 +125,9 @@ def near (a b : Float) : Bool := (a - b).abs < 0.001
   let codeSite := r#"{"html":"<div class=\"bp_sbs_informal\">\n<p>\n  $q_k \\equiv 1$.</p>"}"#
   let static := r#"{"html":"<span class=\"bp_math inline bp_math_static\"><svg></svg><span class=\"bp_math_source\" aria-hidden=\"true\">$x$</span></span>"}"#
   let docstring := r#"{"7":"<code class=\"docstring\">the interval $[a, b]$.</code>"}"#
+  let unclosed := r#"{"7":"<code class=\"docstring\">no end", "8":"<p>$x$</p>"}"#
   StaticMath.textNeedsKaTeX codeSite && !StaticMath.textNeedsKaTeX static &&
-    !StaticMath.textNeedsKaTeX docstring
+    !StaticMath.textNeedsKaTeX docstring && StaticMath.textNeedsKaTeX unclosed
 
 -- The fonts come from LeAnTeX's package, found where the build's modules are, not from the
 -- working directory; when they are missing, the warning names the folders looked in.

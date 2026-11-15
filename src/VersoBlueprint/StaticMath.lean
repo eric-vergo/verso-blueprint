@@ -353,11 +353,15 @@ partial def filesUnder (dir : System.FilePath) : IO (Array System.FilePath) := d
     else if md.type == .file then out := out.push e.path
   return out
 
-/-- A text without the parts between each `opener` and the next `closer` (both kept out). -/
+/-- A text without the parts between each `opener` and the next `closer` (both kept out); an
+`opener` without a `closer` after it is kept with what follows it. -/
 def withoutBetween (s opener closer : String) : String :=
   match s.splitOn opener with
   | first :: rest =>
-    first ++ String.join (rest.map fun piece => closer.intercalate ((piece.splitOn closer).drop 1))
+    first ++ String.join (rest.map fun piece =>
+      match piece.splitOn closer with
+      | _ :: after@(_ :: _) => closer.intercalate after
+      | _ => opener ++ piece)
   | [] => s
 
 /-- A data file's text (JSON-escaped HTML) without the TeX sources that build-time formulas
