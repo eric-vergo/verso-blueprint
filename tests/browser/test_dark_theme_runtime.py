@@ -109,6 +109,20 @@ class TestDarkThemeRuntime:
         failing = [r for r in reports if r["ratio"] < MIN_CONTRAST]
         assert not failing, failing
 
+    def test_code_tokens_are_readable_after_the_scheme_changes(self, server: str, page: Page):
+        # A page opened in a light scheme that then turns dark (Auto): once the tokens' colour
+        # transitions have ended, every token has the dark theme's colour.
+        page.emulate_media(color_scheme="light")
+        page.goto(server + "/Code-Panels/")
+        page.emulate_media(color_scheme="dark")
+        page.wait_for_function(
+            "document.getAnimations().every((a) => a.playState !== 'running')", timeout=5000
+        )
+        reports = token_reports(page)
+        assert len(reports) >= 3, reports
+        failing = [r for r in reports if r["ratio"] < MIN_CONTRAST]
+        assert not failing, failing
+
     def test_table_of_contents_is_readable(self, server: str, page: Page):
         page.emulate_media(color_scheme="dark")
         page.goto(server + "/Code-Panels/")

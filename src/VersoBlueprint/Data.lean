@@ -9,6 +9,7 @@ import Lean.Data.Json
 import Lean.Data.Lsp
 import VersoManual
 import VersoBlueprint.ExternalDeclRender
+import VersoBlueprint.NameJson
 
 namespace Informal.Data
 
