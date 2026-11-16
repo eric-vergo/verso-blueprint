@@ -274,7 +274,7 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     let view := statusMark.status.presentation
     let symbol :=
       if !statusMark.status.isProved then view.codeEntrySymbol
-      else match Replay.standing replay? statusMark.modules with
+      else match Replay.standingOf replay? statusMark.modules statusMark.unplaced with
         | .accepted => view.codeEntrySymbol
         | .rejected _ => "⊘"
         | .notReplayed _ => "◇"
@@ -390,18 +390,25 @@ private def completionStatusMark (kind : Data.NodeKind) (extraAxioms : Array Nam
     { status, title, kind, extraAxioms, symbolOverride? := some "⚠" }
 
 private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
-    (health : Informal.Graph.CodeHealth) (modules : Array Name := #[]) : BlockStatusMark :=
+    (health : Informal.Graph.CodeHealth) (modules : Array Name := #[])
+    (unplaced : Option Name := none) : BlockStatusMark :=
   if health.hasMissingExternalDecls then
     {
       status := .missing
       title := s!"{completionAxisText kind health}; Lean declarations: {health.presentDecls} present, {health.missingDecls} missing"
-      kind, extraAxioms, modules
+      kind, extraAxioms, modules, unplaced
     }
   else
     if health.hasAxiomLike then
-      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms, modules }
+      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms, modules,
+        unplaced }
     else
-      { completionStatusMark kind extraAxioms health with modules }
+      { completionStatusMark kind extraAxioms health with modules, unplaced }
+
+/-- A present declaration of `source` whose provenance names no module. -/
+def unplacedOf (source : BlockCodeData) : Option Name :=
+  (source.externalDecls.find? fun d => d.present && d.provenance.moduleName?.isNone).map
+    (·.canonical)
 
 /-- The modules of the present declarations of `source`, where their provenance names one, each
 once, sorted. -/
@@ -635,6 +642,7 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
   let renderHealth := externalRenderHealth source.externalDecls
   let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health (modulesOf source)
+    (unplacedOf source)
   let title := if source.isEmpty then "No associated Lean declarations" else
     appendRenderHealthSummary
       (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
@@ -650,7 +658,8 @@ def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option
   let source := source?.getD {}
   if source.isEmpty then none else
     some (statusMarkFromHealth kind (extraAxiomsOf source)
-      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (modulesOf source))
+      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (modulesOf source)
+      (unplacedOf source))
 
 end CodeSummary
 end Informal

@@ -2164,7 +2164,8 @@ its own.
   seconds; `VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS` sets another). A replay
   that is stopped at the limit is reported as not finished, never as accepted.
 - **Not twice**: an accepted module is recorded in
-  `.lake/build/blueprint-kernel-replay.json` (or the file
+  `.lake/build/blueprint-kernel-replay.json`, in the build directory that holds
+  the project's compiled modules (or the file
   `VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names; empty for no record) under a
   SHA-256 key of its compiled files, the keys of the project's modules it
   imports, the checker, and the sizes and modification times of the compiled
@@ -2636,7 +2637,9 @@ renders a pointer to the HTML output, and `Not in PDF` is absent from
 
 A project without a Blueprint can still get a Blueprint site: `vbp code-site`
 generates one from data about its compiled code, without a Blueprint package,
-without changing the project and without loading its environment.
+without changing the project's sources and without loading its environment.
+(The kernel replay writes one file into the project's build directory: its
+record of accepted modules, see "Kernel replay".)
 
 ```
 lake exe vbp code-site --data code.json --root <project> [--output <dir>]

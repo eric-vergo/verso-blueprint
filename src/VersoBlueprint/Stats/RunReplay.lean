@@ -34,9 +34,9 @@ ordered with the largest directory first.
 ## The record
 
 A module is not replayed twice. After an accepted run each module's key is written to a record
-(`blueprint-kernel-replay.json` in the project's build directory, or the file
-`VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names); a later run replays only the modules whose key is
-not there. The key of a module is the SHA-256 of: its compiled files' contents; the keys of the
+(`blueprint-kernel-replay.json` in the build directory that holds the project's compiled
+modules, or the file `VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names; empty for none); a later run
+replays only the modules whose key is not there. The key of a module is the SHA-256 of: its compiled files' contents; the keys of the
 project's modules it imports; the checker (path, size, modification time, Lean version); and the
 sizes and modification times of every compiled module outside the project on the search path.
 So a module counts as accepted only while its own bytes, the bytes of everything in the project
@@ -134,7 +134,9 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
     defaultReplayLimit
   let record? ← match ← IO.getEnv replayRecordVar with
     | some path => pure (if path.trimAscii.isEmpty then none else some (FilePath.mk path))
-    | none => pure (some (root / ".lake" / "build" / replayRecordFile))
+    | none =>
+      -- beside the project's compiled modules: `<package>/.lake/build`, above `lib/lean`
+      pure <| (projectDirs[0]?.bind fun dir => dir.parent.bind (·.parent)).map (· / replayRecordFile)
   return { checker?, off, limitSeconds, projectDirs, importDirs, record? }
 
 /-! ## Modules on disk -/

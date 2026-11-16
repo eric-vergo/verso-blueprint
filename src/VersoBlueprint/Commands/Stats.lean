@@ -387,9 +387,10 @@ private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Outpu
 
 /-- The line under a verdict that rests on the comparison's conditions: what the kernel replay
 did for the modules the solution rests on. -/
-def replayNoteText (replay? : Option Replay.Result) (needed : Array Name) : String :=
+def replayNoteText (replay? : Option Replay.Result) (needed : Array Name)
+    (standing? : Option Replay.Standing := Option.none) : String :=
   let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
-  match Replay.standing replay? needed with
+  match standing?.getD (Replay.standing replay? needed) with
   | .accepted =>
     let modules := if needed.size == 1 then "the project module" else
       s!"the {needed.size} project modules"
@@ -400,16 +401,26 @@ def replayNoteText (replay? : Option Replay.Result) (needed : Array Name) : Stri
     s!"Kernel replay: {checker} rejected{where_}{message}"
   | .notReplayed why => s!"No kernel replay: {why}."
 
+/-- What the replay establishes for a headline: the standing of the modules the solution rests
+on. A headline that does not name the solution module among them (its compiled module is not one
+of the project's own) has nothing replayed behind it, whatever the replay accepted. -/
+def headlineStanding (replay? : Option Replay.Result) (h : Headline) : Replay.Standing :=
+  if h.solutionModules.contains h.solutionModule then Replay.standing replay? h.solutionModules
+  else match Replay.standing replay? #[] with
+    | .accepted => .notReplayed s!"the solution module {h.solutionModule} is not among the \
+        project's compiled modules, so it was not replayed"
+    | other => other
+
 private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : HeadlineTheorem) :
     Output.Html :=
   let replay? := view.stats.replay
-  let standing := Replay.standing replay? h.solutionModules
+  let standing := headlineStanding replay? h
   let (token, verdict) := headlineVerdict t standing
   let claim? := view.stats.claims.bind (·.view? t.name)
   let replayNote : Output.Html :=
     if !t.conditionsMet then .empty
     else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
-      (txt (replayNoteText replay? h.solutionModules)) #[("data-bp-replay", token)]
+      (txt (replayNoteText replay? h.solutionModules (some standing))) #[("data-bp-replay", token)]
   el "div" "bp_stats_theorem" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
       el "code" "bp_stats_theorem_name" (txt t.name.toString),

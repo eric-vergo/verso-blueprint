@@ -117,6 +117,13 @@ def standing (r? : Option Result) (needed : Array Name) : Standing :=
         .notReplayed s!"{nameList missing} {be} not among the project's modules that were replayed"
     | _ => .notReplayed r.whyNot
 
+/-- `standing` for a node: `unplaced` is a declaration of it whose module is not known, which no
+accepted replay is known to cover. -/
+def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Name) : Standing :=
+  match standing r? needed, unplaced with
+  | .accepted, some d => .notReplayed s!"the module of {d} is not known, so it was not replayed"
+  | s, _ => s
+
 /-- Whether the standing is an accepted replay. -/
 def Standing.isAccepted : Standing → Bool
   | .accepted => true

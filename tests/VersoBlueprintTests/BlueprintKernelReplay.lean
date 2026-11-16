@@ -188,6 +188,30 @@ info: ("reported",
   let (kind, text) := statusGlyph (some (mark #[`Mathlib.Data.Nat.Basic])) (some (result .accepted))
   (kind.modifier, text)
 
+-- A declaration whose module is not known (it is declared where the site's data was captured,
+-- in a file that need not be compiled) is covered by no replay.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let (kind, text) := statusGlyph (some { mark #[] with unplaced := some `Main.forged })
+    (some (result .accepted))
+  kind.modifier == "reported" && text == "Lean proof without sorry, as the compiled files \
+    report; not replayed by a kernel (the module of Main.forged is not known, so it was not \
+    replayed)"
+
+-- A headline whose solution module is not among the project's replayed modules is not called
+-- proved, whatever the replay accepted.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let h : Headline := { challengeModule := `P.Challenge, solutionModule := `P.Solution }
+  let covered := { h with solutionModules := #[`P.Basic, `P.Solution] }
+  headlineStanding (some (result .accepted)) covered == .accepted &&
+    headlineStanding (some (result .accepted)) h == .notReplayed "the solution module \
+      P.Solution is not among the project's compiled modules, so it was not replayed" &&
+    headlineStanding (some (result .rejected)) h == .rejected (some `P.Solution) &&
+    (headlineVerdict met (headlineStanding (some (result .accepted)) h)).1 == "not-replayed"
+
 -- The marks that are not about a replay do not change with it: an axiom beyond the standard
 -- three keeps the warning mark under an accepted replay.
 /-- info: true -/

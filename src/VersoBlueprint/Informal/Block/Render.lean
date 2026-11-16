@@ -940,7 +940,7 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
       let noun := leanCodeNoun mark.kind
       if mark.extraAxioms.isEmpty then
         let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
-        match Replay.standing replay? mark.modules with
+        match Replay.standingOf replay? mark.modules mark.unplaced with
         | .accepted =>
           (.proved, s!"{noun} complete: no sorry in it or in what it uses; checked again in \
             Lean's kernel by {checker}")
