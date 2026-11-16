@@ -813,7 +813,11 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
       { t with node := t.node <|> earlier t.name <|> nodeOf t.name } }
     stats := { stats with headline := some headline, hasComparatorChallenge := true }
   let result ← match toolchain, reply.prepared? with
-    | .error outcome, _ => pure ({ outcome, version, declarations := asked } : Replay.Result)
+    | .error outcome, _ =>
+      -- nothing was checked: the last line says so, as it does after a check
+      let result : Replay.Result := { outcome, version, declarations := asked }
+      say result.whyNot
+      pure result
     | .ok _, none => pure (noVerdict stats .failed (some "no export was written")).replay.get!
     | .ok (checker, _, version), some prepared =>
       checkExport config checker version prepared exportFile deadline
