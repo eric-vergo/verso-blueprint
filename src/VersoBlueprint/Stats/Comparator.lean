@@ -745,18 +745,20 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     else pure none
   if targets.isEmpty && challenge?.isNone then
     return noVerdict stats .failed (some "this site has no Lean declaration to check")
-  -- when nothing can be loaded, nothing is compared either, and the headline says why
+  -- when the modules are not loaded, nothing is compared here either: a headline that was
+  -- captured with the site's data stays, and where there is none the headline says why
+  let uncompared (stats : ProjectStats) (why : String) : ProjectStats :=
+    match challenge?, stats.headline.all (·.unavailable.isSome) with
+    | some challenge, true =>
+      let headline : Headline := {
+        challengeModule := challenge.challengeModule
+        solutionModule := challenge.solutionModule
+        config := challenge.configFile, permittedAxioms := challenge.permittedAxioms
+        unavailable := some .modulesNotLoaded, unavailableDetail := some why }
+      { stats with headline := some headline }
+    | _, _ => stats
   let notLoaded (message : String) : ProjectStats :=
-    let stats := match challenge? with
-      | some challenge =>
-        let headline : Headline := {
-          challengeModule := challenge.challengeModule
-          solutionModule := challenge.solutionModule
-          config := challenge.configFile, permittedAxioms := challenge.permittedAxioms
-          unavailable := some .modulesNotLoaded, unavailableDetail := some message }
-        { stats with headline := some headline }
-      | none => stats
-    noVerdict stats .failed (some message)
+    uncompared (noVerdict stats .failed (some message)) message
   let work ← IO.FS.createTempDir
   let exportFile := work / "export.ndjson"
   let request : ReplayRequest := {
@@ -795,8 +797,9 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     | .ok reply => pure reply
     | .error stats =>
       cleanUp
-      say ((stats.replay.map (·.whyNot)).getD "")
-      return stats
+      let why := (stats.replay.map (·.whyNot)).getD ""
+      say why
+      return uncompared stats why
   if let some message := reply.notLoaded? then
     cleanUp
     say s!"the replay could not run to a verdict: {message}"

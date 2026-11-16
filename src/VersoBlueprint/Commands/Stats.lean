@@ -343,7 +343,7 @@ def unavailableText : Unavailable → String
   | .challengeUnreadable => "The compiled challenge module could not be read."
   | .solutionNotImported => "The Blueprint does not import the solution module."
   | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
-  | .modulesNotLoaded => "The compiled modules could not be loaded."
+  | .modulesNotLoaded => "The compiled modules were not loaded for the comparison."
 
 private def axiomChip (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a

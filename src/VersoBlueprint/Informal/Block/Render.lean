@@ -882,11 +882,11 @@ structure StatusGlyphKind where
   meaning : String
 
 namespace StatusGlyphKind
-/-- The check mark: only for Lean code without `sorry` whose module a kernel replay accepted
-while the site was generated. -/
+/-- The check mark: only for Lean code without `sorry` that a kernel replay accepted, with
+everything it depends on, while the site was generated. -/
 def proved : StatusGlyphKind :=
-  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, and its module was \
-    checked again in Lean's kernel for this site"⟩
+  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, and it was checked \
+    again in Lean's kernel for this site, with everything it depends on"⟩
 /-- What the compiled files report, with no kernel replay behind it: not a check mark. -/
 def reported : StatusGlyphKind :=
   ⟨"◇", "reported", "Lean code without sorry, as the compiled files report; not replayed by a \

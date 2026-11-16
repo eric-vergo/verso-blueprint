@@ -1030,7 +1030,7 @@ private def checkWith (dir : System.FilePath) (config : ReplayConfig) : IO Repla
 -- long before the time limit. Nothing is recorded as accepted.
 /--
 info: ("Informal.Replay.Outcome.overMemory", true, true)
-"the replay was stopped: leanchecker went over its memory limit of 64 MiB"
+"the replay was stopped: checker went over its memory limit of 64 MiB"
 "Informal.Replay.Outcome.overMemory"
 -/
 #guard_msgs (whitespace := lax) in

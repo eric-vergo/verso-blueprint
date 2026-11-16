@@ -910,6 +910,8 @@ def checkExport (config : ReplayConfig) (checker : FilePath) (version : Option S
     if config.progress then IO.eprintln s!"Kernel replay: {line}"
   let base : Replay.Result := {
     outcome := .failed, version, declarations := prepared.declarations
+    -- the program that was run, by its own name
+    checker := (checker.fileStem.filter (!·.isEmpty)).getD "leanchecker"
     notCovered := prepared.notCovered, axioms := prepared.axioms
     constants := prepared.constants, origins := prepared.origins }
   let finish (result : Replay.Result) : IO Replay.Result := do
