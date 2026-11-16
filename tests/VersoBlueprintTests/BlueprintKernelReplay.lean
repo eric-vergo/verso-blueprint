@@ -7,6 +7,7 @@ Author: Eric Vergo
 import VersoBlueprintTests.Blueprint.Support
 import VersoBlueprint.Stats.Comparator
 import VersoBlueprint.PreviewManifest
+import VersoBlueprint.ReplayView
 import VersoBlueprintTests.ComparatorFixtures.Match.Solution
 import VersoBlueprintTests.ComparatorFixtures.Forged.Solution
 
@@ -91,7 +92,8 @@ private def result (outcome : Replay.Outcome) : Replay.Result :=
   let needed := #[`P.Solution]
   Replay.standing (some (result .accepted)) needed == .accepted &&
     Replay.standing (some (result .accepted)) #[`Mathlib.Data.Nat.Basic] ==
-      .notReplayed "Mathlib.Data.Nat.Basic is not among the project's modules that were replayed" &&
+      .notReplayed "not part of a replayed module: Mathlib.Data.Nat.Basic is not among the \
+        project's modules that were replayed" &&
     Replay.standing (some (result .rejected)) needed == .rejected (some `P.Solution) &&
     Replay.standing none needed ==
       .notReplayed "this site was generated without a kernel replay" &&
@@ -181,7 +183,7 @@ info: [("proved",
 -- A node whose declaration is in a module outside the project is not covered by the replay.
 /--
 info: ("reported",
- "Lean proof without sorry, as the compiled files report; not replayed by a kernel (Mathlib.Data.Nat.Basic is not among the project's modules that were replayed)")
+ "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: Mathlib.Data.Nat.Basic is not among the project's modules that were replayed)")
 -/
 #guard_msgs (whitespace := lax) in
 #eval
@@ -196,8 +198,8 @@ info: ("reported",
   let (kind, text) := statusGlyph (some { mark #[] with unplaced := some `Main.forged })
     (some (result .accepted))
   kind.modifier == "reported" && text == "Lean proof without sorry, as the compiled files \
-    report; not replayed by a kernel (the module of Main.forged is not known, so it was not \
-    replayed)"
+    report; not replayed by a kernel (not part of a replayed module: the module of Main.forged \
+    is not known)"
 
 -- A headline whose solution module is not among the project's replayed modules is not called
 -- proved, whatever the replay accepted.
@@ -281,6 +283,277 @@ private def page (replay? : Option Replay.Result) : String :=
       hasSubstr html "data-bp-replay=\"none\"" &&
       hasSubstr html s!"Not replayed by a kernel: {why}. The marks on this site say what the \
         compiled files report."
+
+/-! ## Colour follows the replay -/
+
+-- Every success colour is declared with its neutral value, in both themes; its green value
+-- lives under a name of its own, and only the scope rules bring it in.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let light := Informal.Commands.blueprintLightTokensCss
+  let dark := Informal.Commands.darkTokens
+  !StatusColors.successColors.isEmpty &&
+  StatusColors.successColors.all fun c =>
+    hasSubstr light s!"  {c.name}: {c.reported.1};\n" &&
+      hasSubstr light s!"  {c.name}-accepted: {c.accepted.1};\n" &&
+      hasSubstr light s!"  {c.name}-reported: {c.reported.1};\n" &&
+      (dark.filter (·.1 == c.name)) == [(c.name, c.reported.2)] &&
+      dark.contains (s!"{c.name}-accepted", c.accepted.2) &&
+      c.accepted != c.reported
+
+-- The scope rules: green inside an element an accepted replay stands behind, neutral again
+-- inside one it does not; the rules ship with every page's tokens.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let css := StatusColors.replayScopeCss
+  let accepted := ((css.splitOn ".bp_replay_none").head!)
+  let neutral := ((css.splitOn ".bp_replay_none").getD 1 "")
+  hasSubstr css ".bp_replay_accepted,\n[data-bp-replay-scope=\"accepted\"] {" &&
+    hasSubstr css (".bp_replay_none,\n.bp_replay_rejected,\n" ++
+      "[data-bp-replay-scope]:not([data-bp-replay-scope=\"accepted\"]) {") &&
+    StatusColors.successColors.all (fun c =>
+      hasSubstr accepted s!"  {c.name}: var({c.name}-accepted);\n" &&
+        !hasSubstr accepted s!"var({c.name}-reported)" &&
+        hasSubstr neutral s!"  {c.name}: var({c.name}-reported);\n" &&
+        !hasSubstr neutral s!"var({c.name}-accepted)") &&
+    hasSubstr Informal.Commands.blueprintTokensCss css
+
+-- The state of a site: accepted only under an accepted replay that leaves no node uncovered.
+/--
+info: [("accepted", "bp_replay_accepted", none),
+ ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
+ ("rejected", "bp_replay_rejected", some "this build was rejected by the kernel checker"),
+ ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
+ ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
+ ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel")]
+-/
+#guard_msgs (whitespace := lax) in
+#eval
+  [Replay.siteState (some (result .accepted)),
+   Replay.siteState (some (result .accepted)) #[`literate.node],
+   Replay.siteState (some (result .rejected)) #[`literate.node],
+   Replay.siteState (some (result .noChecker)),
+   Replay.siteState (some (result .timedOut)),
+   Replay.siteState none].map fun site => (site.token, site.scopeClass, site.note?)
+
+/-- info: true -/
+#guard_msgs in
+#eval
+  Replay.siteState (some (result .accepted)) #[`a, `b] ==
+      .none "2 nodes with Lean code are not part of a replayed module" &&
+    (Replay.siteState none).sentence == "The counts are as the compiled files report, not \
+      replayed by a kernel: this site was generated without a kernel replay." &&
+    (Replay.siteState (some (result .rejected))).sentence == "This build was rejected by the \
+      kernel checker: the counts say what the compiled files report, and nothing here counts \
+      as checked by a kernel." &&
+    (Replay.siteState (some (result .accepted))).sentence == ""
+
+-- The Project Stats page per state: the class of the page and of the headline card, the
+-- sentence beside the counts, and the words of the legend entries a replay would turn green.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let page (site : Replay.SiteState) (replay? : Option Replay.Result) : String :=
+    (statsPageHtml { stats := { stats replay? with progress := { formalizedWithAncestors := 2 } },
+                     site }).asString
+  let accepted := page .accepted (some (result .accepted))
+  let rejected := page .rejected (some (result .rejected))
+  let none := page (.none "no kernel checker was found") (some (result .noChecker))
+  let partly := page (Replay.siteState (some (result .accepted)) #[`literate.node])
+    (some (result .accepted))
+  hasSubstr accepted "class=\"bp_project_stats bp_replay_accepted\"" &&
+    hasSubstr accepted "data-bp-replay-state=\"accepted\"" &&
+    hasSubstr accepted "class=\"bp_stats_theorem bp_replay_accepted\"" &&
+    !hasSubstr accepted "bp_stats_replay_counts" &&
+    hasSubstr accepted "title=\"Lean complete, dependencies too: 2\"" &&
+  hasSubstr rejected "class=\"bp_project_stats bp_replay_rejected\"" &&
+    hasSubstr rejected "class=\"bp_stats_theorem bp_replay_rejected\"" &&
+    !hasSubstr rejected "bp_replay_accepted" &&
+    hasSubstr rejected "bp_stats_replay_counts bp_stats_replay_counts_rejected" &&
+    hasSubstr rejected "This build was rejected by the kernel checker: the counts say" &&
+    hasSubstr rejected "Lean complete, dependencies too (this build was rejected by the kernel \
+      checker): 2" &&
+  hasSubstr none "class=\"bp_project_stats bp_replay_none\"" &&
+    hasSubstr none "class=\"bp_stats_theorem bp_replay_none\"" &&
+    !hasSubstr none "bp_replay_accepted" &&
+    hasSubstr none "The counts are as the compiled files report, not replayed by a kernel: no \
+      kernel checker was found." &&
+    hasSubstr none "Lean complete, dependencies too (as the compiled files report, not replayed \
+      by a kernel): 2" &&
+  -- a node the replay does not cover keeps the counts neutral; the headline it does cover and
+  -- the sentence that the replay accepted the build stay positive
+  hasSubstr partly "class=\"bp_project_stats bp_replay_none\"" &&
+    hasSubstr partly "class=\"bp_stats_theorem bp_replay_accepted\"" &&
+    hasSubstr partly "bp_stats_replay_accepted bp_replay_accepted" &&
+    hasSubstr partly "1 node with Lean code is not part of a replayed module."
+
+-- A view built with nothing said about a replay is neutral: the default is never green.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let html := (statsPageHtml { stats := stats (some (result .accepted)) }).asString
+  hasSubstr html "class=\"bp_project_stats bp_replay_none\"" &&
+    (progressBuckets {}).any (·.label == "Lean complete, dependencies too (as the compiled \
+      files report, not replayed by a kernel)") &&
+    (progressBuckets {} .accepted).any (·.label == "Lean complete, dependencies too")
+
+-- A node of the graph: the class that turns its fill and border green, and its own colours
+-- for a drawing without the stylesheet, only under an accepted replay. Under a replay that
+-- covers the node and not everything it depends on, it is drawn as complete on its own.
+/--
+info: [("bp_graph_status_formalized_with_ancestors bp_graph_statement_formalized", "#64748b", "#64748b", "#ffffff"),
+ ("bp_graph_status_formalized bp_graph_statement_formalized bp_replay_accepted", "#dcfce7", "#16a34a", "#111827"),
+ ("bp_graph_status_formalized_with_ancestors bp_graph_statement_formalized bp_replay_accepted",
+  "#166534",
+  "#16a34a",
+  "#ffffff")]
+-/
+#guard_msgs (whitespace := lax) in
+#eval
+  let node : Graph.NodeData := {
+    label := `n, title := "n", displayLabel := "n", kind := some .theorem
+    statementStatus := .formalized, proofStatus := .formalizedWithAncestors
+    visual := { fillcolor := Graph.proofStatusFillColor .theorem .formalizedWithAncestors } }
+  [Graph.NodeReplay.none, .accepted, .acceptedWithDependencies].map fun replay =>
+    let n := node.withReplay replay
+    (Graph.nodeStatusClasses .theorem n.statementStatus n.proofStatus n.warnings n.replay,
+      n.visual.fillcolor, n.visual.color, n.visual.fontcolor)
+
+-- Statuses that are not about `sorry`-free code keep their colours whatever the replay says.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let node : Graph.NodeData := {
+    label := `n, title := "n", displayLabel := "n", kind := some .theorem
+    statementStatus := .ready, proofStatus := .incomplete
+    visual := { fillcolor := Graph.proofStatusFillColor .theorem .incomplete,
+                color := Graph.statementStatusBorderColor .ready } }
+  (node.withReplay .none).visual == node.visual &&
+    Graph.nodeStatusClasses .theorem .ready .incomplete {} ==
+      "bp_graph_status_incomplete bp_graph_statement_ready"
+
+-- What the replay establishes for the nodes of a graph: a node is accepted with its
+-- dependencies only when every node it depends on, directly or not, is accepted too; a node
+-- without Lean code establishes nothing either way; a cycle ends.
+/--
+info: [(`top, Informal.Graph.NodeReplay.accepted),
+ (`mid, Informal.Graph.NodeReplay.accepted),
+ (`leaf, Informal.Graph.NodeReplay.none),
+ (`side, Informal.Graph.NodeReplay.acceptedWithDependencies),
+ (`text, Informal.Graph.NodeReplay.none),
+ (`loop, Informal.Graph.NodeReplay.acceptedWithDependencies)]
+-/
+#guard_msgs (whitespace := lax) in
+#eval
+  let replay? := some (result .accepted)
+  let index : ReplayView.Index := {
+    replay?
+    standings := Std.HashMap.ofList [
+      (`top, .accepted), (`mid, .accepted), (`side, .accepted), (`loop, .accepted),
+      (`leaf, Replay.standing replay? #[`Script])]
+    uses := Std.HashMap.ofList [
+      (`top, #[`mid, `side]), (`mid, #[`leaf]), (`leaf, #[]), (`side, #[`text]), (`text, #[]),
+      (`loop, #[`loop, `side])] }
+  [`top, `mid, `leaf, `side, `text, `loop].map fun label => (label, index.nodeReplay label)
+
+-- The nodes an accepted replay leaves uncovered keep the site neutral; without an accepted
+-- replay the site is neutral as a whole and no node is singled out.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let standings : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
+    (`covered, .accepted), (`script, .notReplayed "not part of a replayed module")]
+  let accepted : ReplayView.Index := { replay? := some (result .accepted), standings }
+  let rejected : ReplayView.Index := { replay? := some (result .rejected), standings }
+  accepted.uncovered == #[`script] && accepted.siteState.token == "none" &&
+    rejected.uncovered == #[] && rejected.siteState == .rejected &&
+    ({ replay? := some (result .accepted) } : ReplayView.Index).siteState == .accepted
+
+/-! ## A code block in a module that was not replayed -/
+
+-- A code block written in the Blueprint's own text records the module it was elaborated in. A
+-- kernel replay covers the node only when that module is among the replayed ones.
+#docs (Genre.Manual) literateDoc "Literate" :=
+:::::::
+:::theorem "replay.literate"
+A statement.
+:::
+
+```lean "replay.literate"
+theorem replay_literate_fact : True := by
+  trivial
+```
+:::::::
+
+/-- The module this file is. -/
+private def thisModule : Name := `VersoBlueprintTests.BlueprintKernelReplay
+
+/-- The replay `result .accepted` with `modules` as the modules replayed. -/
+private def acceptedFor (modules : Array Name) : Replay.Result :=
+  { result .accepted with modules }
+
+-- The declaration of the block knows its module, in the captured node and in the render model.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show CoreM Bool from do
+    let state := Informal.Environment.informalExt.getState (← getEnv)
+    let some node := state.data.get? (Name.mkSimple "replay.literate") | pure false
+    let captured := node.literateCodes.flatMap (·.definedTheorems.map (·.module))
+    let model : RenderModel := blueprint_render_model%
+    let some rendered := model.nodes.find? (·.label == Name.mkSimple "replay.literate") | pure false
+    let code := rendered.toBlockData.codeData.getD {}
+    pure (captured == #[some thisModule] && code.modules == #[thisModule] &&
+      code.unplaced == none)
+
+-- The mark of such a node: the check mark when the replay accepted its module, the neutral
+-- mark with the reason when the module is not among the replayed ones (a file run as a script,
+-- never compiled), and when the module is not known at all.
+/--
+info: [("proved",
+  "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0)"),
+ ("reported",
+  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: VersoBlueprintTests.BlueprintKernelReplay is not among the project's modules that were replayed)"),
+ ("reported",
+  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: the module of replay_literate_fact is not known)")]
+-/
+#guard_msgs (whitespace := lax) in
+#eval
+  let decl (module : Option Name) : CodeDeclData :=
+    { name := `replay_literate_fact, provedStatus := .proved, module }
+  let code (module : Option Name) : BlockCodeData :=
+    { literateDeclarations := { definedTheorems := #[decl module] } }
+  let glyph (replay : Replay.Result) (module : Option Name) :=
+    let (kind, text) := statusGlyph (CodeSummary.statusMark? .theorem (some (code module)))
+      (some replay)
+    (kind.modifier, text)
+  [glyph (acceptedFor #[thisModule]) (some thisModule),
+   glyph (acceptedFor #[`P.Basic]) (some thisModule),
+   glyph (acceptedFor #[`P.Basic]) none]
+
+-- On the rendered page: the block says what stands behind it, and the symbol of its Lean link
+-- is the check mark only when the replay covers the module.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let model : RenderModel := blueprint_render_model%
+    let render (replay? : Option Replay.Result) : IO String :=
+      renderManualDocHtmlString extension_impls% literateDoc
+        (model := { model with stats := { model.stats with replay := replay? } })
+    let covered ← render (some (acceptedFor #[thisModule]))
+    let uncovered ← render (some (acceptedFor #[`P.Basic]))
+    let unreplayed ← render none
+    let symbol (html mark : String) : Bool :=
+      hasSubstr html s!"class=\"bp_code_status_symbol\">{mark}</span>"
+    pure (
+      hasSubstr covered "data-bp-replay-scope=\"accepted\"" && symbol covered "✓" &&
+      hasSubstr uncovered "data-bp-replay-scope=\"none\"" && symbol uncovered "◇" &&
+        !symbol uncovered "✓" && !hasSubstr uncovered "data-bp-replay-scope=\"accepted\"" &&
+      hasSubstr unreplayed "data-bp-replay-scope=\"none\"" && symbol unreplayed "◇" &&
+        !symbol unreplayed "✓")
 
 /-! ## The real checker on the fixtures -/
 

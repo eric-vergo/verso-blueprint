@@ -17,7 +17,9 @@ register_option verso.blueprint.debug.commands : Bool := {
 }
 
 /-- Light values of the `--bp-*` tokens, with the status colours of `Informal.StatusColors`
-first. -/
+first. The success colours among them (`StatusColors.successColors`) are declared with their
+neutral values: they turn green only inside an element behind which an accepted kernel replay
+stands (`StatusColors.replayScopeCss`). -/
 def blueprintLightTokensCss : String :=
   "\n:root {\n" ++
   String.join (StatusColors.all.map fun token => s!"  {token.name}: {token.light};\n") ++
@@ -38,11 +40,11 @@ def blueprintLightTokensCss : String :=
   --bp-color-text-muted: #334155;
   --bp-color-text-subtle: #475569;
   --bp-color-text-faint: #64748b;
-  --bp-color-accent-success: #16a34a;
+  --bp-color-accent-success: #64748b;
   --bp-color-accent-warning: #ca8a04;
   --bp-color-accent-danger: #dc2626;
   --bp-color-accent-info: #7c3aed;
-  --bp-color-status-success-text: #166534;
+  --bp-color-status-success-text: #475569;
   --bp-color-status-warning-text: #a16207;
   --bp-color-status-warning-strong: #9a3412;
   --bp-color-status-warning-border: #fdba74;
@@ -78,8 +80,8 @@ def blueprintLightTokensCss : String :=
   --bp-color-biblio-border-soft: #e9ddff;
   --bp-color-biblio-surface-soft: #fdfbff;
   --bp-color-biblio-link: #4c1d95;
-  --bp-color-tint-success: rgba(22, 101, 52, 0.08);
-  --bp-color-tint-success-border: rgba(22, 101, 52, 0.18);
+  --bp-color-tint-success: rgba(100, 116, 139, 0.1);
+  --bp-color-tint-success-border: rgba(100, 116, 139, 0.25);
   --bp-color-tint-warning: rgba(161, 98, 7, 0.09);
   --bp-color-tint-warning-border: rgba(161, 98, 7, 0.2);
   --bp-color-tint-error: rgba(185, 28, 28, 0.08);
@@ -105,10 +107,10 @@ def blueprintLightTokensCss : String :=
   --bp-color-slide-accent: #075985;
   --bp-color-slide-link: #0e7490;
   --bp-color-slide-math: #164e63;
-  --bp-color-slide-ok-text: #166534;
-  --bp-color-slide-ok-icon: #16a34a;
-  --bp-color-slide-ok-bg: rgba(22, 163, 74, 0.08);
-  --bp-color-slide-ok-border: rgba(22, 163, 74, 0.26);
+  --bp-color-slide-ok-text: #475569;
+  --bp-color-slide-ok-icon: #64748b;
+  --bp-color-slide-ok-bg: rgba(100, 116, 139, 0.1);
+  --bp-color-slide-ok-border: rgba(100, 116, 139, 0.25);
   --bp-color-slide-code-keyword: #8839a0;
   --bp-color-slide-code-const: #1a5fb4;
   --bp-color-slide-code-var: #1a7a6a;
@@ -167,11 +169,11 @@ def darkTokens : List (String × String) := [
   ("--bp-color-text-muted", "#cbd5e1"),
   ("--bp-color-text-subtle", "#a3b1c6"),
   ("--bp-color-text-faint", "#8b9ab0"),
-  ("--bp-color-accent-success", "#4ade80"),
+  ("--bp-color-accent-success", "#94a3b8"),
   ("--bp-color-accent-warning", "#facc15"),
   ("--bp-color-accent-danger", "#f87171"),
   ("--bp-color-accent-info", "#a78bfa"),
-  ("--bp-color-status-success-text", "#86efac"),
+  ("--bp-color-status-success-text", "#cbd5e1"),
   ("--bp-color-status-warning-text", "#fde047"),
   ("--bp-color-status-warning-strong", "#fdba74"),
   ("--bp-color-status-warning-border", "#b45309"),
@@ -207,8 +209,8 @@ def darkTokens : List (String × String) := [
   ("--bp-color-biblio-border-soft", "#3a2f66"),
   ("--bp-color-biblio-surface-soft", "#1f1b2e"),
   ("--bp-color-biblio-link", "#c4b5fd"),
-  ("--bp-color-tint-success", "rgba(74, 222, 128, 0.14)"),
-  ("--bp-color-tint-success-border", "rgba(74, 222, 128, 0.3)"),
+  ("--bp-color-tint-success", "rgba(148, 163, 184, 0.14)"),
+  ("--bp-color-tint-success-border", "rgba(148, 163, 184, 0.3)"),
   ("--bp-color-tint-warning", "rgba(250, 204, 21, 0.14)"),
   ("--bp-color-tint-warning-border", "rgba(250, 204, 21, 0.3)"),
   ("--bp-color-tint-error", "rgba(248, 113, 113, 0.14)"),
@@ -234,10 +236,10 @@ def darkTokens : List (String × String) := [
   ("--bp-color-slide-accent", "#7dd3fc"),
   ("--bp-color-slide-link", "#67e8f9"),
   ("--bp-color-slide-math", "#a5f3fc"),
-  ("--bp-color-slide-ok-text", "#86efac"),
-  ("--bp-color-slide-ok-icon", "#4ade80"),
-  ("--bp-color-slide-ok-bg", "rgba(74, 222, 128, 0.14)"),
-  ("--bp-color-slide-ok-border", "rgba(74, 222, 128, 0.3)"),
+  ("--bp-color-slide-ok-text", "#cbd5e1"),
+  ("--bp-color-slide-ok-icon", "#94a3b8"),
+  ("--bp-color-slide-ok-bg", "rgba(148, 163, 184, 0.14)"),
+  ("--bp-color-slide-ok-border", "rgba(148, 163, 184, 0.3)"),
   ("--bp-color-slide-code-keyword", "#c792ea"),
   ("--bp-color-slide-code-const", "#7cb7ff"),
   ("--bp-color-slide-code-var", "#5eead4"),
@@ -336,9 +338,10 @@ def blueprintDarkTokensCss : String :=
   "@media (prefers-color-scheme: dark) {\n" ++
   renderDarkRules "html:not([data-theme=\"light\"])" ++ "}\n"
 
-/-- All token CSS shipped with every blueprint page: light tokens plus the dark theme. -/
+/-- All token CSS shipped with every blueprint page: light tokens, the dark theme, and the
+rules that give the success colours their value by the kernel replay behind an element. -/
 def blueprintTokensCss : String :=
-  blueprintLightTokensCss ++ blueprintDarkTokensCss
+  blueprintLightTokensCss ++ blueprintDarkTokensCss ++ StatusColors.replayScopeCss
 
 def previewPanelCss : String := r##"
 .bp_preview_panel {

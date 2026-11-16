@@ -416,6 +416,9 @@
  * @property {string} proofStatus Proof-track status.
  * @property {BlueprintGraphWarningFlags} warnings Graph warning flags.
  * @property {BlueprintGraphNodeVisual} visual Current Blueprint graph styling metadata.
+ * @property {"none" | "accepted" | "acceptedWithDependencies"} replay What the kernel replay of
+ *   the build establishes for the node's Lean code. The statuses say what the compiled files
+ *   report; a success colour belongs only on a node this field accepts.
  */
 
 /**

@@ -7,6 +7,7 @@ Author: Emilio J. Gallego Arias
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Lib.PreviewSource
+import VersoBlueprint.ReplayView
 import VersoBlueprint.TraversalIndex
 
 /-!
@@ -41,12 +42,13 @@ private def groupTitle? (state : TraverseState) (label : Name) : Option String :
     let title := groupData.header.trimAscii.toString
     if title.isEmpty then none else some title
 
-private def enrichNode (state : TraverseState) (node : Informal.Graph.NodeData) :
-    Informal.Graph.NodeData :=
+private def enrichNode (state : TraverseState) (replays : Informal.ReplayView.Index)
+    (node : Informal.Graph.NodeData) : Informal.Graph.NodeData :=
   let title := (nodeTitle? state node.label).getD node.title
   let href := nodeHref? state node.label <|> node.href
   let previewKey := Informal.PreviewSource.traversalPreviewCandidateKey? state node.label
-  { node with title, href, previewKey }
+  -- a node's success colours follow the kernel replay made while the site is generated
+  { node with title, href, previewKey }.withReplay (replays.nodeReplay node.label)
 
 private def enrichGroup (state : TraverseState) (group : Informal.Graph.GroupMetadata) :
     Informal.Graph.GroupMetadata :=
@@ -77,7 +79,8 @@ private def finalModel
     (state : TraverseState) (model : Informal.Graph.GraphModel) :
     Informal.Graph.GraphModel :=
   {
-    nodes := model.nodes.map (enrichNode state) |>.filter (keepFinalNode state)
+    nodes := model.nodes.map (enrichNode state (Informal.ReplayView.Index.build state)) |>.filter
+      (keepFinalNode state)
     groupMetadata := model.groupMetadata.map (enrichGroup state)
   }
 

@@ -10,6 +10,7 @@ import VersoBlueprint.Lib.HtmlId
 import VersoBlueprint.Lib.PreviewKey
 import VersoBlueprint.PreviewCache
 import VersoBlueprint.CodeHealth
+import VersoBlueprint.Replay
 import VersoBlueprint.StatusColors
 
 namespace Informal.Graph
@@ -65,6 +66,30 @@ structure WarningFlags where
   missingExternalDecl : Bool := false
 deriving Inhabited, Repr, DecidableEq, ToJson, FromJson, Quote
 
+/-- What the kernel replay made while the site is generated establishes for a node of the graph
+(`Informal.Replay`). A node is drawn in a success colour only by it: the fill and border of
+`sorry`-free Lean code are neutral for `none`. -/
+inductive NodeReplay where
+  /-- Nothing: no replay, no verdict, a rejected build, or Lean code the replay does not cover. -/
+  | none
+  /-- An accepted replay covers the node's Lean code. -/
+  | accepted
+  /-- An accepted replay covers the node's Lean code and that of every node it depends on. -/
+  | acceptedWithDependencies
+deriving Inhabited, Repr, DecidableEq, ToJson, FromJson, Quote
+
+/-- Whether an accepted replay covers the node's Lean code. -/
+def NodeReplay.isAccepted : NodeReplay → Bool
+  | .none => false
+  | _ => true
+
+/-- The proof status a node is drawn with. The darker fill says "dependencies too": under a
+replay that covers the node and not everything it depends on, the node is drawn as complete on
+its own. -/
+def NodeReplay.shownProofStatus : NodeReplay → ProofStatus → ProofStatus
+  | .accepted, .formalizedWithAncestors => .formalized
+  | _, status => status
+
 /-- SVG class of a node's proof status, which picks its fill and label colour tokens. -/
 def proofStatusClass (kind : Data.NodeKind) : ProofStatus → String
   | .none => if kind.isTheoremLike then "bp_graph_status_not_ready" else "bp_graph_status_definition"
@@ -85,9 +110,13 @@ def unresolvedClass : String := "bp_graph_status_unresolved"
 
 /-- The SVG classes of a status node (see `GraphNode.svgClass`). -/
 def nodeStatusClasses (kind : Data.NodeKind) (statement : StatementStatus) (proof : ProofStatus)
-    (warnings : WarningFlags) : String :=
+    (warnings : WarningFlags) (replay : NodeReplay := .none) : String :=
   if warnings.unknownRef then unresolvedClass
-  else s!"{proofStatusClass kind proof} {statementStatusClass statement}"
+  else
+    let classes :=
+      s!"{proofStatusClass kind (replay.shownProofStatus proof)} {statementStatusClass statement}"
+    -- the class that turns the success colours inside the node green (`StatusColors.replayScopeCss`)
+    if replay.isAccepted then s!"{classes} {StatusColors.replayAcceptedClass}" else classes
 
 structure GraphNode (Ref : Type) where
   label : Name
@@ -312,6 +341,9 @@ structure NodeData where
   proofStatus : ProofStatus := .none
   warnings : WarningFlags := {}
   visual : NodeVisual
+  /-- What the kernel replay establishes for the node. The statuses above say what the compiled
+  files report; a renderer draws a success colour only for a node this field accepts. -/
+  replay : NodeReplay := .none
 deriving Inhabited, Repr, ToJson, FromJson, Quote
 
 /-- The next actionable formalization stage represented by this finalized graph node. -/
@@ -404,7 +436,8 @@ private def NodeData.toGraphNode (node : NodeData) : GraphNode String :=
     ref? := node.href
     svgClass :=
       match node.kind with
-      | some kind => nodeStatusClasses kind node.statementStatus node.proofStatus node.warnings
+      | some kind =>
+        nodeStatusClasses kind node.statementStatus node.proofStatus node.warnings node.replay
       | none => if node.warnings.unknownRef then unresolvedClass else ""
   }
 
@@ -498,21 +531,31 @@ def warningHiddenInGroupViewText : String := "Warning markers are not shown indi
 def edgeMixedText : String := "Thicker solid/dashed: statement + proof deps"
 def groupEdgeMixedText : String := "Thicker solid: statement + proof deps"
 def graphLegendFullViewNote : String :=
-  "Shape shows declaration kind, border shows the status of the Lean statement, fill shows the status of the Lean proof or definition, and edge style separates statement from proof dependencies. A status is about Lean code: no tool checks that a Lean statement says what its informal statement says."
+  "Shape shows declaration kind, border shows the status of the Lean statement, fill shows the status of the Lean proof or definition, and edge style separates statement from proof dependencies. A status is about Lean code: no tool checks that a Lean statement says what its informal statement says. Green is drawn only for Lean code a kernel replay accepted; the same status without one is grey."
 
 private def legendItem (label : String) (swatch? : Option LegendSwatch := none) : LegendItem :=
   { label, swatch? }
 
-def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
+/-- The legend of the full graph. The entries of `sorry`-free Lean code are drawn in a success
+colour only on a site whose kernel replay accepted the build and covers every node (`site`);
+otherwise their swatches are neutral and each label says what it rests on. -/
+def graphLegendGroups (includeMathlib : Bool := false)
+    (site : Replay.SiteState := .none Replay.noReplayText) : Array LegendGroup :=
+  let noted (label : String) : String :=
+    match site.note? with
+    | some note => s!"{label} ({note})"
+    | none => label
   let statementItems :=
     #[
       legendItem "Blocked" (some { borderColor := StatusColors.blockedBorder.cssVarOr }),
       legendItem "Ready to formalize" (some { borderColor := StatusColors.readyBorder.cssVarOr }),
-      legendItem "In Lean, no sorry" (some { borderColor := StatusColors.formalizedBorder.cssVarOr })
+      legendItem (noted "In Lean, no sorry")
+        (some { borderColor := StatusColors.formalizedBorder.cssVarOr })
     ]
   let statementItems :=
     if includeMathlib then
-      statementItems.push (legendItem "In Mathlib" (some { borderColor := StatusColors.mathlibBorder.cssVarOr }))
+      statementItems.push (legendItem (noted "In Mathlib")
+        (some { borderColor := StatusColors.mathlibBorder.cssVarOr }))
     else
       statementItems
   #[
@@ -539,8 +582,9 @@ def graphLegendGroups (includeMathlib : Bool := false) : Array LegendGroup :=
         legendItem proofStatusNoneText (some { background := StatusColors.notReady.cssVarOr }),
         legendItem proofStatusReadyText (some { background := StatusColors.ready.cssVarOr }),
         legendItem proofStatusIncompleteText (some { background := StatusColors.incomplete.cssVarOr }),
-        legendItem proofStatusFormalizedLabel (some { background := StatusColors.formalized.cssVarOr }),
-        legendItem proofStatusFormalizedAncestorsLabel
+        legendItem (noted proofStatusFormalizedLabel)
+          (some { background := StatusColors.formalized.cssVarOr }),
+        legendItem (noted proofStatusFormalizedAncestorsLabel)
           (some {
             background := StatusColors.formalizedWithAncestors.cssVarOr
             borderColor := StatusColors.mathlibBorder.cssVarOr
@@ -777,6 +821,25 @@ def graphStatusCss : String :=
     s!"{node cls} :is(ellipse, polygon, path) \{ stroke: {border.cssVar}; }\n"
   "\n/* Status colours of graph nodes, from the status tokens. */\n" ++
     String.join fills ++ String.join borders
+
+/-- The node with what the kernel replay establishes for it. Its concrete colours, which a
+drawing without the stylesheet shows, follow: the success colours of `sorry`-free Lean code only
+when the replay accepted it, the neutral ones otherwise. -/
+def NodeData.withReplay (node : NodeData) (replay : NodeReplay) : NodeData :=
+  if node.warnings.unknownRef then { node with replay := .none } else
+  let proof := replay.shownProofStatus node.proofStatus
+  let pick (color : StatusColors.SuccessColor) : String :=
+    if replay.isAccepted then color.accepted.1 else color.reported.1
+  let fillcolor := match proof with
+    | .formalized => pick StatusColors.formalizedColor
+    | .formalizedWithAncestors => pick StatusColors.formalizedWithAncestorsColor
+    | _ => node.visual.fillcolor
+  let color := match node.statementStatus with
+    | .formalized => pick StatusColors.formalizedBorderColor
+    | .mathlib => pick StatusColors.mathlibBorderColor
+    | _ => node.visual.color
+  { node with
+    replay, visual := { node.visual with fillcolor, color, fontcolor := proofStatusFontColor proof } }
 
 def kindShape (kind : Data.NodeKind) : String :=
   if kind.isTheoremLike then "ellipse" else "box"

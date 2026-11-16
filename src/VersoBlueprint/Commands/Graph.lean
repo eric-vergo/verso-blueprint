@@ -19,6 +19,7 @@ import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.PreviewCache
 import VersoBlueprint.Lib.PreviewSource
 import VersoBlueprint.Resolve
+import VersoBlueprint.ReplayView
 import VersoBlueprint.TeX
 import VersoBlueprint.TraversalIndex
 
@@ -159,6 +160,9 @@ private def graphToHtml
         }}
       let includeMathlibLegend :=
         publicGraphData.nodes.any (fun node => node.visual.color == Informal.Graph.statementBorderMathlibColor)
+      -- the legend's success colours follow the kernel replay of the site as a whole
+      let site := Informal.ReplayView.siteState s
+      let legendClass := s!"bp_graph_legend {site.scopeClass}"
       let renderLegend (kind : String) (groups : Array Informal.Graph.LegendGroup)
           (note? : Option String := none) (hidden : Bool := false) : Output.Html :=
         let legendGroupHtml : Array Output.Html :=
@@ -206,20 +210,20 @@ private def graphToHtml
           | Option.none => .empty
         if hidden then
           {{
-            <div class="bp_graph_legend" "data-bp-legend-kind"={{kind}} hidden>
+            <div class={{legendClass}} "data-bp-legend-kind"={{kind}} hidden>
               {{noteHtml}}
               {{legendGroupHtml}}
             </div>
           }}
         else
           {{
-            <div class="bp_graph_legend" "data-bp-legend-kind"={{kind}}>
+            <div class={{legendClass}} "data-bp-legend-kind"={{kind}}>
               {{noteHtml}}
               {{legendGroupHtml}}
             </div>
           }}
       let fullLegendHtml :=
-        renderLegend "full" (Informal.Graph.graphLegendGroups includeMathlibLegend)
+        renderLegend "full" (Informal.Graph.graphLegendGroups includeMathlibLegend site)
           (note? := some Informal.Graph.graphLegendFullViewNote)
       let groupLegendHtml : Output.Html :=
         if hasGroupVariant then

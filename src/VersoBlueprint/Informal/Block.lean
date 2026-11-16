@@ -31,6 +31,7 @@ import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Resolve
 import VersoBlueprint.RenderingResolution
+import VersoBlueprint.ReplayView
 import VersoBlueprint.Source.Metadata
 import VersoBlueprint.Stats.Claims
 import VersoBlueprint.TeX
@@ -74,9 +75,18 @@ private def claimFor? (state : TraverseState) (data : BlockData) :
 
 /-- The kernel replay made while the site is generated, captured with the project statistics:
 a node gets the check mark only when it accepted the node's module. -/
-private def replayOf? (state : TraverseState) : Option Informal.Replay.Result := do
-  let json ← Informal.TraversalIndex.RenderOverviews.field? state `stats "replay"
-  (fromJson? (α := Informal.Replay.Result) json).toOption
+private def replayOf? (state : TraverseState) : Option Informal.Replay.Result :=
+  Informal.ReplayView.replay? state
+
+/-- The attribute that tells the stylesheets what the kernel replay establishes for the Lean
+code of a block: the success colours inside the block are drawn only under `accepted`
+(`StatusColors.replayScopeCss`). A block without Lean code carries none. -/
+private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array (String × String) :=
+  match data.codeData with
+  | some code =>
+    #[(Informal.StatusColors.replayScopeAttr,
+      (Informal.ReplayView.standingOfCode (replayOf? state) code).token)]
+  | none => #[]
 
 open Verso.Doc.Html in
 /-- Render this occurrence with relation previews restricted to the resources
@@ -117,7 +127,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               ("data-bp-facet", if data.isProof then "proof" else "statement")]
           else #[]
         let attrs := s.htmlId id ++ sourceBackedAttrs ++ LeanSourceAnchor.rootAttrs externalDecls ++
-          sideBySideAttrs
+          sideBySideAttrs ++ replayScopeAttrs s data
         let getDeclHref (decl : Name) : Option String :=
           Resolve.resolveInformalDeclHref? s data.label decl
         let getDeclAnchorAttrs (decl : Data.ExternalRef) : Array (String × String) :=

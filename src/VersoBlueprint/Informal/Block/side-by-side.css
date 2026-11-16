@@ -262,7 +262,9 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   cursor: help;
 }
 
-.bp_status_glyph_proved { color: var(--bp-color-accent-success); }
+/* The check mark is drawn only for a node whose module a kernel replay accepted, so it takes the
+   accepted value of the success colour wherever it stands. */
+.bp_status_glyph_proved { color: var(--bp-color-accent-success-accepted); }
 .bp_status_glyph_reported { color: var(--bp-color-text-subtle); }
 .bp_status_glyph_rejected { color: var(--bp-color-accent-danger); }
 .bp_status_glyph_partial { color: var(--bp-color-status-warning-text); }

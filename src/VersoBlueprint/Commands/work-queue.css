@@ -25,8 +25,9 @@
   background: var(--bp-color-surface);
 }
 
+/* Ready to work on: the graph's colour for "ready", not a success colour. */
 .bp_work_queue_ready {
-  border-left-color: var(--bp-color-accent-success);
+  border-left-color: var(--bp-color-status-ready-border);
 }
 
 .bp_work_queue_incomplete {
