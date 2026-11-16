@@ -157,6 +157,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
     DocElabM (Array LiterateDef × Array LiterateThm) := do
   let mut defs := #[]
   let mut theorems := #[]
+  let module := some after.mainModule
   for name in sourceBackedDeclNames.toArray do
     if (before.find? name).isSome then
       continue
@@ -206,6 +207,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
         axioms
         typeSorryRefs
         proofSorryRefs
+        module
       } : LiterateThm)
     | _ =>
       defs := defs.push ({
@@ -216,6 +218,7 @@ private def getDefinedDeclsImpl (fileMap : FileMap) (before after : Environment)
         provedStatus
         axioms
         typeSorryRefs
+        module
       } : LiterateDef)
   let cmpDef (a b : LiterateDef) :=
     a.commandIndex < b.commandIndex ||
