@@ -9,7 +9,7 @@
     "claims", "replay"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 4 },
+    "schemaVersion": { "const": 5 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -180,12 +180,12 @@
         {
           "type": "object",
           "required": ["outcome", "checker", "version", "modules", "notCompiled", "rejectedModule",
-            "message", "limitSeconds"],
+            "message", "limitSeconds", "memoryLimit", "stoppedModule"],
           "additionalProperties": false,
           "properties": {
             "outcome": {
-              "description": "accepted: the checker replayed every module of modules and accepted them. rejected: it rejected rejectedModule. noChecker: none was found. timedOut: it was stopped at limitSeconds. failed: it could not run to a verdict (message). off: the replay was switched off.",
-              "enum": ["accepted", "rejected", "noChecker", "timedOut", "failed", "off"]
+              "description": "accepted: the checker replayed every module of modules and accepted them. rejected: it rejected rejectedModule. noChecker: none was found. timedOut: it was stopped at limitSeconds. overMemory: a checker process went over memoryLimit while it replayed stoppedModule, and was stopped. failed: it could not run to a verdict (message). off: the replay was switched off.",
+              "enum": ["accepted", "rejected", "noChecker", "timedOut", "overMemory", "failed", "off"]
             },
             "checker": { "description": "The checker's name.", "type": "string" },
             "version": { "description": "The Lean version of the checker's toolchain.", "$ref": "#/$defs/nullableString" },
@@ -201,7 +201,15 @@
             },
             "rejectedModule": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }] },
             "message": { "description": "What the checker said, with rejected or failed.", "$ref": "#/$defs/nullableString" },
-            "limitSeconds": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }] }
+            "limitSeconds": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }] },
+            "memoryLimit": {
+              "description": "With overMemory: the memory limit of one checker process, in bytes.",
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }]
+            },
+            "stoppedModule": {
+              "description": "With overMemory: the module the checker was replaying when it was stopped.",
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+            }
           }
         }
       ]
