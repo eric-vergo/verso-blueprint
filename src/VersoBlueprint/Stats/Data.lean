@@ -24,7 +24,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 5
+def projectStatsSchemaVersion : Nat := 6
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -254,6 +254,8 @@ inductive Unavailable where
   | solutionNotImported
   /-- The challenge imports a module that the environment of the site does not contain. -/
   | importsNotAvailable
+  /-- The compiled modules the comparison needs could not be loaded for the kernel replay. -/
+  | modulesNotLoaded
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- A theorem a Comparator challenge states, and what the solution does with it. -/
@@ -282,8 +284,7 @@ structure HeadlineTheorem where
   axiomsNotAllowed : Array Name := #[]
   /-- What the compiled modules report: the same Lean statement as the challenge, no `sorry`,
   and no axiom the verdict does not allow (`axiomsNotAllowed` is empty). It is not "proved":
-  that also takes a kernel replay of the modules the solution rests on
-  (`Headline.solutionModules`, `ProjectStats.replay`). -/
+  that also takes a kernel replay that covers the theorem (`ProjectStats.replay`). -/
   conditionsMet : Bool := false
   /-- The Blueprint node whose Lean declarations include the theorem. -/
   node : Option Name := none
@@ -313,10 +314,6 @@ structure Headline where
   unavailable : Option Unavailable := none
   /-- The details of `unavailable`: a module name or an error message. -/
   unavailableDetail : Option String := none
-  /-- The project's modules the solution rests on: the solution module and every module of the
-  project it imports, directly or not, sorted. A kernel replay must cover them before a theorem
-  is called proved. -/
-  solutionModules : Array Name := #[]
   /-- The theorems the challenge states, in source order. -/
   theorems : Array HeadlineTheorem := #[]
   /-- The other declarations the challenge introduces, in source order. -/
@@ -395,8 +392,9 @@ structure ProjectStats where
   hasComparatorChallenge : Bool := false
   /-- The author's claims about what Lean declarations state, when the project has the file. -/
   claims : Option Claims := none
-  /-- The kernel replay of the project's compiled modules made while the site was generated;
-  none when the generator ran none. Without an accepted replay no page says "proved". -/
+  /-- The kernel replay made while the site was generated, of the Lean declarations the site
+  reports on and everything they depend on; none when the generator ran none. Without an
+  accepted replay no page says "proved". -/
   replay : Option Replay.Result := none
 deriving Inhabited, ToJson, FromJson
 

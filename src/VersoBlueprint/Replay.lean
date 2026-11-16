@@ -5,24 +5,27 @@ Author: Eric Vergo
 -/
 
 import Lean.Data.Json
+import VersoBlueprint.Axioms
 
 /-!
 The kernel replay of a build, as a site reports it.
 
 A site is generated from compiled modules. What they say (a statement, the absence of `sorry`, a
 list of axioms) is what Lean's elaborator recorded, and a file can keep the kernel from seeing a
-declaration at all (`set_option debug.skipKernelTC true`). So a site says "proved", and draws a
-check mark in the success colour, only where a kernel replay accepted the compiled modules
-concerned: Lean's `leanchecker`, the toolchain's own program, checks every constant a module adds
-again in Lean's kernel, each module in a process of its own (`Informal.Stats.replayBuild` runs it
-when the site is generated). Everywhere else the words are what the compiled files report, with a
-mark that is not a check mark.
+declaration at all (`set_option debug.skipKernelTC true`), in the project or in anything it
+depends on. So a site says "proved", and draws a check mark in the success colour, only for a
+declaration that a kernel replay covers: the generator loads the compiled modules, exports the
+declaration together with every constant it depends on, in the project, in its dependencies and
+in Lean's own library, and Lean's `leanchecker`, the toolchain's own program, checks all of them
+again in Lean's kernel, starting from an empty environment (`Informal.Stats.ProjectStats.withKernelReplayAt` runs
+it when the site is generated). Everywhere else the words are what the compiled files report,
+with a mark that is not a check mark.
 
 This module holds the result of a replay and the words for it; nothing here runs anything.
 
 What a replay leaves trusted is said on the page (`trustedText`): the checker and Lean's kernel
-in it; the compiled modules of everything outside the project, which are loaded and not
-replayed; and Lean's elaborator for the step from the source text to the compiled module. No
+in it; the export, which the generator writes from the modules it loaded with the toolchain's
+exporter; and Lean's elaborator for the step from the source text to the compiled module. No
 replay says anything about what a statement means.
 -/
 
@@ -32,21 +35,44 @@ open Lean
 
 /-- How a kernel replay ended. -/
 inductive Outcome where
-  /-- The checker replayed every module of `Result.modules` and accepted them. -/
+  /-- The checker accepted the export: every declaration of `Result.declarations` and every
+  constant it depends on. -/
   | accepted
-  /-- The checker rejected a module (`Result.rejectedModule`, `Result.message`). -/
+  /-- The checker rejected the export (`Result.message`). -/
   | rejected
   /-- No checker was found: nothing was replayed. -/
   | noChecker
-  /-- The checker was stopped at the time limit (`Result.limitSeconds`) without a verdict. -/
+  /-- The replay was stopped at the time limit (`Result.limitSeconds`) without a verdict. -/
   | timedOut
-  /-- The checker was stopped because it went over its memory limit (`Result.memoryLimit`) while
-  it replayed a module (`Result.stoppedModule`), without a verdict. -/
+  /-- The checker was stopped because it went over its memory limit (`Result.memoryLimit`),
+  without a verdict. -/
   | overMemory
-  /-- The checker could not run to a verdict (`Result.message`). -/
+  /-- The export went over its size limit (`Result.exportLimit`); the checker was not run. -/
+  | overExport
+  /-- The replay could not run to a verdict (`Result.message`). -/
   | failed
   /-- The replay was switched off for this build. -/
   | off
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- Where the constants of an export come from. -/
+inductive OriginKind where
+  /-- The project's own compiled modules. -/
+  | project
+  /-- A dependency of the project. -/
+  | dependency
+  /-- Lean's own library, which ships with the toolchain. -/
+  | toolchain
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The constants of an export that come from one place. -/
+structure Origin where
+  kind : OriginKind
+  /-- The first component of the names of the modules they are in (`Mathlib`); for the
+  project and for Lean's own library, every such component joined by commas. -/
+  name : String
+  /-- How many constants. -/
+  constants : Nat
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- The kernel replay of one build. -/
@@ -56,22 +82,34 @@ structure Result where
   checker : String := "leanchecker"
   /-- The Lean version of the toolchain the checker belongs to. -/
   version : Option String := none
-  /-- The project's modules the replay covers, sorted: with `accepted`, each was replayed and
-  accepted; otherwise the modules that were to be replayed. -/
-  modules : Array Name := #[]
-  /-- Modules of the site that have no compiled module among the project's own, so that nothing
-  could be replayed for them (a file run as a script, for example), sorted. -/
-  notCompiled : Array Name := #[]
-  /-- With `rejected`: the module the checker rejected. -/
-  rejectedModule : Option Name := none
-  /-- With `rejected` or `failed`: what the checker said. -/
+  /-- The declarations the replay covers, in `Name.quickLt` order: with `accepted`, each was
+  exported with every constant it depends on, and the checker accepted them all; otherwise the
+  declarations that were to be checked. -/
+  declarations : Array Name := #[]
+  /-- Declarations the replay was asked for and does not cover, each with the reason (it is not
+  in the compiled modules that were loaded, it is in another module there, it is unsafe). -/
+  notCovered : Array (Name × String) := #[]
+  /-- For each declaration of `declarations` that depends on an axiom outside Lean's standard
+  three: those axioms, sorted, as found by walking the terms of the loaded modules (`sorryAx`
+  among them). A kernel accepts an axiom without a proof, so an accepted replay proves such a
+  declaration only from them. -/
+  axioms : Array (Name × Array Name) := #[]
+  /-- The number of constants in the export. -/
+  constants : Nat := 0
+  /-- Where the exported constants come from, the largest group first. -/
+  origins : Array Origin := #[]
+  /-- With `accepted`: the checker accepted an identical export in an earlier run and was not
+  run again. -/
+  recorded : Bool := false
+  /-- With `rejected` or `failed`: what the checker, or the generator, said. With `overMemory`:
+  what went over the limit, when it was not the checker. -/
   message : Option String := none
   /-- With `timedOut`: the limit. -/
   limitSeconds : Option Nat := none
-  /-- With `overMemory`: the memory limit of one checker process, in bytes. -/
+  /-- With `overMemory`: the memory limit of the checker process, in bytes. -/
   memoryLimit : Option Nat := none
-  /-- With `overMemory`: the module the checker was replaying when it was stopped. -/
-  stoppedModule : Option Name := none
+  /-- With `overExport`: the size limit of the export, in bytes. -/
+  exportLimit : Option Nat := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- The checker with its toolchain: `leanchecker (Lean 4.35.0)`. -/
@@ -80,19 +118,41 @@ def Result.checkerName (r : Result) : String :=
   | some v => s!"{r.checker} (Lean {v})"
   | none => r.checker
 
-/-- What a replay establishes for a set of modules. -/
+/-- Whether `declaration` is one of `Result.declarations`. -/
+def Result.covers (r : Result) (declaration : Name) : Bool :=
+  r.declarations.binSearchContains declaration Name.quickLt
+
+/-- The axioms outside `permitted` that the declarations `needed` depend on, as the replay
+found them (`Result.axioms`), each once, sorted. -/
+def Result.restingOn (r : Result) (needed : Array Name)
+    (permitted : Array Name := Data.standardAxioms) : Array Name :=
+  let all := r.axioms.foldl (init := #[]) fun acc (declaration, axioms) =>
+    if needed.contains declaration then
+      axioms.foldl (init := acc) fun acc a =>
+        if permitted.contains a || acc.contains a then acc else acc.push a
+    else acc
+  Data.sortAxioms all
+
+/-- What a replay establishes for a set of declarations. -/
 inductive Standing where
-  /-- Every one of the modules was replayed and accepted. -/
+  /-- Every one of the declarations, with everything it depends on, was checked and
+  accepted. -/
   | accepted
-  /-- The checker rejected the build; `module` is the module it stopped on. -/
-  | rejected (module : Option Name)
-  /-- Nothing was established: no replay was run, it did not end with a verdict, or it did not
-  cover the modules. `why` is a clause that completes "not replayed by a kernel: …". -/
+  /-- The checker rejected the build. -/
+  | rejected
+  /-- Nothing was established: no replay was run, it did not end with a verdict, or it does
+  not cover the declarations. `why` is a clause that completes "not replayed by a kernel: …". -/
   | notReplayed (why : String)
+  /-- The checker accepted the declarations, and the replay found these axioms under them that
+  are not permitted: a kernel accepts an axiom without a proof, so they are proved only from
+  the axioms. -/
+  | assumed (axioms : Array Name)
 deriving Repr, Inhabited, DecidableEq
 
 private def nameList (names : Array Name) : String :=
   ", ".intercalate (names.toList.map (·.toString))
+
+private def mib (bytes : Nat) : Nat := bytes / (1024 * 1024)
 
 /-- Why nothing was established, when the outcome is not a verdict. -/
 def Result.whyNot (r : Result) : String :=
@@ -101,41 +161,78 @@ def Result.whyNot (r : Result) : String :=
   | .noChecker => "no kernel checker was found"
   | .timedOut =>
     let limit := r.limitSeconds.map (s!" within {·} s") |>.getD ""
-    s!"{r.checkerName} did not finish{limit}"
+    s!"the replay with {r.checkerName} did not finish{limit}"
   | .overMemory =>
-    let limit := r.memoryLimit.map (s!" of {· / (1024 * 1024)} MiB") |>.getD ""
-    let module := r.stoppedModule.map (s!" while it replayed module {·}") |>.getD ""
-    s!"the replay was stopped: {r.checkerName} went over its memory limit{limit}{module}"
-  | .failed => s!"{r.checkerName} could not run to a verdict"
+    let limit := r.memoryLimit.map (s!" of {mib ·} MiB") |>.getD ""
+    s!"the replay was stopped: {r.message.getD r.checkerName} went over its memory limit{limit}"
+  | .overExport =>
+    let limit := r.exportLimit.map (s!" of {mib ·} MiB") |>.getD ""
+    s!"the replay was stopped: the export of what the site's declarations depend on went over \
+      its size limit{limit}"
+  | .failed =>
+    let detail := r.message.map (s!": {·}") |>.getD ""
+    s!"the replay could not run to a verdict{detail}"
   | .off => "the kernel replay was switched off for this build"
 
 /-- What no replay at all is called. -/
 def noReplayText : String := "this site was generated without a kernel replay"
 
-/-- What the replay `r?` establishes for the modules `needed`. A rejection anywhere stands
-against every module: which declarations rest on the rejected one is not known. -/
+/-- Why the replay does not cover `declaration`, as it recorded it. -/
+def Result.notCoveredWhy (r : Result) (declaration : Name) : String :=
+  match r.notCovered.find? (·.1 == declaration) with
+  | some (_, why) => s!"{declaration} {why}"
+  | none => s!"{declaration} is not among the declarations that were checked"
+
+/-- What the replay `r?` establishes for the declarations `needed`: whether it checked each of
+them with everything it depends on. A rejection anywhere stands against every declaration: the
+checker stops at its first problem, and what else it would have rejected is not known. The
+axioms a declaration depends on are a separate matter (`provedStanding`). -/
 def standing (r? : Option Result) (needed : Array Name) : Standing :=
   match r? with
   | none => .notReplayed noReplayText
   | some r =>
     match r.outcome with
-    | .rejected => .rejected r.rejectedModule
+    | .rejected => .rejected
     | .accepted =>
-      let missing := needed.filter (!r.modules.contains ·)
-      if missing.isEmpty then .accepted
-      else
-        let be := if missing.size == 1 then "is" else "are"
-        .notReplayed s!"not part of a replayed module: {nameList missing} {be} not among the \
-          project's modules that were replayed"
+      -- an accepted replay stands behind declarations, never behind none
+      if needed.isEmpty then
+        .notReplayed "not part of the replay: no Lean declaration is recorded for it"
+      else match needed.find? (!r.covers ·) with
+        | none => .accepted
+        | some missing => .notReplayed s!"not part of the replay: {r.notCoveredWhy missing}"
     | _ => .notReplayed r.whyNot
 
 /-- `standing` for a node: `unplaced` is a declaration of it whose module is not known, which no
-accepted replay is known to cover. -/
+replay is known to cover. -/
 def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Name) : Standing :=
-  match standing r? needed, unplaced with
-  | .accepted, some d =>
-    .notReplayed s!"not part of a replayed module: the module of {d} is not known"
+  match r?.map (·.outcome), unplaced with
+  | some Outcome.accepted, some d =>
+    .notReplayed s!"not part of the replay: the module of {d} is not known"
+  | _, _ => standing r? needed
+
+/-- What the replay establishes for the declarations `needed` as proved: `standingOf`, and
+accepted only when the replay also found no axiom outside `permitted` under them (Lean's
+standard three unless a list is given). A kernel accepts an axiom, `sorryAx` included, without
+a proof. -/
+def provedStanding (r? : Option Result) (needed : Array Name) (unplaced : Option Name := none)
+    (permitted : Array Name := Data.standardAxioms) : Standing :=
+  match standingOf r? needed unplaced, r? with
+  | .accepted, some r =>
+    let axioms := r.restingOn needed permitted
+    if axioms.isEmpty then .accepted else .assumed axioms
   | s, _ => s
+
+/-- Why a standing is not an accepted replay, as a clause; empty for `accepted`. -/
+def Standing.why : Standing → String
+  | .accepted => ""
+  | .rejected => rejectedClause
+  | .notReplayed why => why
+  | .assumed axioms =>
+    let noun := if axioms.size == 1 then "an axiom" else "axioms"
+    s!"the replay found {noun} under it that a kernel accepts without a proof \
+      ({nameList axioms})"
+where
+  rejectedClause := "the kernel checker rejected this build"
 
 /-- Whether the standing is an accepted replay. -/
 def Standing.isAccepted : Standing → Bool
@@ -145,8 +242,8 @@ def Standing.isAccepted : Standing → Bool
 /-- The standing as a token for markup: `accepted`, `rejected` or `none`. -/
 def Standing.token : Standing → String
   | .accepted => "accepted"
-  | .rejected _ => "rejected"
-  | .notReplayed _ => "none"
+  | .rejected => "rejected"
+  | .notReplayed _ | .assumed _ => "none"
 
 /-- The class that tells the stylesheets what stands behind an element (`Standing.token`).
 Success colours are drawn only inside `bp_replay_accepted`; a colour is a statement too. -/
@@ -155,7 +252,8 @@ def Standing.scopeClass (s : Standing) : String := s!"bp_replay_{s.token}"
 /-- What a site as a whole may show in the success colour: the standing behind its counts,
 bars and legends, which are about every node at once. -/
 inductive SiteState where
-  /-- The replay accepted the build and covers the Lean code of every node. -/
+  /-- The replay accepted the build, covers the Lean code of every node, and found no axiom
+  outside Lean's standard three under a node counted as complete. -/
   | accepted
   /-- The checker rejected the build. -/
   | rejected
@@ -165,20 +263,25 @@ inductive SiteState where
 deriving Repr, Inhabited, DecidableEq
 
 /-- The state of a site: `uncovered` are the nodes with Lean code that an accepted replay does
-not cover (`standingOf` is not accepted for them). One such node keeps the counts neutral: a
-count in the success colour would include it. -/
-def siteState (r? : Option Result) (uncovered : Array Name := #[]) : SiteState :=
+not cover (`standingOf` is not accepted for them), `resting` the nodes whose Lean code has no
+`sorry` and depends on an axiom outside Lean's standard three. One such node keeps the counts
+neutral: a count in the success colour would include it. -/
+def siteState (r? : Option Result) (uncovered : Array Name := #[])
+    (resting : Array Name := #[]) : SiteState :=
   match r? with
   | Option.none => .none noReplayText
   | some r =>
     match r.outcome with
     | .rejected => .rejected
     | .accepted =>
-      if uncovered.isEmpty then .accepted
-      else
-        let nodes := if uncovered.size == 1 then "1 node with Lean code is"
-          else s!"{uncovered.size} nodes with Lean code are"
-        .none s!"{nodes} not part of a replayed module"
+      let nodes (n : Nat) (one many : String) : String :=
+        if n == 1 then s!"1 node with Lean code {one}" else s!"{n} nodes with Lean code {many}"
+      if !uncovered.isEmpty then
+        .none (nodes uncovered.size "is" "are" ++ " not part of the replay")
+      else if !resting.isEmpty then
+        .none (nodes resting.size "rests" "rest" ++ " on an axiom outside Lean's standard \
+          three, which a kernel accepts without a proof")
+      else .accepted
     | _ => .none r.whyNot
 
 /-- The state as a token for markup: `accepted`, `rejected` or `none`. -/
@@ -220,30 +323,67 @@ def SiteState.sentence : SiteState → String
       report, and nothing here counts as checked by a kernel."
   | .none why => s!"The counts are as the compiled files report, not replayed by a kernel: {why}."
 
+/-- A number with its thousands separated by commas. -/
+def groupedNumber (n : Nat) : String :=
+  let digits := (toString n).toList
+  let len := digits.length
+  String.ofList <| (digits.zipIdx.foldl (init := []) fun acc (c, i) =>
+    if i > 0 && (len - i) % 3 == 0 then c :: ',' :: acc else c :: acc).reverse
+
+/-- `n` things: "1 constant", "3,409 constants". -/
+def counted (n : Nat) (noun : String) : String :=
+  s!"{groupedNumber n} {noun}{if n == 1 then "" else "s"}"
+
+/-- Where the exported constants come from, in words: "135 of this project, 51,402 of Mathlib
+and 7,807 of Lean's own library (Init, Std)". -/
+def Result.originsText (r : Result) : String :=
+  let part (o : Origin) : String :=
+    match o.kind with
+    | .project => s!"{groupedNumber o.constants} of this project"
+    | .dependency => s!"{groupedNumber o.constants} of {o.name}"
+    | .toolchain => s!"{groupedNumber o.constants} of Lean's own library ({o.name})"
+  match r.origins.toList.map part with
+  | [] => ""
+  | [one] => one
+  | parts => ", ".intercalate parts.dropLast ++ " and " ++ parts.getLast!
+
+/-- What an accepted replay checked: "3 declarations and everything they depend on, 3,409
+constants in all". -/
+def Result.checkedText (r : Result) : String :=
+  let them := if r.declarations.size == 1 then "it depends" else "they depend"
+  s!"{counted r.declarations.size "declaration"} and everything {them} on, \
+    {counted r.constants "constant"} in all"
+
 /-- One sentence on what the replay did, for the Project Stats page. -/
 def Result.summary (r : Result) : String :=
-  let n := r.modules.size
-  let modules := if n == 1 then "1 compiled module" else s!"{n} compiled modules"
   match r.outcome with
   | .accepted =>
-    s!"Accepted: {r.checkerName} checked every constant of this project's {modules} again in \
-      Lean's kernel, in a process of its own."
+    let origins := if r.origins.isEmpty then "" else s!" ({r.originsText})"
+    let how := if r.recorded then
+        s!"{r.checkerName} accepted an export identical to this build's in an earlier run: "
+      else s!"{r.checkerName} checked "
+    let tail := if r.recorded then "" else
+      " again in Lean's kernel, starting from an empty environment"
+    s!"Accepted: {how}{r.checkedText}{origins}{tail}."
   | .rejected =>
-    let where_ := r.rejectedModule.map (s!" in module {·}") |>.getD ""
-    s!"Rejected: {r.checkerName} found a problem{where_}. Nothing on this site counts as checked \
-      by a kernel."
+    s!"Rejected: {r.checkerName} found a problem in what this site's declarations depend on. \
+      Nothing on this site counts as checked by a kernel."
   | _ => s!"Not replayed by a kernel: {r.whyNot}. The marks on this site say what the compiled \
       files report."
 
 /-- What a replay is, and what it leaves trusted. -/
 def trustedText : String :=
-  "A replay checks each constant that a module of this project adds again in Lean's kernel, on \
-    top of the module's imports, reading the compiled modules as they were when the site was \
-    generated (a module whose compiled file is identical to one a replay accepted before, with \
-    identical imports, is not replayed twice). It leaves trusted: the checker and Lean's kernel \
-    in it; the compiled modules of everything outside this project (Lean's own library and the \
-    project's dependencies), which are loaded and not replayed; and Lean's elaborator, for the \
-    step from the source text to the compiled module. It says nothing about what a statement \
-    means."
+  "A replay takes the Lean declarations of this site's nodes and the theorems its headline \
+    judges from the compiled modules, as the generator loaded them when the site was generated. \
+    It exports each of them together with every constant it depends on, whether that is in \
+    this project, in one of its dependencies or in Lean's own library, and the checker checks \
+    all of them again in Lean's kernel, starting from an empty environment (an export identical \
+    to one a replay accepted before is not checked twice). Constants that no such declaration \
+    depends on are not checked. It leaves trusted: the checker and Lean's kernel in it; the \
+    export, which the generator writes from the modules it loaded with the exporter of the \
+    Lean toolchain; and Lean's elaborator, for the step from the source text to the compiled \
+    module. A kernel accepts an axiom without a proof, so the axioms a declaration depends on \
+    are found by walking the same terms, and a declaration that depends on one outside Lean's \
+    standard three is not shown as checked. A replay says nothing about what a statement means."
 
 end Informal.Replay

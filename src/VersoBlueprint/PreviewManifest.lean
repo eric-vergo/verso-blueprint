@@ -3002,15 +3002,33 @@ where
         Informal.TeX.Pdf.compile pdfOptions cfg.toConfig
     Verso.runWithLogger (action.run extensionImpls)
 
+/-- Take the replay worker's part of a generator's command line: `--kernel-replay-with <program>`
+names the program that loads the modules and writes the export for the kernel replay (`vbp build`
+passes itself); without it a compiled generator is its own worker
+(`Informal.Stats.registerSelfAsReplayWorker`). Gives the remaining arguments. -/
+def takeReplayWorker (args : List String) : IO (List String) := do
+  let rec go : List String → Option String → List String → Option String × List String
+    | flag :: program :: rest, found, kept =>
+      if flag == Informal.Stats.replayWorkerProgramFlag then go rest (found <|> some program) kept
+      else go (program :: rest) found (flag :: kept)
+    | rest, found, kept => (found, kept.reverse ++ rest)
+  let (program?, args) := go args none []
+  match program? with
+  | some program => Informal.Stats.registerReplayWorker program
+  | none => Informal.Stats.registerSelfAsReplayWorker
+  return args
+
 /-- Generate a document using semantic data captured after all generator imports.
 
 The HTML site gets a Project Stats page at the end of its table of contents
 (`Informal.Commands.withStatsPage`); `statsPage := false` or the `--no-stats-page` flag leaves it
 out, and removes the page an earlier build wrote (unless the document places the page itself).
 
-With `kernelReplay`, or the `--kernel-replay` flag (which `vbp build` passes), the project's
-compiled modules are checked again in Lean's kernel while the site is generated
-(`Informal.Replay`); only then does a page say "proved". -/
+With `kernelReplay`, or the `--kernel-replay` flag (which `vbp build` passes), the Lean
+declarations of the nodes and the theorems the headline judges are checked again in Lean's
+kernel while the site is generated, with everything they depend on (`Informal.Replay`); only
+then does a page say "proved". A generator whose first argument is `--kernel-replay-worker` is
+the replay's worker and generates nothing (`Informal.Stats.replayWorkerMain`). -/
 def blueprintMain (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
@@ -3023,6 +3041,9 @@ def blueprintMain (text : Part Manual)
     (sidebar? : Option Informal.Sidebar.Config := none)
     (statsPage : Bool := true)
     (kernelReplay : Bool := false) : IO UInt32 := do
+  if let flag :: rest := options then
+    if flag == Informal.Stats.replayWorkerFlag then return ← Informal.Stats.replayWorkerMain rest
+  let options ← takeReplayWorker options
   let (text, model) ← Informal.Resident.apply text model
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
@@ -3048,6 +3069,9 @@ def blueprintMainWithPreviewData
     (sidebar? : Option Informal.Sidebar.Config := none)
     (statsPage : Bool := true)
     (kernelReplay : Bool := false) : IO UInt32 := do
+  if let flag :: rest := options then
+    if flag == Informal.Stats.replayWorkerFlag then return ← Informal.Stats.replayWorkerMain rest
+  let options ← takeReplayWorker options
   let (text, model) ← Informal.Resident.apply text model
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)

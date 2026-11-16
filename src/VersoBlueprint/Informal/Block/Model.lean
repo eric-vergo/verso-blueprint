@@ -189,14 +189,21 @@ def BlockCodeData.unplaced (code : BlockCodeData) : Option Name :=
       (·.canonical)) <|>
     ((code.literateDeclarations.declarations.find? (·.module.isNone)).map (·.name))
 
-/-- The modules the Lean declarations of `code` live in, where they are known, each once,
-sorted: those of the present external declarations and those of its code blocks. A kernel replay
-must cover them all before the code counts as replayed. -/
-def BlockCodeData.modules (code : BlockCodeData) : Array Name :=
-  let all := (code.externalDecls.filter (·.present)).filterMap (·.provenance.moduleName?) ++
-    code.literateDeclarations.declarations.filterMap (·.module)
-  (all.foldl (init := #[]) fun acc m => if acc.contains m then acc else acc.push m).qsort
+/-- The Lean declarations of `code`, each once, sorted: its present external declarations and
+the declarations of its code blocks. A kernel replay must cover them all, with everything they
+depend on, before the code counts as replayed. -/
+def BlockCodeData.declarations (code : BlockCodeData) : Array Name :=
+  let all := (code.externalDecls.filter (·.present)).map (·.canonical) ++
+    code.literateDeclarations.declarations.map (·.name)
+  (all.foldl (init := #[]) fun acc d => if acc.contains d then acc else acc.push d).qsort
     (·.toString < ·.toString)
+
+/-- The Lean declarations of `code` with the module each is in, where that is known: what a
+kernel replay is asked to check for it. -/
+def BlockCodeData.placedDeclarations (code : BlockCodeData) : Array (Name × Name) :=
+  (code.externalDecls.filter (·.present)).filterMap (fun d =>
+      d.provenance.moduleName?.map fun m => (d.canonical, m)) ++
+    code.literateDeclarations.declarations.filterMap fun d => d.module.map fun m => (d.name, m)
 
 /-- A panel's own declaration facts, for panel-local status and tooltips. -/
 def BlockCodeData.ofInlineBlocks (blocks : InlineCodeBlocks) : BlockCodeData :=

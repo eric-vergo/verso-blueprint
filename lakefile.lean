@@ -72,7 +72,8 @@ lean_exe «vbp» where
 
 -- Comparator challenges and solutions of the headline tests. Nothing imports a challenge (it
 -- declares the same names as its solution); `BlueprintComparator` reads their compiled modules.
--- The trees of modules below `ReplayFixtures` are what `BlueprintKernelReplay` replays.
+-- `BlueprintKernelReplay` replays the modules below `ReplayFixtures`;
+-- `VersoBlueprintReplayDependency` stands for a dependency of theirs.
 lean_lib VersoBlueprintComparatorFixtures where
   srcDir := "tests"
   roots := #[
@@ -88,8 +89,9 @@ lean_lib VersoBlueprintComparatorFixtures where
     `VersoBlueprintTests.ComparatorFixtures.Hole.Solution,
     `VersoBlueprintTests.ComparatorFixtures.Forged.Challenge,
     `VersoBlueprintTests.ComparatorFixtures.Forged.Solution,
-    `VersoBlueprintTests.ReplayFixtures.Tree,
-    `VersoBlueprintTests.ReplayFixtures.Nested
+    `VersoBlueprintTests.ReplayFixtures.Nested,
+    `VersoBlueprintTests.ReplayFixtures.Reach,
+    `VersoBlueprintReplayDependency.Lemmas
   ]
 
 @[default_target, test_driver]

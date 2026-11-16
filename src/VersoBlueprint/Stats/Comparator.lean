@@ -44,9 +44,11 @@ What this is not: the comparison reads the compiled modules of the build the sit
 from, and the axioms as Lean reports them for that build. It does not build the project from its
 sources in a sandbox, as `lake comparator` does, and it runs no kernel: a proof that the kernel
 never saw meets the conditions too. So a page calls a theorem proved only when a kernel replay
-(`Informal.Replay`) also accepted the project's modules the solution rests on
-(`Headline.solutionModules`). And none of this says anything about what the statement means:
-that a Lean statement is the theorem of a manuscript is for a reader to judge.
+(`Informal.Replay`) also accepted the theorem with everything it depends on
+(`ProjectStats.withKernelReplayAt`, which makes the comparison again in the environment the
+replay exports from, with the axioms found by walking its terms). And none of this says anything
+about what the statement means: that a Lean statement is the theorem of a manuscript is for a
+reader to judge.
 -/
 
 namespace Informal.Stats
@@ -71,7 +73,7 @@ structure ChallengeConfig where
   permittedAxioms : Option (Array Name) := none
   /-- The file the configuration was read from, relative to the project root. -/
   configFile : Option String := none
-deriving Repr, Inhabited
+deriving Repr, Inhabited, ToJson, FromJson
 
 /-- Read `comparator.json` text. The fields `lake comparator` requires must be there:
 `challenge_module`, `solution_module`, `theorem_names` and `permitted_axioms`. -/
@@ -527,15 +529,7 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   let definitions := definitions.map fun info =>
     let info := (ctx.challenge.find? info.name).getD info
     ({ name := info.name, solution := correspondenceOf ctx info } : HeadlineDefinition)
-  -- the project's modules the solution rests on: those of its imports compiled in the project
-  let projectDirs := layout.libraryDirs.toList.map fun dir : String => root / dir
-  let mut solutionModules := #[]
-  for module in scope.toArray do
-    if (← findCompiledModule? projectDirs module).isSome then
-      solutionModules := solutionModules.push module
-  return { base with
-    theorems := judged, definitions
-    solutionModules := solutionModules.qsort (·.toString < ·.toString) }
+  return { base with theorems := judged, definitions }
 
 /-- The project's headline, when it has a Comparator challenge (`ChallengeConfig.find?`). -/
 def Headline.capture (root : System.FilePath) (layout : WorkspaceLayout) :
@@ -559,5 +553,277 @@ def ProjectStats.withHeadline (stats : ProjectStats) : CoreM ProjectStats := do
   let layout ← WorkspaceLayout.current root
   let headline ← Headline.capture root layout
   return { stats with headline, hasComparatorChallenge := headline.isSome }
+
+/-! ## The kernel replay -/
+
+/-- The modules an environment must import before the challenge `config` can be compared in
+it: the solution module and, when the compiled challenge can be read, the modules it imports. -/
+def ChallengeConfig.modulesToLoad (config : ChallengeConfig) (root : System.FilePath)
+    (layout : WorkspaceLayout) (libraryPath : System.SearchPath) : IO (Array Name) := do
+  let path := libraryPath ++ layout.libraryDirs.toList.map fun dir : String => root / dir
+  let imports ← match ← findCompiledModule? path config.challengeModule with
+    | some olean =>
+      match ← (ChallengeModule.read olean).toBaseIO with
+      | .ok challenge => pure challenge.imports
+      | .error _ => pure #[]
+    | none => pure #[]
+  return (#[config.solutionModule] ++ imports).foldl (init := #[]) fun acc m =>
+    if acc.contains m then acc else acc.push m
+
+/-- `Headline.compute` in the environment `env`. -/
+def Headline.computeIn (env : Environment) (config : ChallengeConfig) (root : System.FilePath)
+    (layout : WorkspaceLayout) (libraryPath : System.SearchPath) : IO Headline := do
+  let ctx : Core.Context := { fileName := "<replay>", fileMap := default, maxHeartbeats := 0 }
+  let (headline, _) ← (Headline.compute config root layout libraryPath).toIO ctx { env }
+  return headline
+
+/-- The judged theorems of `headline` with their axioms as `walked` has them (the axioms found
+by walking the terms of the environment the headline was computed in, the standard three
+included), and what follows from the axioms. -/
+def Headline.withWalkedAxioms (headline : Headline) (walked : Array (Name × Array Name)) :
+    Headline :=
+  { headline with theorems := headline.theorems.map fun t =>
+    -- a theorem the solution does not declare has no axioms to state
+    if t.sorryFree.isNone then t else
+    let axioms := sortAxioms (((walked.find? (·.1 == t.name)).map (·.2)).getD #[])
+    let sorryFree := !axioms.contains sorryAxiom
+    let notAllowed := axiomsNotAllowed headline.permittedAxioms axioms
+    { t with
+      axioms, sorryFree := some sorryFree, axiomsNotAllowed := notAllowed
+      axiomsPermitted := headline.permittedAxioms.map fun ok => axioms.all ok.contains
+      conditionsMet := t.solution == .same && sorryFree && notAllowed.isEmpty } }
+
+/-- What the first half of a replay is asked to do, as a file a worker process reads
+(`ReplayRequest.run`): load the compiled modules, compare the project's Comparator challenge in
+that environment, and export the declarations with everything they depend on. -/
+structure ReplayRequest where
+  /-- The root of the Lean toolchain. -/
+  sysroot : String
+  /-- `ReplayConfig.searchPath`. -/
+  searchPath : Array String
+  /-- `ReplayConfig.projectDirs`. -/
+  projectDirs : Array String
+  /-- The Lean declarations of the site's nodes. -/
+  targets : Array ReplayTarget
+  /-- The project root. -/
+  root : String
+  layout : WorkspaceLayout
+  /-- The project's Comparator challenge, when it is to be compared. -/
+  challenge? : Option ChallengeConfig := none
+  /-- The file the export is written to. -/
+  exportFile : String
+  /-- The size limit of the export, in bytes. -/
+  exportLimit? : Option Nat := none
+  /-- The time the request may take, in milliseconds. -/
+  limitMs : Nat
+deriving ToJson, FromJson
+
+/-- What the first half of a replay gave. -/
+structure ReplayReply where
+  /-- Why the compiled modules could not be loaded or compared, when that is so; nothing else
+  is there then. -/
+  notLoaded? : Option String := none
+  /-- The headline computed in the loaded environment, with the axioms walked from its terms,
+  when the request has a challenge. -/
+  headline? : Option Headline := none
+  /-- What was exported. -/
+  prepared? : Option Prepared := none
+deriving ToJson, FromJson
+
+/-- Do what `request` asks, in this process. -/
+def ReplayRequest.run (request : ReplayRequest) : IO ReplayReply := do
+  let deadline := (← IO.monoMsNow) + request.limitMs
+  let sysroot : System.FilePath := request.sysroot
+  let root : System.FilePath := request.root
+  let config : ReplayConfig := {
+    searchPath := request.searchPath.map System.FilePath.mk
+    projectDirs := request.projectDirs.map System.FilePath.mk }
+  let libraryPath : System.SearchPath :=
+    config.searchPath.toList ++ [sysroot / "lib" / "lean"]
+  let mut modules := request.targets.filterMap (·.module?)
+  if let some challenge := request.challenge? then
+    -- the challenge is read from its compiled file, which must be the only one of its name
+    if let some message ← duplicateModule? config sysroot challenge.challengeModule then
+      return { notLoaded? := some message }
+    modules := modules ++ (← challenge.modulesToLoad root request.layout libraryPath)
+  let loaded ← match ← loadModules config sysroot modules with
+    | .ok loaded => pure loaded
+    | .error message => return { notLoaded? := some message }
+  -- the headline, from the environment that is exported
+  let mut headline? : Option Headline := none
+  let mut judged : Array ReplayTarget := #[]
+  if let some challenge := request.challenge? then
+    let computed ← (Headline.computeIn loaded.env challenge root request.layout
+      libraryPath).toBaseIO
+    let headline ← match computed with
+      | .ok headline => pure headline
+      | .error e =>
+        return { notLoaded? := some s!"the Comparator challenge could not be compared: {e}" }
+    let names := (headline.theorems.filter (·.sorryFree.isSome)).map (·.name)
+    match restingAxioms loaded.env names (standard := true) with
+    | .ok walked => headline? := some (headline.withWalkedAxioms walked)
+    | .error message => return { notLoaded? := some message }
+    judged := names.map fun name => ({ name } : ReplayTarget)
+  let targets := request.targets ++ judged
+  if targets.isEmpty then
+    let nothing : Prepared :=
+      { stop? := some .failed, message := some "this site has no Lean declaration to check" }
+    return { headline?, prepared? := some nothing }
+  let prepared ← prepareExport loaded config.projectDirs targets request.exportFile
+    request.exportLimit? deadline
+  return { headline?, prepared? := some prepared }
+
+/-- The `main` of a worker process: read the request file, do what it asks, write the reply
+file (`ReplayRequest.run`). A program whose `main` calls this for `replayWorkerFlag` can be the
+replay's worker (`registerReplayWorker`). -/
+def replayWorkerMain (args : List String) : IO UInt32 := do
+  let [requestFile, replyFile] := args
+    | IO.eprintln s!"usage: {replayWorkerFlag} <request file> <reply file>"; return 2
+  try
+    let json ← IO.ofExcept (Json.parse (← IO.FS.readFile requestFile))
+    let request ← IO.ofExcept (fromJson? (α := ReplayRequest) json)
+    let reply ← request.run
+    IO.FS.writeFile replyFile (toJson reply).compress
+    return 0
+  catch e =>
+    IO.eprintln s!"kernel replay worker: {e}"
+    return 1
+
+/-- Why a replay without a worker program gives no verdict. -/
+def noWorkerText : String :=
+  "no program is known that loads the compiled modules in a process of its own: a generator \
+    that `lean --run` runs is given one with --kernel-replay-with (`vbp build` passes itself)"
+
+/-- The statistics with the kernel replay of the project at `root` (`Informal.Replay`): of the
+Lean declarations `targets` of the site's nodes and of the theorems the project's Comparator
+challenge judges, with everything they depend on.
+
+The compiled modules are loaded once, in a process of its own: the worker the configuration
+names (`ReplayConfig.worker?`). The generator's own process usually has the modules loaded
+already, and a second copy of a compiled module is not mapped from the disk but read into
+memory, so nothing is loaded here; without a worker the replay gives no verdict and says so
+(`noWorkerText`). When the project has a Comparator
+challenge (and `compare`), its headline is computed again in that environment and replaces the
+captured one: the comparison, the axioms (walked from the terms, not read from the tables the
+modules record) and the export that is checked then all come from the same loaded modules.
+`nodeOf` gives the node of a judged theorem where the new headline has none. `config?` replaces
+the configuration read from the environment (`ReplayConfig.fromEnv`). -/
+def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePath)
+    (targets : Array ReplayTarget) (config? : Option ReplayConfig := none)
+    (compare : Bool := true) (nodeOf : Name → Option Name := fun _ => none) :
+    IO ProjectStats := do
+  let config ← match config? with
+    | some config => pure config
+    | none => ReplayConfig.fromEnv root stats.layout.libraryDirs
+  let say (line : String) : IO Unit := do
+    if config.progress then IO.eprintln s!"Kernel replay: {line}"
+  let asked := replayOrder (targets.map (·.name))
+  let toolchain ← config.toolchain
+  let version := match toolchain with
+    | .ok (_, _, version) => version
+    | .error _ => none
+  -- without a checker the comparison is still made, in an environment loaded the same way
+  let sysroot? ← match toolchain with
+    | .ok (_, sysroot, _) => pure (some sysroot)
+    | .error _ => pure (config.sysroot? <|> (← IO.getEnv "LEAN_SYSROOT").map System.FilePath.mk)
+  let noVerdict (stats : ProjectStats) (outcome : Replay.Outcome)
+      (message : Option String := none) : ProjectStats :=
+    let result : Replay.Result := match toolchain with
+      | .ok _ => { outcome, version, declarations := asked, message
+                   limitSeconds := if outcome == .timedOut then some config.limitSeconds else none
+                   memoryLimit := if outcome == .overMemory then config.memoryLimit? else none }
+      | .error outcome => { outcome, version, declarations := asked }
+    { stats with replay := some result }
+  let some sysroot := sysroot?
+    | return noVerdict stats .failed (some "the Lean toolchain of the checker was not found")
+  let start ← IO.monoMsNow
+  let deadline := start + config.limitSeconds * 1000
+  let challenge? ← if compare then
+      match ← ChallengeConfig.find? root stats.layout.sourceDirs with
+      | some (.ok challenge) => pure (some challenge)
+      | _ => pure none
+    else pure none
+  if targets.isEmpty && challenge?.isNone then
+    return noVerdict stats .failed (some "this site has no Lean declaration to check")
+  -- when nothing can be loaded, nothing is compared either, and the headline says why
+  let notLoaded (message : String) : ProjectStats :=
+    let stats := match challenge? with
+      | some challenge =>
+        let headline : Headline := {
+          challengeModule := challenge.challengeModule
+          solutionModule := challenge.solutionModule
+          config := challenge.configFile, permittedAxioms := challenge.permittedAxioms
+          unavailable := some .modulesNotLoaded, unavailableDetail := some message }
+        { stats with headline := some headline }
+      | none => stats
+    noVerdict stats .failed (some message)
+  let work ← IO.FS.createTempDir
+  let exportFile := work / "export.ndjson"
+  let request : ReplayRequest := {
+    sysroot := sysroot.toString
+    searchPath := config.searchPath.map (·.toString)
+    projectDirs := config.projectDirs.map (·.toString)
+    targets, root := root.toString, layout := stats.layout, challenge?
+    exportFile := exportFile.toString, exportLimit? := config.exportLimit?
+    limitMs := config.limitSeconds * 1000 }
+  -- the first half, in a worker process: this process may have the modules loaded already
+  let reply : Except ProjectStats ReplayReply ← match config.worker? with
+    | none => pure (.error (noVerdict stats .failed (some noWorkerText)))
+    | some _ => do
+      say s!"loading the compiled modules and exporting \
+        {Replay.counted asked.size "declaration"}\
+        {if challenge?.isSome then " and the judged theorems" else ""} with what they depend on"
+      let requestFile := work / "request.json"
+      let replyFile := work / "reply.json"
+      IO.FS.writeFile requestFile (toJson request).compress
+      match ← runWorker config requestFile replyFile deadline with
+      | .timedOut => pure (.error (noVerdict stats .timedOut))
+      | .overMemory => pure (.error (noVerdict stats .overMemory
+          (some "the export of what the site's declarations depend on")))
+      | .failed message => pure (.error (noVerdict stats .failed (some message)))
+      | .done used =>
+        say s!"the export process ran for {used}"
+        let read : IO ReplayReply := do
+          let json ← IO.ofExcept (Json.parse (← IO.FS.readFile replyFile))
+          IO.ofExcept (fromJson? (α := ReplayReply) json)
+        match ← read.toBaseIO with
+        | .ok reply => pure (.ok reply)
+        | .error e => pure (.error (noVerdict stats .failed
+            (some s!"the export process left no result: {e}")))
+  let cleanUp : IO Unit := do try IO.FS.removeDirAll work catch _ => pure ()
+  let reply ← match reply with
+    | .ok reply => pure reply
+    | .error stats =>
+      cleanUp
+      say ((stats.replay.map (·.whyNot)).getD "")
+      return stats
+  if let some message := reply.notLoaded? then
+    cleanUp
+    say s!"the replay could not run to a verdict: {message}"
+    return notLoaded message
+  -- the headline of the loaded environment replaces the captured one
+  let mut stats := stats
+  if let some headline := reply.headline? then
+    let earlier (name : Name) : Option Name :=
+      (stats.headline.bind (·.theorems.find? (·.name == name))).bind (·.node)
+    let headline := { headline with theorems := headline.theorems.map fun t =>
+      { t with node := t.node <|> earlier t.name <|> nodeOf t.name } }
+    stats := { stats with headline := some headline, hasComparatorChallenge := true }
+  let result ← match toolchain, reply.prepared? with
+    | .error outcome, _ => pure ({ outcome, version, declarations := asked } : Replay.Result)
+    | .ok _, none => pure (noVerdict stats .failed (some "no export was written")).replay.get!
+    | .ok (checker, _, version), some prepared =>
+      checkExport config checker version prepared exportFile deadline
+  cleanUp
+  return { stats with replay := some result }
+
+/-- `withKernelReplayAt` for the project in the working directory. Like `refreshWorkspace`,
+nothing is replayed when the working directory is not the captured project. -/
+def ProjectStats.withKernelReplay (stats : ProjectStats) (targets : Array ReplayTarget) :
+    IO ProjectStats := do
+  let root ← projectRoot stats.layout.projectRoot
+  unless (← ProjectIdentity.read root).name == stats.identity.name do
+    return stats
+  stats.withKernelReplayAt root targets
 
 end Informal.Stats

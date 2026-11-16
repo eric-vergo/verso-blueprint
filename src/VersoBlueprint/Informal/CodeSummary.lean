@@ -264,8 +264,9 @@ private structure CodeEntryVisual where
 deriving Inhabited
 
 /-- The symbol of the Lean link in a block's header. Code without `sorry` gets the check mark
-only when the kernel replay `replay?` accepted its modules; otherwise the diamond (what the
-compiled files report), or the mark of a rejected replay. -/
+only when the kernel replay `replay?` accepted its declarations with everything they depend on
+and found no axiom outside Lean's standard three under them; otherwise the diamond (what the
+compiled files report), the warning mark, or the mark of a rejected replay. -/
 private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     (replay? : Option Replay.Result := none) : CodeEntryVisual :=
   if !hasSource then
@@ -274,10 +275,11 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     let view := statusMark.status.presentation
     let symbol :=
       if !statusMark.status.isProved then view.codeEntrySymbol
-      else match Replay.standingOf replay? statusMark.modules statusMark.unplaced with
+      else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced with
         | .accepted => view.codeEntrySymbol
-        | .rejected _ => "⊘"
+        | .rejected => "⊘"
         | .notReplayed _ => "◇"
+        | .assumed _ => "⚠"
     { classSuffix := view.codeEntryClassSuffix, symbol }
 
 private structure ExternalRenderHealth where
@@ -390,26 +392,26 @@ private def completionStatusMark (kind : Data.NodeKind) (extraAxioms : Array Nam
     { status, title, kind, extraAxioms, symbolOverride? := some "⚠" }
 
 private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
-    (health : Informal.Graph.CodeHealth) (modules : Array Name := #[])
+    (health : Informal.Graph.CodeHealth) (declarations : Array Name := #[])
     (unplaced : Option Name := none) : BlockStatusMark :=
   if health.hasMissingExternalDecls then
     {
       status := .missing
       title := s!"{completionAxisText kind health}; Lean declarations: {health.presentDecls} present, {health.missingDecls} missing"
-      kind, extraAxioms, modules, unplaced
+      kind, extraAxioms, declarations, unplaced
     }
   else
     if health.hasAxiomLike then
-      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms, modules,
-        unplaced }
+      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms
+        declarations, unplaced }
     else
-      { completionStatusMark kind extraAxioms health with modules, unplaced }
+      { completionStatusMark kind extraAxioms health with declarations, unplaced }
 
 /-- A Lean declaration of `source` whose module is not known (`BlockCodeData.unplaced`). -/
 def unplacedOf (source : BlockCodeData) : Option Name := source.unplaced
 
-/-- The modules of the Lean declarations of `source` (`BlockCodeData.modules`). -/
-def modulesOf (source : BlockCodeData) : Array Name := source.modules
+/-- The Lean declarations of `source` (`BlockCodeData.declarations`). -/
+def declarationsOf (source : BlockCodeData) : Array Name := source.declarations
 
 /-- The axioms the present declarations of `source` depend on other than `sorryAx` and Lean's
 standard three, each once, in display order. -/
@@ -635,7 +637,8 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let source := cdata.source.getD {}
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
   let renderHealth := externalRenderHealth source.externalDecls
-  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health (modulesOf source)
+  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
+    (declarationsOf source)
     (unplacedOf source)
   let title := if source.isEmpty then "No associated Lean declarations" else
     appendRenderHealthSummary
@@ -652,7 +655,7 @@ def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option
   let source := source?.getD {}
   if source.isEmpty then none else
     some (statusMarkFromHealth kind (extraAxiomsOf source)
-      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (modulesOf source)
+      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (declarationsOf source)
       (unplacedOf source))
 
 end CodeSummary
