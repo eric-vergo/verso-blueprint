@@ -72,6 +72,12 @@ private def claimFor? (state : TraverseState) (data : BlockData) :
     code.literateDeclarations.declarations.map (·.name)
   names.findSome? claims.view?
 
+/-- The kernel replay made while the site is generated, captured with the project statistics:
+a node gets the check mark only when it accepted the node's module. -/
+private def replayOf? (state : TraverseState) : Option Informal.Replay.Result := do
+  let json ← Informal.TraversalIndex.RenderOverviews.field? state `stats "replay"
+  (fromJson? (α := Informal.Replay.Result) json).toOption
+
 open Verso.Doc.Html in
 /-- Render this occurrence with relation previews restricted to the resources
 prepared for its output. Semantic resolution and numbering remain occurrence-owned. -/
@@ -122,7 +128,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               codeHref := Informal.TraversalIndex.InlineCode.firstHref? s data.label
               source := codeHint?
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
-            } getDeclHref
+            } getDeclHref (replayOf? s)
           | true => none
         let formalColumn? : Option Output.Html ←
           if sideBySide && !data.isProof && !externalDecls.isEmpty then
@@ -169,7 +175,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
             (folded := data.foldInformalShell || (sideBySide && data.isProof))
             (titleSuffix :=
               if sideBySide && !data.isProof then
-                renderStatusGlyph (headingParts?.bind (·.statusMark))
+                renderStatusGlyph (headingParts?.bind (·.statusMark)) (replayOf? s)
               else .empty)
           content
           companionPanels := #[externalPanel]

@@ -13,6 +13,7 @@ import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.LeanCodePreviewKey
 import VersoBlueprint.Informal.LeanCodeLink
 import VersoBlueprint.Lib.HoverRender
+import VersoBlueprint.Replay
 
 namespace Informal
 namespace CodeSummary
@@ -262,12 +263,22 @@ private structure CodeEntryVisual where
   absent : Bool := false
 deriving Inhabited
 
-private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark) : CodeEntryVisual :=
+/-- The symbol of the Lean link in a block's header. Code without `sorry` gets the check mark
+only when the kernel replay `replay?` accepted its modules; otherwise the diamond (what the
+compiled files report), or the mark of a rejected replay. -/
+private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
+    (replay? : Option Replay.Result := none) : CodeEntryVisual :=
   if !hasSource then
     { classSuffix := "absent", symbol := "X", absent := true }
   else
     let view := statusMark.status.presentation
-    { classSuffix := view.codeEntryClassSuffix, symbol := view.codeEntrySymbol }
+    let symbol :=
+      if !statusMark.status.isProved then view.codeEntrySymbol
+      else match Replay.standingOf replay? statusMark.modules statusMark.unplaced with
+        | .accepted => view.codeEntrySymbol
+        | .rejected _ => "⊘"
+        | .notReplayed _ => "◇"
+    { classSuffix := view.codeEntryClassSuffix, symbol }
 
 private structure ExternalRenderHealth where
   failureCount : Nat := 0
@@ -379,18 +390,32 @@ private def completionStatusMark (kind : Data.NodeKind) (extraAxioms : Array Nam
     { status, title, kind, extraAxioms, symbolOverride? := some "⚠" }
 
 private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
-    (health : Informal.Graph.CodeHealth) : BlockStatusMark :=
+    (health : Informal.Graph.CodeHealth) (modules : Array Name := #[])
+    (unplaced : Option Name := none) : BlockStatusMark :=
   if health.hasMissingExternalDecls then
     {
       status := .missing
       title := s!"{completionAxisText kind health}; Lean declarations: {health.presentDecls} present, {health.missingDecls} missing"
-      kind, extraAxioms
+      kind, extraAxioms, modules, unplaced
     }
   else
     if health.hasAxiomLike then
-      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms }
+      { status := .axiomLike, title := completionAxisText kind health, kind, extraAxioms, modules,
+        unplaced }
     else
-      completionStatusMark kind extraAxioms health
+      { completionStatusMark kind extraAxioms health with modules, unplaced }
+
+/-- A present declaration of `source` whose provenance names no module. -/
+def unplacedOf (source : BlockCodeData) : Option Name :=
+  (source.externalDecls.find? fun d => d.present && d.provenance.moduleName?.isNone).map
+    (·.canonical)
+
+/-- The modules of the present declarations of `source`, where their provenance names one, each
+once, sorted. -/
+def modulesOf (source : BlockCodeData) : Array Name :=
+  let all := (source.externalDecls.filter (·.present)).filterMap (·.provenance.moduleName?)
+  (all.foldl (init := #[]) fun acc m => if acc.contains m then acc else acc.push m).qsort
+    (·.toString < ·.toString)
 
 /-- The axioms the present declarations of `source` depend on other than `sorryAx` and Lean's
 standard three, each once, in display order. -/
@@ -610,19 +635,22 @@ def renderPanelIndicator (label : Data.Label) (cdata : ComputedData)
         indicator := .seq #[inlinePanel.indicator, externalPanel.indicator] }
 
 /-- Heading status and tooltip cover every association, independent of panel layout. -/
-def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Option String) : RenderParts :=
+def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Option String)
+    (replay? : Option Replay.Result := none) : RenderParts :=
   if data.isProof then {} else
   let source := cdata.source.getD {}
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
   let renderHealth := externalRenderHealth source.externalDecls
-  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
+  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health (modulesOf source)
+    (unplacedOf source)
   let title := if source.isEmpty then "No associated Lean declarations" else
     appendRenderHealthSummary
       (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
       renderHealth
   { statusMark := if source.isEmpty then none else some statusMark
     codeEntry := renderCodeEntryWrap cdata.codeHref title s!"{data.label}"
-      (renderSummaryPreview cdata hrefOf) (codeEntryVisual (!source.isEmpty) statusMark) renderHealth }
+      (renderSummaryPreview cdata hrefOf) (codeEntryVisual (!source.isEmpty) statusMark replay?)
+      renderHealth }
 
 /-- The heading status of a statement of kind `kind` whose Lean side is `source?`, as
 `renderParts` computes it; `none` without associated Lean declarations. -/
@@ -630,7 +658,8 @@ def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option
   let source := source?.getD {}
   if source.isEmpty then none else
     some (statusMarkFromHealth kind (extraAxiomsOf source)
-      (Informal.Graph.codeHealthOfBlockSource kind {} source?))
+      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (modulesOf source)
+      (unplacedOf source))
 
 end CodeSummary
 end Informal

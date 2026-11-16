@@ -11,6 +11,7 @@ import VersoBlueprint.Axioms
 import VersoBlueprint.ClaimView
 import VersoBlueprint.Informal.MetadataView
 import VersoBlueprint.Meaning
+import VersoBlueprint.Replay
 
 namespace Informal
 
@@ -881,8 +882,18 @@ structure StatusGlyphKind where
   meaning : String
 
 namespace StatusGlyphKind
+/-- The check mark: only for Lean code without `sorry` whose module a kernel replay accepted
+while the site was generated. -/
 def proved : StatusGlyphKind :=
-  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses"⟩
+  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, and its module was \
+    checked again in Lean's kernel for this site"⟩
+/-- What the compiled files report, with no kernel replay behind it: not a check mark. -/
+def reported : StatusGlyphKind :=
+  ⟨"◇", "reported", "Lean code without sorry, as the compiled files report; not replayed by a \
+    kernel"⟩
+/-- The kernel replay rejected the build. -/
+def rejected : StatusGlyphKind :=
+  ⟨"⊘", "rejected", "Lean code not accepted: the kernel checker rejected this build"⟩
 def incomplete : StatusGlyphKind :=
   ⟨"◐", "partial", "Lean code incomplete: a sorry in the proof or in what it uses"⟩
 def problem : StatusGlyphKind :=
@@ -892,7 +903,8 @@ def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"
 def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 
 /-- Every status glyph, in legend order. -/
-def all : Array StatusGlyphKind := #[proved, incomplete, problem, missing, noLean]
+def all : Array StatusGlyphKind :=
+  #[proved, reported, rejected, incomplete, problem, missing, noLean]
 end StatusGlyphKind
 
 /-- What the Lean code of a node of this kind is: a proof, or a definition. -/
@@ -914,8 +926,12 @@ def extraAxiomsText (axioms : Array Lean.Name) : String :=
 
 /-- The status glyph of a node and its text (the glyph's meaning for this node, then the
 detailed status where it adds something). A node whose Lean code has no `sorry` but depends on
-an axiom outside Lean's standard three does not get the check mark: the text names the axiom. -/
-def statusGlyph (mark? : Option BlockStatusMark) : StatusGlyphKind × String :=
+an axiom outside Lean's standard three does not get the check mark: the text names the axiom.
+Nor does a node whose module no kernel replay accepted (`replay?`, the replay made while the
+site was generated): its mark says what the compiled files report, or that the replay rejected
+the build. -/
+def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result := none) :
+    StatusGlyphKind × String :=
   match mark? with
   | none => (.noLean, StatusGlyphKind.noLean.meaning)
   | some mark =>
@@ -923,7 +939,17 @@ def statusGlyph (mark? : Option BlockStatusMark) : StatusGlyphKind × String :=
     if status.isProved then
       let noun := leanCodeNoun mark.kind
       if mark.extraAxioms.isEmpty then
-        (.proved, s!"{noun} complete: no sorry in it or in what it uses")
+        let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
+        match Replay.standingOf replay? mark.modules mark.unplaced with
+        | .accepted =>
+          (.proved, s!"{noun} complete: no sorry in it or in what it uses; checked again in \
+            Lean's kernel by {checker}")
+        | .rejected module =>
+          let where_ := (module.map (s!" (module {·})")).getD ""
+          (.rejected, s!"{noun} not accepted: {checker} rejected this build{where_}")
+        | .notReplayed why =>
+          (.reported, s!"{noun} without sorry, as the compiled files report; not replayed by a \
+            kernel ({why})")
       else
         (.problem, s!"{noun} without sorry, resting on {extraAxiomsText mark.extraAxioms}")
     else if status.isAxiomLike then
@@ -942,8 +968,9 @@ private def statusGlyphSpan (kind : StatusGlyphKind) (attrs : Array (String × S
     (.text true kind.glyph)
 
 /-- The status glyph shown beside a node title in the side-by-side layout. -/
-def renderStatusGlyph (mark? : Option BlockStatusMark) : Verso.Output.Html :=
-  let (kind, title) := statusGlyph mark?
+def renderStatusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result := none) :
+    Verso.Output.Html :=
+  let (kind, title) := statusGlyph mark? replay?
   statusGlyphSpan kind #[("title", title), ("aria-label", title)]
 
 /-- Element id of the status glyph legend template (see `statusLegendTemplate`). -/

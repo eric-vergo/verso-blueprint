@@ -28,7 +28,8 @@ open Verso.VersoBlueprintTests.BlueprintPreviewWiring.Shared
       hasSubstr out "bp_code_summary_preview_panel" &&
       hasSubstr out "data-bp-preview-id=\"bp-code-summary\"" &&
       hasSubstr out "tabindex=\"0\"" &&
-      hasSubstr out ">✓</span>" &&
+      -- no kernel replay stands behind this rendering: the diamond, never the check mark
+      hasSubstr out ">◇</span>" && !hasSubstr out ">✓</span>" &&
       hasSubstr out ">⚠</span>" &&
       hasSubstr out ">A</span>" &&
       hasSubstr out ">X</span>" &&

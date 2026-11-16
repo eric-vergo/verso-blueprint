@@ -250,7 +250,7 @@ class TestSideBySideRuntime:
         expect(legend).to_have_count(1)
         expect(legend).not_to_have_attribute("open", "")
         legend.locator("summary").click()
-        for glyph in ["✓", "◐", "⚠", "✗", "○"]:
+        for glyph in ["✓", "◇", "⊘", "◐", "⚠", "✗", "○"]:
             expect(legend.locator("dt", has_text=glyph)).to_be_visible()
         # the mark's title says what was checked, in words
         title = page.locator(".bp_sbs .bp_status_glyph").first.get_attribute("title")

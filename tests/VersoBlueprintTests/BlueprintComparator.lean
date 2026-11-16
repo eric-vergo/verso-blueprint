@@ -69,7 +69,7 @@ private def describe (h : Headline) : List String :=
   [s!"unavailable: {repr h.unavailable} {h.unavailableDetail.getD ""}"] ++
   h.theorems.toList.map (fun t =>
     s!"theorem {short t.name}: {repr t.solution}, sorry-free {t.sorryFree}, axioms " ++
-    s!"{t.axioms.toList}, permitted {t.axiomsPermitted}, proved {t.proved}, node {t.node}" ++
+    s!"{t.axioms.toList}, permitted {t.axiomsPermitted}, conditions met {t.conditionsMet}, node {t.node}" ++
     (match t.differingDeclaration, t.difference with
       | some d, some why => s!", differs at {short d}: {why}"
       | _, _ => "")) ++
@@ -79,8 +79,8 @@ private def describe (h : Headline) : List String :=
 -- theorem; the definition both declare the same.
 /--
 info: ["unavailable: none ",
-  "theorem double_eq: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [], permitted none, proved true, node (some «thm:cmp.double»)",
-  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted none, proved true, node none",
+  "theorem double_eq: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [], permitted none, conditions met true, node (some «thm:cmp.double»)",
+  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted none, conditions met true, node none",
   "definition double: Informal.Stats.Correspondence.same"]
 -/
 #guard_msgs in
@@ -100,7 +100,7 @@ info: [("CmpMatch.double_eq", some "Doubling a number\nadds it to itself.",
 -- A solution with a `sorry`: the same statement, not proved.
 /--
 info: ["unavailable: none ",
-  "theorem triple_eq: Informal.Stats.Correspondence.same, sorry-free (some false), axioms [sorryAx], permitted none, proved false, node none",
+  "theorem triple_eq: Informal.Stats.Correspondence.same, sorry-free (some false), axioms [sorryAx], permitted none, conditions met false, node none",
   "definition triple: Informal.Stats.Correspondence.same"]
 -/
 #guard_msgs in
@@ -109,7 +109,7 @@ info: ["unavailable: none ",
 -- A statement that differs: not proved, though the proof is complete.
 /--
 info: ["unavailable: none ",
-  "theorem half_le: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [propext], permitted none, proved false, node none, differs at half_le: the statement differs",
+  "theorem half_le: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [propext], permitted none, conditions met false, node none, differs at half_le: the statement differs",
   "definition half: Informal.Stats.Correspondence.same"]
 -/
 #guard_msgs in
@@ -118,7 +118,7 @@ info: ["unavailable: none ",
 -- A definition the statement uses differs: the same statement text, a different theorem.
 /--
 info: ["unavailable: none ",
-  "theorem square_two: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [], permitted none, proved false, node none, differs at square: the definition differs",
+  "theorem square_two: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [], permitted none, conditions met false, node none, differs at square: the definition differs",
   "definition square: Informal.Stats.Correspondence.differs"]
 -/
 #guard_msgs in
@@ -128,7 +128,7 @@ info: ["unavailable: none ",
 -- solution supplies the value and the theorem is proved.
 /--
 info: ["unavailable: none ",
-  "theorem answer_pos: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [], permitted none, proved false, node none, differs at answer: the definition differs",
+  "theorem answer_pos: Informal.Stats.Correspondence.differs, sorry-free (some true), axioms [], permitted none, conditions met false, node none, differs at answer: the definition differs",
   "definition answer: Informal.Stats.Correspondence.differs"]
 -/
 #guard_msgs in
@@ -136,7 +136,7 @@ info: ["unavailable: none ",
 
 /--
 info: ["unavailable: none ",
-  "theorem answer_pos: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [], permitted (some true), proved true, node none",
+  "theorem answer_pos: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [], permitted (some true), conditions met true, node none",
   "definition answer: Informal.Stats.Correspondence.hole"]
 -/
 #guard_msgs in
@@ -147,7 +147,7 @@ info: ["unavailable: none ",
 -- `theorem_names` selects the theorems judged; `permitted_axioms` judges their axioms.
 /--
 info: ["unavailable: none ",
-  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted (some false), proved false, node none",
+  "theorem double_cases: Informal.Stats.Correspondence.same, sorry-free (some true), axioms [Classical.choice, Quot.sound, propext], permitted (some false), conditions met false, node none",
   "definition double: Informal.Stats.Correspondence.same"]
 -/
 #guard_msgs in
@@ -165,7 +165,7 @@ info: ["unavailable: some (Informal.Stats.Unavailable.challengeNotBuilt) VersoBl
 
 /--
 info: ["unavailable: some (Informal.Stats.Unavailable.solutionNotImported) VersoBlueprintTests.ComparatorFixtures.Absent.Solution",
-  "theorem triple_eq: Informal.Stats.Correspondence.notCompared, sorry-free none, axioms [], permitted none, proved false, node none"]
+  "theorem triple_eq: Informal.Stats.Correspondence.notCompared, sorry-free none, axioms [], permitted none, conditions met false, node none"]
 -/
 #guard_msgs in
 #eval show CoreM _ from do
@@ -186,7 +186,7 @@ private def write (path : System.FilePath) (text : String) : IO Unit := do
 -- the source file looks; when they are not, it is out of date.
 /--
 info: [["unavailable: some (Informal.Stats.Unavailable.solutionNotImported) Comparator.Solution",
-    "theorem triple_eq: Informal.Stats.Correspondence.notCompared, sorry-free none, axioms [], permitted none, proved false, node none"],
+    "theorem triple_eq: Informal.Stats.Correspondence.notCompared, sorry-free none, axioms [], permitted none, conditions met false, node none"],
   ["unavailable: some (Informal.Stats.Unavailable.challengeOutOfDate) Comparator/Challenge.lean"]]
 -/
 #guard_msgs in

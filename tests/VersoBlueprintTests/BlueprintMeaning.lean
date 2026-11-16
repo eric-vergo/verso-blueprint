@@ -17,7 +17,7 @@ A site reports facts about Lean code and shows informal text beside it. These te
 wording to the state behind it, row by row:
 
 * a node's mark, for a theorem and a definition, with and without an axiom beyond Lean's
-  standard three, with a `sorry`;
+  standard three, with a `sorry`, under an accepted kernel replay and without one;
 * the headline of a Comparator challenge: proved, statement differs, a `sorry`, an axiom that is
   not allowed, challenge not built, no challenge;
 * the counts of the Project Stats page, with and without informal statements, and for a
@@ -45,21 +45,33 @@ private def mark (kind : Data.NodeKind) (status : Data.ProvedStatus)
     (extraAxioms : Array Name := #[]) : BlockStatusMark :=
   { status, title := "Lean statement: no sorry; Lean proof: blocked by sorry", kind, extraAxioms }
 
+/-- A kernel replay that accepted the project's modules (`BlueprintKernelReplay` has the other
+outcomes). -/
+private def accepted : Replay.Result :=
+  { outcome := .accepted, version := some "4.35.0", modules := #[`Solution] }
+
 private def directSorry : Data.ProvedStatus :=
   .incomplete { knownSorry := #[{ location := .proof, origin := .direct }] }
 
--- A theorem and a definition without `sorry`: the check mark, in words about the Lean code. A
--- definition is never called proved.
+-- A theorem and a definition without `sorry`, under an accepted kernel replay: the check mark,
+-- in words about the Lean code. A definition is never called proved. Without a replay neither
+-- gets the check mark.
 /-- info: true -/
 #guard_msgs in
 #eval
-  let thm := statusGlyph (some (mark .theorem .proved))
-  let defn := statusGlyph (some (mark .definition .proved))
+  let thm := statusGlyph (some (mark .theorem .proved)) (some accepted)
+  let defn := statusGlyph (some (mark .definition .proved)) (some accepted)
   thm.1.modifier == "proved" &&
-    thm.2 == "Lean proof complete: no sorry in it or in what it uses" &&
+    thm.2 == "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's \
+      kernel by leanchecker (Lean 4.35.0)" &&
     defn.1.modifier == "proved" &&
-    defn.2 == "Lean definition complete: no sorry in it or in what it uses" &&
-    !hasSubstr defn.2 "roved" && !hasSubstr thm.2 "Proved"
+    defn.2 == "Lean definition complete: no sorry in it or in what it uses; checked again in \
+      Lean's kernel by leanchecker (Lean 4.35.0)" &&
+    !hasSubstr defn.2 "roved" && !hasSubstr thm.2 "Proved" &&
+    (statusGlyph (some (mark .theorem .proved))).1.modifier == "reported" &&
+    (statusGlyph (some (mark .definition .proved))).2 == "Lean definition without sorry, as the \
+      compiled files report; not replayed by a kernel (this site was generated without a kernel \
+      replay)"
 
 -- No `sorry`, but an axiom beyond the standard three, or compiled code: no check mark, and the
 -- text names what the code rests on.
@@ -135,19 +147,21 @@ private def directSorry : Data.ProvedStatus :=
 
 private def proved : HeadlineTheorem :=
   { name := `main, statement := "theorem main : P", solution := .same, sorryFree := some true
-    proved := true, axioms := #[``propext], docstring := some "The main result." }
+    conditionsMet := true, axioms := #[``propext], docstring := some "The main result." }
 
 -- Each verdict, in words about the Lean statement.
 /-- info: true -/
 #guard_msgs in
 #eval
-  let sorry_ := { proved with proved := false, sorryFree := some false }
+  let sorry_ := { proved with conditionsMet := false, sorryFree := some false }
   let extra := { proved with
-    proved := false, axioms := #[`Demo.ax, ``propext], axiomsNotAllowed := #[`Demo.ax] }
+    conditionsMet := false, axioms := #[`Demo.ax, ``propext], axiomsNotAllowed := #[`Demo.ax] }
   let notPermitted := { extra with axiomsPermitted := some false }
   let differs : HeadlineTheorem := { name := `main, solution := .differs
                                      difference := some "the statement differs" }
-  headlineVerdict proved == ("proved", "Lean statement proved") &&
+  headlineVerdict proved .accepted == ("proved", "Lean statement proved") &&
+    -- the same theorem without a kernel replay is not called proved
+    headlineVerdict proved == ("not-replayed", conditionsMetText) &&
     headlineVerdict sorry_ ==
       ("sorry", "Same Lean statement as the challenge; the proof uses sorry") &&
     headlineVerdict extra == ("axioms", "Same Lean statement as the challenge; the proof rests \
@@ -159,7 +173,7 @@ private def proved : HeadlineTheorem :=
     headlineVerdict { name := `main, solution := .missing } == ("missing", "Not in the solution") &&
     headlineVerdict { name := `main } == ("not-compared", "Not compared")
 
--- Which axioms a verdict of "proved" allows: the challenge's list, else Lean's standard three;
+-- Which axioms the comparison allows: the challenge's list, else Lean's standard three;
 -- a `sorry` is reported on its own.
 /-- info: true -/
 #guard_msgs in
@@ -174,6 +188,7 @@ private def stats (headline : Option Headline) (leanProgress : LeanProgress := {
   { identity := { name := some "demo", toolchain := some "leanprover/lean4:v4.35.0"
                   packages := #[{ name := "mathlib", source := "git", rev := some "56a00585aa" }] }
     headline, hasComparatorChallenge := headline.isSome, leanProgress
+    replay := some accepted
     progress := { formalizedWithAncestors := leanProgress.total } }
 
 private def page (s : ProjectStats) : String :=
@@ -181,7 +196,8 @@ private def page (s : ProjectStats) : String :=
 
 private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   { challengeModule := `Challenge, solutionModule := `Solution
-    challengeFile := some "Challenge.lean", solutionFile := some "Solution.lean", theorems }
+    challengeFile := some "Challenge.lean", solutionFile := some "Solution.lean", theorems
+    solutionModules := #[`Solution] }
 
 -- Proved: the verdict, then the Lean statement, then the docstring under its own caption, then
 -- what the comparison is and is not; and which build the page reports on.
@@ -195,8 +211,9 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
     appearsBefore html "theorem main : P"
       "Docstring in the challenge (not checked against the Lean statement)" &&
     appearsBefore html "Docstring in the challenge" "The main result." &&
-    hasSubstr html "Compared by this site's generator from the compiled modules of this build: \
-      not rebuilt in a sandbox and not replayed in a kernel, as lake comparator does." &&
+    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted the project module the \
+      solution rests on." &&
+    hasSubstr html "Compared by this site" && hasSubstr html "The comparison runs no kernel" &&
     hasSubstr html "This page reports on one build, made with Lean v4.35.0 and the package \
       revisions above. No other toolchain or revision was checked." &&
     !hasSubstr html "lake comparator is the authority" && !hasSubstr html ">Proved<"
@@ -208,9 +225,9 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   let differs := page (stats (some (challenge #[{
     name := `main, solution := .differs, difference := some "the statement differs",
     differingDeclaration := some `main }])))
-  let sorry_ := page (stats (some (challenge #[{ proved with proved := false, sorryFree := some false }])))
+  let sorry_ := page (stats (some (challenge #[{ proved with conditionsMet := false, sorryFree := some false }])))
   let extra := page (stats (some (challenge #[{ proved with
-    proved := false, axioms := #[`Demo.ax], axiomsNotAllowed := #[`Demo.ax] }])))
+    conditionsMet := false, axioms := #[`Demo.ax], axiomsNotAllowed := #[`Demo.ax] }])))
   hasSubstr differs "data-bp-verdict=\"differs\"" &&
     hasSubstr differs "Lean statement differs from the challenge: the statement differs (main)" &&
     !hasSubstr differs ">Lean statement proved</span>" &&

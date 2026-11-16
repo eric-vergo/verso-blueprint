@@ -73,9 +73,15 @@ def RenderModel.install (model : RenderModel) (state : TraverseState) : Traverse
 Read the project's files again for the statistics (`Stats.ProjectStats.refreshWorkspace`): the
 model is captured when the generator is compiled, and Lake does not rebuild it when only files
 no Lean module imports change, such as the README or a module the Blueprint does not use.
+With `kernelReplay` the project's compiled modules are also replayed in a kernel
+(`Stats.ProjectStats.withKernelReplay`); statistics that carry no replay make the pages say
+what the compiled files report, and no more.
 -/
-def RenderModel.refreshStats (model : RenderModel) : IO RenderModel := do
-  return { model with stats := ← model.stats.refreshWorkspace }
+def RenderModel.refreshStats (model : RenderModel) (kernelReplay : Bool := false) :
+    IO RenderModel := do
+  let stats ← model.stats.refreshWorkspace
+  let stats ← if kernelReplay then stats.withKernelReplay else pure stats
+  return { model with stats }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/
 def RenderModel.withExtensions (model : RenderModel) (impls : ExtensionImpls) : ExtensionImpls :=

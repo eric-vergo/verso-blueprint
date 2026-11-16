@@ -5,6 +5,7 @@ Author: Eric Vergo
 -/
 
 import VersoBlueprint.Graph
+import VersoBlueprint.Replay
 import VersoBlueprint.Stats.Repo
 import VersoBlueprint.Stats.Source
 
@@ -23,7 +24,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 3
+def projectStatsSchemaVersion : Nat := 4
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -279,9 +280,11 @@ structure HeadlineTheorem where
   /-- The axioms the verdict does not allow, `sorryAx` aside: those outside the challenge's
   permitted list when it states one, else those outside Lean's standard three. -/
   axiomsNotAllowed : Array Name := #[]
-  /-- The same Lean statement as the challenge, proved without `sorry` and without an axiom the
-  verdict does not allow (`axiomsNotAllowed` is empty). -/
-  proved : Bool := false
+  /-- What the compiled modules report: the same Lean statement as the challenge, no `sorry`,
+  and no axiom the verdict does not allow (`axiomsNotAllowed` is empty). It is not "proved":
+  that also takes a kernel replay of the modules the solution rests on
+  (`Headline.solutionModules`, `ProjectStats.replay`). -/
+  conditionsMet : Bool := false
   /-- The Blueprint node whose Lean declarations include the theorem. -/
   node : Option Name := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
@@ -310,6 +313,10 @@ structure Headline where
   unavailable : Option Unavailable := none
   /-- The details of `unavailable`: a module name or an error message. -/
   unavailableDetail : Option String := none
+  /-- The project's modules the solution rests on: the solution module and every module of the
+  project it imports, directly or not, sorted. A kernel replay must cover them before a theorem
+  is called proved. -/
+  solutionModules : Array Name := #[]
   /-- The theorems the challenge states, in source order. -/
   theorems : Array HeadlineTheorem := #[]
   /-- The other declarations the challenge introduces, in source order. -/
@@ -388,6 +395,9 @@ structure ProjectStats where
   hasComparatorChallenge : Bool := false
   /-- The author's claims about what Lean declarations state, when the project has the file. -/
   claims : Option Claims := none
+  /-- The kernel replay of the project's compiled modules made while the site was generated;
+  none when the generator ran none. Without an accepted replay no page says "proved". -/
+  replay : Option Replay.Result := none
 deriving Inhabited, ToJson, FromJson
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give

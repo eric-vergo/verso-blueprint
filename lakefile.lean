@@ -84,7 +84,9 @@ lean_lib VersoBlueprintComparatorFixtures where
     `VersoBlueprintTests.ComparatorFixtures.Definition.Challenge,
     `VersoBlueprintTests.ComparatorFixtures.Definition.Solution,
     `VersoBlueprintTests.ComparatorFixtures.Hole.Challenge,
-    `VersoBlueprintTests.ComparatorFixtures.Hole.Solution
+    `VersoBlueprintTests.ComparatorFixtures.Hole.Solution,
+    `VersoBlueprintTests.ComparatorFixtures.Forged.Challenge,
+    `VersoBlueprintTests.ComparatorFixtures.Forged.Solution
   ]
 
 @[default_target, test_driver]
@@ -95,7 +97,8 @@ lean_lib VersoBlueprintTests where
     `+VersoBlueprintTests.ComparatorFixtures.Sorry.Challenge:leanArts,
     `+VersoBlueprintTests.ComparatorFixtures.Statement.Challenge:leanArts,
     `+VersoBlueprintTests.ComparatorFixtures.Definition.Challenge:leanArts,
-    `+VersoBlueprintTests.ComparatorFixtures.Hole.Challenge:leanArts
+    `+VersoBlueprintTests.ComparatorFixtures.Hole.Challenge:leanArts,
+    `+VersoBlueprintTests.ComparatorFixtures.Forged.Challenge:leanArts
   ]
   roots := #[
     `VersoBlueprintTests.Blueprint.Support,
@@ -115,6 +118,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintAutoDeps,
     `VersoBlueprintTests.BlueprintAxioms,
     `VersoBlueprintTests.BlueprintComparator,
+    `VersoBlueprintTests.BlueprintKernelReplay,
     `VersoBlueprintTests.BlueprintAttribute,
     `VersoBlueprintTests.BlueprintAttribute.OrderRoundtrip,
     `VersoBlueprintTests.BlueprintAttributeRendering,

@@ -263,6 +263,8 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
 }
 
 .bp_status_glyph_proved { color: var(--bp-color-accent-success); }
+.bp_status_glyph_reported { color: var(--bp-color-text-subtle); }
+.bp_status_glyph_rejected { color: var(--bp-color-accent-danger); }
 .bp_status_glyph_partial { color: var(--bp-color-status-warning-text); }
 .bp_status_glyph_problem { color: var(--bp-color-accent-warning); }
 .bp_status_glyph_missing { color: var(--bp-color-accent-danger); }

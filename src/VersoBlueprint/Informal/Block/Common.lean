@@ -59,6 +59,12 @@ structure BlockStatusMark where
   /-- The axioms the node's Lean declarations depend on other than `sorryAx` and Lean's
   standard three: what a status of "no `sorry`" still rests on. -/
   extraAxioms : Array Lean.Name := #[]
+  /-- The modules of the node's Lean declarations, where they are known: a kernel replay must
+  cover them before the node gets the check mark. -/
+  modules : Array Lean.Name := #[]
+  /-- A Lean declaration of the node whose module is not known (it is declared in the module
+  that captured the site's data, which need not be compiled): no replay is known to cover it. -/
+  unplaced : Option Lean.Name := none
 deriving Repr, Inhabited
 
 def BlockStatusMark.text (s : BlockStatusMark) : String :=

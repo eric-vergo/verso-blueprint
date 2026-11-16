@@ -36,15 +36,17 @@ compared as terms), except that a theorem or a definition hole only needs the sa
 constant from an import counts as the same, since both sides have it from the same compiled
 module.
 
-A theorem counts as proved when the solution has the same statement, does not depend on `sorry`
-and depends on no axiom outside the challenge's permitted list (outside Lean's standard three
-when the challenge states no list).
+A theorem meets the comparison's conditions (`HeadlineTheorem.conditionsMet`) when the solution
+has the same statement, does not depend on `sorry` and depends on no axiom outside the
+challenge's permitted list (outside Lean's standard three when the challenge states no list).
 
 What this is not: the comparison reads the compiled modules of the build the site is generated
 from, and the axioms as Lean reports them for that build. It does not build the project from its
-sources in a sandbox and does not replay any proof in a kernel; `lake comparator` does both. And
-neither says anything about what the statement means: that a Lean statement is the theorem of a
-manuscript is for a reader to judge.
+sources in a sandbox, as `lake comparator` does, and it runs no kernel: a proof that the kernel
+never saw meets the conditions too. So a page calls a theorem proved only when a kernel replay
+(`Informal.Replay`) also accepted the project's modules the solution rests on
+(`Headline.solutionModules`). And none of this says anything about what the statement means:
+that a Lean statement is the theorem of a manuscript is for a reader to judge.
 -/
 
 namespace Informal.Stats
@@ -447,7 +449,7 @@ def matchesSource (challenge : ChallengeModule) (source : String) : Bool :=
       let name := privateToUserName info.name
       !written.isEmpty && (name.toString (escape := false)).endsWith written
 
-/-- The axioms among `axioms` that a verdict of "proved" does not allow, `sorryAx` aside (a
+/-- The axioms among `axioms` that the comparison does not allow, `sorryAx` aside (a
 `sorry` is reported on its own): those outside `permitted` when the challenge states a list, else
 those outside Lean's standard three. -/
 def axiomsNotAllowed (permitted : Option (Array Name)) (axioms : Array Name) : Array Name :=
@@ -515,7 +517,8 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
     let axiomsNotAllowed := axiomsNotAllowed config.permittedAxioms axioms
     let t := { t with sorryFree, axioms, axiomsPermitted, axiomsNotAllowed, node }
     judged := judged.push <| match firstDifference ctx t.name with
-      | none => { t with solution := .same, proved := sorryFree && axiomsNotAllowed.isEmpty }
+      | none =>
+        { t with solution := .same, conditionsMet := sorryFree && axiomsNotAllowed.isEmpty }
       | some (decl, why) =>
         { t with solution := .differs, differingDeclaration := decl, difference := why }
   let authored := (challenge.complete.filter (isAuthored challenge.ranges ·)).qsort
@@ -524,7 +527,15 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   let definitions := definitions.map fun info =>
     let info := (ctx.challenge.find? info.name).getD info
     ({ name := info.name, solution := correspondenceOf ctx info } : HeadlineDefinition)
-  return { base with theorems := judged, definitions }
+  -- the project's modules the solution rests on: those of its imports compiled in the project
+  let projectDirs := layout.libraryDirs.toList.map fun dir : String => root / dir
+  let mut solutionModules := #[]
+  for module in scope.toArray do
+    if (← findCompiledModule? projectDirs module).isSome then
+      solutionModules := solutionModules.push module
+  return { base with
+    theorems := judged, definitions
+    solutionModules := solutionModules.qsort (·.toString < ·.toString) }
 
 /-- The project's headline, when it has a Comparator challenge (`ChallengeConfig.find?`). -/
 def Headline.capture (root : System.FilePath) (layout : WorkspaceLayout) :
