@@ -40,7 +40,9 @@ A generator usually has the project's compiled modules loaded already (a generat
 not mapped from the disk but read into memory. So the first half runs in a process of its own,
 the worker: a compiled program whose `main` answers `replayWorkerFlag` with `replayWorkerMain`
 (`Informal.Stats.Comparator`). `vbp` is one, and names itself to the generators it runs
-(`replayWorkerProgramFlag`); a compiled generator is its own (`registerSelfAsReplayWorker`). The
+(`replayWorkerProgramFlag`); a compiled generator is its own (`registerSelfAsReplayWorker`); a
+generator that another program starts as a library is named with what comes before its own
+arguments by `replayWorkerVar`. The
 worker is given the request as a file and leaves its reply in another (`runWorker`); it is run
 under the replay's time limit and memory limit, like the checker. Without a worker there is no
 replay.
@@ -108,6 +110,11 @@ def replayMemoryVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_MEMORY_MB"
 
 /-- The size limit of the export, in MiB; `0` for none. -/
 def replayExportVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_EXPORT_MB"
+
+/-- The worker's program and the arguments that come before `replayWorkerFlag`, one per line:
+for a generator that is started through another program (a launcher that loads it as a
+library), which is then not its own worker by its program's path alone. -/
+def replayWorkerVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_WORKER"
 
 /-- The time limit when `replayLimitVar` sets none. -/
 def defaultReplayLimit : Nat := 900
@@ -301,6 +308,13 @@ def processMemory? (pid : UInt32) : IO (Option Nat) := do
   let some out ← commandOutput? ps #["-o", "rss=", "-p", toString pid] | return none
   return out.trimAscii.copy.toNat?.map (· * 1024)
 
+/-- The worker a value of `replayWorkerVar` names: the program on its first line, the arguments
+before `replayWorkerFlag` on the lines after it, then that flag. `none` for an empty value. -/
+def workerOfLines (value : String) : Option (FilePath × Array String) :=
+  match (value.splitOn "\n").filter (!·.trimAscii.isEmpty) with
+  | [] => none
+  | program :: leading => some (FilePath.mk program, leading.toArray.push replayWorkerFlag)
+
 /-- The configuration for the project at `root`, whose own compiled modules are in
 `libraryDirs` (relative to `root`), from the environment variables above. Modules are searched
 for in the directories of `LEAN_PATH`, in its order (Lake sets it for a program it runs), then in
@@ -338,8 +352,9 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
     | some path => pure (if path.trimAscii.isEmpty then none else some (FilePath.mk path))
     | none => defaultRecordFile?
   let sysroot? := (← IO.getEnv "LEAN_SYSROOT").map FilePath.mk
+  let worker? := (workerOfLines ((← IO.getEnv replayWorkerVar).getD "")) <|> (← replayWorkerRef.get)
   return { checker?, sysroot?, off, limitSeconds, memoryLimit?, exportLimit?, searchPath,
-           projectDirs, record?, worker? := ← replayWorkerRef.get, progress := true }
+           projectDirs, record?, worker?, progress := true }
 
 /-! ## Loading the compiled modules -/
 
