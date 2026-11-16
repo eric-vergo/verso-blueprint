@@ -440,14 +440,15 @@ private def sampleMs : Nat := 500
 
 /-- Run `cmd` with `args` and `env` at a lower priority (through `nice`, when there is one),
 killing it when the clock passes `deadline` (`IO.monoMsNow`), when its memory passes
-`memoryLimit?` (`processMemory?`) or when `stop` is set. -/
+`memoryLimit?` (`processMemory?`) or when `stop` is set. The process stays in this process's
+process group, so that whatever stops the generator's group (an interrupt at the terminal, the
+program that started the generator) stops the checker too. -/
 private def runLimited (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (deadline : Nat) (memoryLimit? : Option Nat)
     (stop : IO.Ref Bool) : IO RunEnd := do
   if (← IO.monoMsNow) ≥ deadline then return .timedOut
   let spawn (cmd : String) (args : Array String) :=
-    IO.Process.spawn { cmd, args, env, stdin := .null, stdout := .piped, stderr := .piped,
-                       setsid := true }
+    IO.Process.spawn { cmd, args, env, stdin := .null, stdout := .piped, stderr := .piped }
   let child ← try spawn "nice" (#["-n", "10", cmd] ++ args) catch _ =>
     try spawn cmd args catch e => return .notStarted (toString e)
   let stdout ← IO.asTask child.stdout.readToEnd Task.Priority.dedicated
