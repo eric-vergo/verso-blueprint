@@ -396,7 +396,7 @@ class TestSideBySideRuns:
         page.goto(server + runs_page_path(site_dir))
         page.wait_for_load_state("networkidle")
 
-    def test_one_divider_spans_each_run(self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page):
+    def test_each_node_has_its_own_divider(self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page):
         errors = record_runtime_errors(page)
         self.open_runs(page, side_by_side_server, side_by_side_site_dir)
         runs = page.evaluate(_RUN_GEOMETRY_JS)
@@ -411,16 +411,19 @@ class TestSideBySideRuns:
             # no card: no border, no background
             assert all(n["border"] == "0px" for n in nodes), nodes
             assert all(n["background"] in ("rgba(0, 0, 0, 0)", "transparent") for n in nodes), nodes
-            # one line: the same x everywhere, in the column gap, and the segments meet from the
-            # run's top to its bottom
+            # the same x everywhere, in the column gap; each divider is as tall as its own node
+            # and the dividers of consecutive nodes are apart
             xs = {round(n["divider"], 1) for n in nodes}
             assert len(xs) == 1 and None not in xs, nodes
             for n in nodes:
                 assert n["informalRight"] <= n["divider"] <= n["formalLeft"], n
+            for n in nodes:
+                assert abs(n["dividerTop"] - n["top"]) <= 0.5, n
+                assert abs(n["dividerBottom"] - n["bottom"]) <= 0.5, n
             assert abs(nodes[0]["dividerTop"] - run["top"]) <= 0.5, (run["top"], nodes[0])
             assert abs(nodes[-1]["dividerBottom"] - run["bottom"]) <= 0.5, (run["bottom"], nodes[-1])
             for above, below in zip(nodes, nodes[1:]):
-                assert abs(below["dividerTop"] - above["dividerBottom"]) <= 0.5, (above, below)
+                assert below["dividerTop"] - above["dividerBottom"] >= 40, (above, below)
         assert_no_runtime_errors(errors)
 
     def test_narrow_width_stacks_without_divider_or_sideways_scroll(
@@ -482,8 +485,8 @@ class TestSideBySideRuns:
         )
         gaps = page.evaluate(_RUN_NODE_GAPS_JS, "runs_first")
         assert len(gaps) >= 2, gaps
-        # the nodes never touch: at least half the node gap between one node's content and the next
-        assert all(gap >= 15.5 for gap in gaps), (style, gaps)
+        # the nodes never touch: the node gap lies between one node's content and the next
+        assert all(gap >= 40 for gap in gaps), (style, gaps)
 
     def test_print_spaces_nodes_once_and_drops_the_target_tint(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page

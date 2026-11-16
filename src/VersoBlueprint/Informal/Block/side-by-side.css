@@ -75,8 +75,8 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   /* the column divider: a hairline in the page's soft border colour */
   --bp-sbs-divider-width: 1px;
   --bp-sbs-divider-color: var(--bp-color-border-soft);
-  /* space between the nodes of a run, and around a run */
-  --bp-sbs-node-gap: 2rem;
+  /* space between the nodes of a run (and so between their dividers), and around a run */
+  --bp-sbs-node-gap: 3.25rem;
   --bp-sbs-run-margin: 1.5rem;
   /* the node a link landed on */
   --bp-sbs-target-surface: var(--bp-color-focus-surface);
@@ -108,21 +108,16 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   align-items: first baseline;
 }
 
-/* Nodes of the page have no card: the space of a run is padding inside each
-   node, so that the dividers of consecutive nodes meet and read as one line
-   through the run. Prose (or anything else that is not a node) ends a run and
-   its line. */
+/* Nodes of the page have no card. Each node draws its own column divider, as
+   tall as the node, and consecutive nodes are kept apart by a margin, so the
+   dividers of neighbouring nodes do not meet. Prose (or anything else that is
+   not a node) ends a run. */
 .bp_sbs_run > .bp_sbs > .bp_sbs_grid {
   position: relative;
-  padding-block: calc(var(--bp-sbs-node-gap) / 2);
 }
 
-.bp_sbs_run > .bp_sbs:first-child > .bp_sbs_grid {
-  padding-top: 0;
-}
-
-.bp_sbs_run > .bp_sbs:last-child > .bp_sbs_grid {
-  padding-bottom: 0;
+.bp_sbs_run > .bp_sbs + .bp_sbs {
+  margin-top: var(--bp-sbs-node-gap);
 }
 
 /* The divider sits in the middle of the column gap. The informal column takes
@@ -533,12 +528,6 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
   display: none;
 }
 
-/* Stacked, the nodes of a run are spaced by a margin instead of the padding
-   that the rule above removes. */
-html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_run > .bp_sbs + .bp_sbs {
-  margin-top: var(--bp-sbs-node-gap);
-}
-
 /* Print: one column per node. */
 @media print {
   .bp_sbs_grid {
@@ -556,12 +545,8 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_run > .bp_sbs + .bp_sbs {
     display: none;
   }
 
-  /* The run's padding gives way to one margin between nodes, and a targeted
-     node prints without its tint. Each rule matches its screen rule's weight. */
-  .bp_sbs_run > .bp_sbs > .bp_sbs_grid {
-    padding-block: 0;
-  }
-
+  /* Nodes print closer together, and a targeted node prints without its
+     tint. Each rule matches its screen rule's weight. */
   .bp_sbs_run > .bp_sbs + .bp_sbs,
   html[data-bp-style] .bp_sbs_run > .bp_sbs + .bp_sbs {
     margin-top: 1rem;
