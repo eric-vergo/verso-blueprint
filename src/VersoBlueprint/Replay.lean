@@ -14,9 +14,9 @@ list of axioms) is what Lean's elaborator recorded, and a file can keep the kern
 declaration at all (`set_option debug.skipKernelTC true`). So a site says "proved", and draws a
 check mark in the success colour, only where a kernel replay accepted the compiled modules
 concerned: Lean's `leanchecker`, the toolchain's own program, checks every constant a module adds
-again in Lean's kernel, in a process of its own (`Informal.Stats.replayBuild` runs it when the
-site is generated). Everywhere else the words are what the compiled files report, with a mark
-that is not a check mark.
+again in Lean's kernel, each module in a process of its own (`Informal.Stats.replayBuild` runs it
+when the site is generated). Everywhere else the words are what the compiled files report, with a
+mark that is not a check mark.
 
 This module holds the result of a replay and the words for it; nothing here runs anything.
 
@@ -40,6 +40,9 @@ inductive Outcome where
   | noChecker
   /-- The checker was stopped at the time limit (`Result.limitSeconds`) without a verdict. -/
   | timedOut
+  /-- The checker was stopped because it went over its memory limit (`Result.memoryLimit`) while
+  it replayed a module (`Result.stoppedModule`), without a verdict. -/
+  | overMemory
   /-- The checker could not run to a verdict (`Result.message`). -/
   | failed
   /-- The replay was switched off for this build. -/
@@ -65,6 +68,10 @@ structure Result where
   message : Option String := none
   /-- With `timedOut`: the limit. -/
   limitSeconds : Option Nat := none
+  /-- With `overMemory`: the memory limit of one checker process, in bytes. -/
+  memoryLimit : Option Nat := none
+  /-- With `overMemory`: the module the checker was replaying when it was stopped. -/
+  stoppedModule : Option Name := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- The checker with its toolchain: `leanchecker (Lean 4.35.0)`. -/
@@ -95,6 +102,10 @@ def Result.whyNot (r : Result) : String :=
   | .timedOut =>
     let limit := r.limitSeconds.map (s!" within {·} s") |>.getD ""
     s!"{r.checkerName} did not finish{limit}"
+  | .overMemory =>
+    let limit := r.memoryLimit.map (s!" of {· / (1024 * 1024)} MiB") |>.getD ""
+    let module := r.stoppedModule.map (s!" while it replayed module {·}") |>.getD ""
+    s!"the replay was stopped: {r.checkerName} went over its memory limit{limit}{module}"
   | .failed => s!"{r.checkerName} could not run to a verdict"
   | .off => "the kernel replay was switched off for this build"
 

@@ -2149,7 +2149,7 @@ after a kernel replay: `lake exe vbp build` and `vbp code-site` run the
 toolchain's `leanchecker` on the project's own compiled modules while the site
 is generated. For each module, `leanchecker` loads the module's imports and
 checks every constant the module adds again in Lean's kernel, in a process of
-its own.
+its own that replays that module and no other.
 
 - **Which modules**: the project's modules in the environment the site is
   generated from, the modules the Comparator solution rests on, and every
@@ -2160,9 +2160,28 @@ its own.
   modules outside the project; and Lean's elaborator, for the step from the
   source text to the compiled module. A replay says nothing about what a
   statement means.
-- **Cost**: the checker runs at a lower priority with a time limit (900
-  seconds; `VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS` sets another). A replay
-  that is stopped at the limit is reported as not finished, never as accepted.
+- **Cost**: the checker runs at a lower priority with a time limit for the
+  whole replay (900 seconds; `VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS` sets
+  another). A replay that is stopped at the limit is reported as not finished,
+  never as accepted.
+- **Memory**: one module per process keeps the memory of each process at what
+  that module needs, a few hundred megabytes even for a module that imports
+  Mathlib; `leanchecker` given several modules replays them at once in one
+  process, each with its own copy of its imports. A quarter of the processors
+  (at least one, at most four) run at once
+  (`VERSO_BLUEPRINT_KERNEL_REPLAY_JOBS` sets another number), and they share a
+  quarter of the machine's physical memory: a process that goes over its
+  share (`VERSO_BLUEPRINT_KERNEL_REPLAY_MEMORY_MB`, in MiB, sets another limit;
+  `0` for none) is stopped, and the pages say that the replay was stopped over
+  the memory limit, naming the module, never that it was accepted. The memory
+  counted is the process's physical footprint on macOS and its anonymous and
+  swapped memory on Linux, so the pages of compiled modules mapped from the
+  disk are not counted.
+- **A module with children**: `leanchecker` replays every module whose name
+  starts with its argument, so a module `A.B` with children `A.B.C` is
+  replayed on a search path where it is the only module of the project the
+  checker finds by name; its children stay importable through symbolic links
+  and are replayed by processes of their own.
 - **Not twice**: an accepted module is recorded in
   `.lake/build/blueprint-kernel-replay.json`, in the build directory that holds
   the project's compiled modules (or the file

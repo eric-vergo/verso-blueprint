@@ -10,6 +10,8 @@ import VersoBlueprint.PreviewManifest
 import VersoBlueprint.ReplayView
 import VersoBlueprintTests.ComparatorFixtures.Match.Solution
 import VersoBlueprintTests.ComparatorFixtures.Forged.Solution
+import VersoBlueprintTests.ReplayFixtures.Tree
+import VersoBlueprintTests.ReplayFixtures.Nested
 
 /-!
 The kernel replay of a build, and the words that depend on it.
@@ -25,8 +27,10 @@ fixtures and pin the four states a reader can meet:
 * no checker: what the compiled files report, with a mark that is not a check mark;
 * the replay stopped at its time limit: the same, with the reason.
 
-They also pin the parts: SHA-256 against the standard's test vectors, the prefixes the checker
-is given, the record of accepted modules, and the checker's error output as it is read.
+They also pin the parts: SHA-256 against the standard's test vectors, the record of accepted
+modules, the checker's output as it is read, and how the replay is run: every module of the
+project in a process of its own, exactly once, a root module apart from its children, under a
+memory limit and a time limit.
 -/
 
 namespace Verso.VersoBlueprintTests.BlueprintKernelReplay
@@ -55,18 +59,33 @@ open Verso.VersoBlueprintTests.Blueprint.Support
 
 /-! ## The checker's arguments and output -/
 
--- A prefix names every module below it, so it is used only when nothing else is below it: the
--- solution is named in full beside its challenge, a library of its own by its root.
-/-- info: [[`P.Solution], [`Lib], [`Lib, `P.Solution], [`A]] -/
+-- What `leanchecker -v` says it replayed, the memory `footprint` reports, and a `/proc` field.
+/--
+info: (#[`A.B, `C], some 1753088, some 1610612736, some 183500800, none, some 8)
+-/
 #guard_msgs in
 #eval
-  let all := #[`P.Challenge, `P.Solution, `Lib.A, `Lib.B.C, `Other.X, `A, `A.B]
-  let allowed (names : List Name) : NameSet := names.foldl (·.insert ·) {}
-  [targetsFor all (allowed [`P.Solution]) #[`P.Solution],
-   targetsFor all (allowed [`Lib.A, `Lib.B.C]) #[`Lib.B.C, `Lib.A],
-   targetsFor all (allowed [`Lib.A, `Lib.B.C, `P.Solution]) #[`Lib.A, `P.Solution],
-   -- a module with another below it that is not wanted can only be named itself
-   targetsFor all (allowed [`A]) #[`A]].map (·.toList)
+  (parseReplayed "replaying A.B\nsomething\nreplaying C\n",
+   parseFootprint "zsh [7431]: 64-bit    Footprint: 1712 KB (16384 bytes per page)\n",
+   parseFootprint "leanchecker [1]: 64-bit    Footprint: 1.5 GB (16384 bytes per page)",
+   parseFootprint "x: Footprint: 175 MB", parseFootprint "no footprint here",
+   procField? "Name:\tx\nRssAnon:\t       8 kB\n" "RssAnon:")
+
+-- The default number of checker processes, and the memory limit of each: the processes run at
+-- once share a quarter of the physical memory.
+/-- info: ([1, 1, 2, 4, 4], [17179869184, 4294967296, 1073741824]) -/
+#guard_msgs in
+#eval
+  ([1, 4, 8, 16, 24].map defaultReplayJobs,
+   [(68719476736, 1), (68719476736, 4), (17179869184, 4)].map fun (m, j) => defaultMemoryLimit m j)
+
+-- A module comes after the modules it imports.
+/-- info: [`C, `B, `A, `D] -/
+#guard_msgs in
+#eval
+  let imports : Lean.NameMap (Array Name) :=
+    ({} : Lean.NameMap (Array Name)).insert `A #[`B, `C] |>.insert `B #[`C] |>.insert `D #[`A]
+  (importsFirst #[`A, `B, `C, `D] imports).toList
 
 -- The module and the message of a rejection, as `leanchecker` prints them.
 /-- info: (some `Comparator.Solution, "(kernel) declaration type mismatch", none, "something else") -/
@@ -666,5 +685,133 @@ info: [("Informal.Replay.Outcome.noChecker", [`Solution], none),
   IO.FS.removeDirAll dir
   IO.println (repr [describe missing, describe off, describe absent])
   IO.println (repr absent.notCompiled.toList)
+
+/-! ## One module per process -/
+
+private def treeModule (path : String) : Name :=
+  `VersoBlueprintTests.ReplayFixtures ++ path.toName
+
+private def short (m : Name) : String :=
+  ".".intercalate ((m.components.drop 2).map (·.toString))
+
+-- Every module of an honest tree is replayed once, in a process that replays that module and
+-- nothing else: also the root and the middle module, whose names are prefixes of their
+-- children's; with one process at a time and with two.
+/--
+info: [("Informal.Replay.Outcome.accepted",
+  ["Tree.Mid.Leaf", "Tree.Mid", "Tree.Leaf", "Tree"],
+  [["Tree.Mid.Leaf"], ["Tree.Mid"], ["Tree.Leaf"], ["Tree"]]),
+ ("Informal.Replay.Outcome.accepted",
+  ["Tree", "Tree.Leaf", "Tree.Mid", "Tree.Mid.Leaf"],
+  [["Tree"], ["Tree.Leaf"], ["Tree.Mid"], ["Tree.Mid.Leaf"]])]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let one ← replayBuildRuns { base with record? := none } #[treeModule "Tree"]
+  let two ← replayBuildRuns { base with record? := none, jobs := 2 } #[treeModule "Tree"]
+  IO.FS.removeDirAll dir
+  let describeRuns (r : ReplayRun) (sorted : Bool) :=
+    let runs := if sorted then r.runs.qsort (·.module.toString < ·.module.toString) else r.runs
+    (toString (repr r.result.outcome), runs.toList.map (short ·.module),
+      runs.toList.map fun run => run.replayed.toList.map short)
+  IO.println (repr [describeRuns one false, describeRuns two true])
+
+-- A replay of the honest root `Nested` on its own accepts it: its process does not replay the
+-- forged child. The project's replay still replays the child and rejects the build, naming it.
+-- The checker named on the directory of compiled modules itself replays the child as well, and
+-- rejects.
+/--
+info: (true, ["Nested"])
+("Informal.Replay.Outcome.rejected", some "Nested.Forged", true)
+(false, true)
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let some checker := base.checker? | throwError "no checker"
+  let some lib := base.projectDirs[0]? | throwError "no compiled modules"
+  let run (path : System.FilePath) : CoreM (Bool × List String) := do
+    let searchPath := System.SearchPath.toString (base.importDirs.push path).toList
+    let sysroot := (checker.parent.bind (·.parent)).getD "."
+    let out ← IO.Process.output {
+      cmd := checker.toString, args := #["-v", (treeModule "Nested").toString]
+      env := #[("LEAN_PATH", some searchPath), ("LEAN_SYSROOT", some sysroot.toString)] }
+    return (out.exitCode == 0, (parseReplayed out.stdout).toList.map short)
+  let shadow := dir / "path"
+  let made ← buildShadow lib (treeModule "Nested") shadow
+  let alone ← run shadow
+  let r ← replayBuild { base with record? := none } #[treeModule "Nested"]
+  let plain ← run lib
+  IO.FS.removeDirAll dir
+  IO.println (repr (made && alone.1, alone.2))
+  IO.println (repr (toString (repr r.outcome), r.rejectedModule.map short,
+    hasSubstr (r.message.getD "") "ghost"))
+  IO.println (repr (plain.1, plain.2.contains "Nested.Forged"))
+
+-- Removing the directory made for a module leaves the project's compiled files as they were.
+/-- info: true -/
+#guard_msgs in
+#eval show CoreM Bool from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let some lib := base.projectDirs[0]? | throwError "no compiled modules"
+  let count := do return (← (lib / "VersoBlueprintTests" / "ReplayFixtures").walkDir).size
+  let before ← count
+  let made ← buildShadow lib (treeModule "Tree.Mid") (dir / "path")
+  IO.FS.removeDirAll dir
+  return made && before > 0 && (← count) == before
+
+/-! ## The limits -/
+
+/-- A stand-in for the checker: a script `bin/checker` in `dir` that runs `command`. -/
+private def standIn (dir : System.FilePath) (command : String) : IO System.FilePath := do
+  IO.FS.createDirAll (dir / "bin")
+  let script := dir / "bin" / "checker"
+  IO.FS.writeFile script s!"#!/bin/sh\nexec {command}\n"
+  IO.setAccessRights script
+    { user := { read := true, write := true, execution := true } }
+  return script
+
+-- A checker that holds more memory than its limit is stopped: no verdict, with the reason and
+-- the module, and long before the time limit. Nothing is recorded as accepted.
+/--
+info: ("Informal.Replay.Outcome.overMemory", some "Tree.Leaf", true, true)
+"the replay was stopped: leanchecker went over its memory limit of 64 MiB while it replayed module M"
+"Informal.Replay.Outcome.overMemory"
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  -- `dd` keeps a buffer of its block size, written full of zeros, until it has copied `count`
+  let checker ← standIn dir "dd if=/dev/zero of=/dev/null bs=268435456 count=1000000"
+  let base ← config (dir / "record.json")
+  let config := { base with checker? := some checker, memoryLimit? := some (64 * 1024 * 1024)
+                            limitSeconds := 120 }
+  let start ← IO.monoMsNow
+  let r ← replayBuild config #[treeModule "Tree.Leaf"]
+  let elapsed := (← IO.monoMsNow) - start
+  let again ← replayBuild config #[treeModule "Tree.Leaf"]
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr r.outcome), r.stoppedModule.map short,
+    r.memoryLimit == some (64 * 1024 * 1024), decide (elapsed < 60000)))
+  IO.println (repr (r.whyNot.replace (toString (treeModule "Tree.Leaf")) "M"))
+  IO.println (repr (toString (repr again.outcome)))
+
+-- A checker that does not end is stopped at the time limit: no verdict, with the limit.
+/-- info: ("Informal.Replay.Outcome.timedOut", some 1, true) -/
+#guard_msgs in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let checker ← standIn dir "sleep 60"
+  let base ← config (dir / "record.json")
+  let start ← IO.monoMsNow
+  let r ← replayBuild { base with checker? := some checker, limitSeconds := 1 }
+    #[treeModule "Tree.Leaf"]
+  let elapsed := (← IO.monoMsNow) - start
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr r.outcome), r.limitSeconds, decide (elapsed < 30000)))
 
 end Verso.VersoBlueprintTests.BlueprintKernelReplay
