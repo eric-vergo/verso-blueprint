@@ -6,10 +6,10 @@
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
     "progress", "leanProgress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge",
-    "claims"],
+    "claims", "replay"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -173,6 +173,39 @@
       "description": "Whether the project has a Comparator challenge: comparator.json at the root, or the source of Comparator.Challenge. Without one a page can say that a challenge would add a headline.",
       "type": "boolean"
     },
+    "replay": {
+      "description": "The kernel replay of the project's compiled modules made while the site was generated; null when the generator ran none. A page says \"proved\" only with an accepted replay that covers the modules concerned.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["outcome", "checker", "version", "modules", "notCompiled", "rejectedModule",
+            "message", "limitSeconds"],
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "description": "accepted: the checker replayed every module of modules and accepted them. rejected: it rejected rejectedModule. noChecker: none was found. timedOut: it was stopped at limitSeconds. failed: it could not run to a verdict (message). off: the replay was switched off.",
+              "enum": ["accepted", "rejected", "noChecker", "timedOut", "failed", "off"]
+            },
+            "checker": { "description": "The checker's name.", "type": "string" },
+            "version": { "description": "The Lean version of the checker's toolchain.", "$ref": "#/$defs/nullableString" },
+            "modules": {
+              "description": "The project's modules the replay covers, sorted: with accepted, each was replayed and accepted; otherwise the modules that were to be replayed.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/name" }
+            },
+            "notCompiled": {
+              "description": "Modules of the site with no compiled module among the project's own, which could not be replayed, sorted.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/name" }
+            },
+            "rejectedModule": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }] },
+            "message": { "description": "What the checker said, with rejected or failed.", "$ref": "#/$defs/nullableString" },
+            "limitSeconds": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }] }
+          }
+        }
+      ]
+    },
     "claims": {
       "description": "The author's claims about what Lean declarations state (informal-claims.json at the project root); null without the file. Author-supplied text: nothing compares it with the Lean statements.",
       "oneOf": [
@@ -238,7 +271,8 @@
       "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
       "type": "object",
       "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
-        "permittedAxioms", "unavailable", "unavailableDetail", "theorems", "definitions"],
+        "permittedAxioms", "unavailable", "unavailableDetail", "solutionModules", "theorems",
+        "definitions"],
       "additionalProperties": false,
       "properties": {
         "challengeModule": { "$ref": "#/$defs/name" },
@@ -265,13 +299,19 @@
           "description": "The module, file or error message behind unavailable.",
           "$ref": "#/$defs/nullableString"
         },
+        "solutionModules": {
+          "description": "The project's modules the solution rests on: the solution module and every module of the project it imports, sorted. A kernel replay must cover them before a theorem is called proved.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/name" }
+        },
         "theorems": {
           "description": "The theorems judged (theorem_names, or every theorem of the challenge), in source order.",
           "type": "array",
           "items": {
             "type": "object",
             "required": ["name", "docstring", "statement", "solution", "differingDeclaration",
-              "difference", "sorryFree", "axioms", "axiomsPermitted", "axiomsNotAllowed", "proved",
+              "difference", "sorryFree", "axioms", "axiomsPermitted", "axiomsNotAllowed",
+              "conditionsMet",
               "node"],
             "additionalProperties": false,
             "properties": {
@@ -311,8 +351,8 @@
                 "type": "array",
                 "items": { "$ref": "#/$defs/name" }
               },
-              "proved": {
-                "description": "The same Lean statement as the challenge, without sorry and with axiomsNotAllowed empty. Read from the compiled modules of the build; nothing is replayed in a kernel.",
+              "conditionsMet": {
+                "description": "What the compiled modules report: the same Lean statement as the challenge, without sorry and with axiomsNotAllowed empty. No kernel is run for it; a theorem is called proved only when replay is also accepted and covers solutionModules.",
                 "type": "boolean"
               },
               "node": {

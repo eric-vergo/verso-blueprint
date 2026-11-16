@@ -16,7 +16,7 @@ open System
 namespace VersoBlueprint.Vbp.Main
 
 private def buildUsageLine : String :=
-  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--no-stats-page] [--serve] [--port <n>] [--resident]"
+  "lake exe vbp build [--output <dir>] [--pdf] [--verbose] [--reproducible] [--no-stats-page] [--no-kernel-replay] [--serve] [--port <n>] [--resident]"
 
 private def mainCommandLines : List String := [
   "lake exe vbp discover",
@@ -44,6 +44,7 @@ private def buildOptionLines : List String := [
   "--pdf-runs <n>      Run the PDF engine <n> times",
   "--reproducible      Omit build time and Git metadata, emit relative source paths",
   "--no-stats-page     Leave the Project Stats page out of the site",
+  "--no-kernel-replay  Do not check the compiled modules again in Lean's kernel (no page then says \"proved\")",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
   "--port <n>          Serve on a fixed TCP port; requires --serve",
@@ -272,6 +273,9 @@ structure BuildOptions where
   reproducible : Bool := false
   /-- Leave the automatic Project Stats page out (the generator's `--no-stats-page`). -/
   noStatsPage : Bool := false
+  /-- Do not replay the project's compiled modules in a kernel (the generator then gets no
+  `--kernel-replay`, and no page says "proved"). -/
+  noKernelReplay : Bool := false
   serve : Bool := false
   port? : Option Nat := none
   resident : Bool := false
@@ -324,6 +328,8 @@ private partial def parseBuildOptionsCore : List String → BuildOptions → Exc
         | "--verbose", args => parseBuildOptionsCore args { opts with verbose := true }
         | "--reproducible", args => parseBuildOptionsCore args { opts with reproducible := true }
         | "--no-stats-page", args => parseBuildOptionsCore args { opts with noStatsPage := true }
+        | "--no-kernel-replay", args =>
+          parseBuildOptionsCore args { opts with noKernelReplay := true }
         | "--serve", args => parseBuildOptionsCore args { opts with serve := true }
         | "--resident", args => parseBuildOptionsCore args { opts with resident := true }
         | "--port", raw :: args =>
@@ -402,6 +408,8 @@ def generatorMainArgs (opts : BuildOptions) : Array String :=
   let args := #["--output", opts.output.toString] ++ (if opts.verbose then #["--verbose"] else #[])
   let args := args ++ pdfGeneratorArgs opts
   let args := if opts.noStatsPage then args.push Informal.Commands.noStatsPageFlag else args
+  let args := if opts.noKernelReplay then args else
+    args.push Informal.PreviewManifest.kernelReplayFlag
   if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
 
 private def generateSite (opts : BuildOptions) : IO UInt32 := do

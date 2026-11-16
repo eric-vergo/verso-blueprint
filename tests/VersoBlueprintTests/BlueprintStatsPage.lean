@@ -41,13 +41,14 @@ set_option doc.verso true
 /-- info: true -/
 #guard_msgs in
 #eval
-  let proved : HeadlineTheorem := { name := `main, solution := .same, sorryFree := some true, proved := true }
+  let proved : HeadlineTheorem := { name := `main, solution := .same, sorryFree := some true, conditionsMet := true }
   let withSorry : HeadlineTheorem := { name := `main, solution := .same, sorryFree := some false }
   let differs : HeadlineTheorem :=
     { name := `main, solution := .differs, difference := some "the statement differs",
       differingDeclaration := some `main }
-  (headlineVerdict proved).1 == "proved" && (headlineVerdict withSorry).1 == "sorry" &&
-    (headlineVerdict proved).2 == "Lean statement proved" &&
+  (headlineVerdict proved .accepted).1 == "proved" && (headlineVerdict withSorry).1 == "sorry" &&
+    (headlineVerdict proved .accepted).2 == "Lean statement proved" &&
+    (headlineVerdict proved).1 == "not-replayed" &&
     (headlineVerdict withSorry).2 == "Same Lean statement as the challenge; the proof uses sorry" &&
     (headlineVerdict differs).2 ==
       "Lean statement differs from the challenge: the statement differs (main)" &&
@@ -99,12 +100,14 @@ private def rokickiLike : ProjectStats := {
       name := `rho_irrational
       docstring := some "Rokicki's constant is irrational."
       statement := "theorem rho_irrational : Irrational rho"
-      solution := .same, sorryFree := some true, proved := true
+      solution := .same, sorryFree := some true, conditionsMet := true
       axioms := #[``Classical.choice, ``Quot.sound, ``propext]
       node := some `main }]
     definitions := #[{ name := `rho, solution := .same }]
+    solutionModules := #[`Comparator.Solution]
   }
   hasComparatorChallenge := true
+  replay := some { outcome := .accepted, version := some "4.35.0", modules := #[`Comparator.Solution] }
 }
 
 private def view (stats : ProjectStats) : StatsPageView := {
@@ -211,7 +214,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
     compilerTrusted := #[{ label := `lem, declaration := `lem_decl, axioms := #[`lem_decl._native.native_decide.ax_1_1] }]
   }
   let headline := rokickiLike.headline.map fun h => { h with theorems := h.theorems.map fun t =>
-    { t with proved := false, sorryFree := some false, axioms := t.axioms.push ``sorryAx } }
+    { t with conditionsMet := false, sorryFree := some false, axioms := t.axioms.push ``sorryAx } }
   let html := (statsPageHtml (view { rokickiLike with trust, headline })).asString
   hasSubstr html "1 Lean declaration of nodes with a sorry of its own." &&
     hasSubstr html "data-bp-trust=\"sorry-direct\" data-bp-count=\"1\"" &&

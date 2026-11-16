@@ -581,3 +581,67 @@ html[data-lean-links] .bp_stats_meaning_more {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* The kernel replay: its verdicts and its band. Only an accepted replay takes the success
+   colour; a verdict without a replay is drawn as plain text on the neutral pill. */
+.bp_stats_theorem[data-bp-verdict="rejected"] {
+  border-left-color: var(--bp-color-status-unresolved-border);
+}
+
+.bp_stats_verdict_rejected {
+  background: var(--bp-color-status-unresolved);
+  border-color: var(--bp-color-status-unresolved-border);
+  color: var(--bp-color-status-unresolved-text);
+}
+
+.bp_stats_verdict_rejected::before {
+  content: "\2298\00a0";
+}
+
+.bp_stats_verdict_not-replayed {
+  margin-left: 0;
+  flex-basis: 100%;
+  border-radius: var(--bp-radius-md);
+  font-weight: 600;
+}
+
+.bp_stats_verdict_not-replayed::before {
+  content: "\25c7\00a0";
+}
+
+.bp_stats_replay_note {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+  color: var(--bp-color-text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.bp_stats_replay_note_rejected,
+.bp_stats_replay_rejected {
+  color: var(--bp-color-accent-danger);
+  font-weight: 600;
+}
+
+.bp_stats_replay_accepted::before {
+  content: "\2713\00a0";
+  color: var(--bp-color-accent-success);
+  font-weight: 700;
+}
+
+.bp_stats_replay_message {
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--bp-color-status-unresolved-border);
+  border-radius: var(--bp-radius-md);
+  background: var(--bp-color-surface-subtle);
+  color: var(--bp-color-accent-danger);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bp_stats_replay_trusted {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--bp-color-text-subtle);
+}

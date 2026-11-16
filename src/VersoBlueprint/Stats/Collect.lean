@@ -11,6 +11,7 @@ import VersoBlueprint.Environment
 import VersoBlueprint.Graph
 import VersoBlueprint.Stats.Claims
 import VersoBlueprint.Stats.Data
+import VersoBlueprint.Stats.RunReplay
 
 /-!
 Collects `ProjectStats` from the checked environment, the Blueprint state, its dependency graph
@@ -463,5 +464,26 @@ def ProjectStats.refreshWorkspace (stats : ProjectStats) : IO ProjectStats := do
     return stats
   let sources ← SourceStats.read root stats.layout stats.modules
   return { stats with identity, sources, claims := ← Claims.atRoot? root }
+
+/-- The statistics with the kernel replay of the compiled modules of the project at `root`
+(`replayBuild`): the project's modules in the environment the site is generated from, and the
+modules its Comparator solution rests on. `config?` replaces the configuration read from the
+environment (`ReplayConfig.fromEnv`). -/
+def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePath)
+    (config? : Option ReplayConfig := none) : IO ProjectStats := do
+  let wanted := stats.modules.map (·.name) ++ (stats.headline.map (·.solutionModules)).getD #[]
+  if wanted.isEmpty then return stats
+  let config ← match config? with
+    | some config => pure config
+    | none => ReplayConfig.fromEnv root stats.layout.libraryDirs
+  return { stats with replay := some (← replayBuild config wanted) }
+
+/-- `withKernelReplayAt` for the project in the working directory. Like `refreshWorkspace`,
+nothing is replayed when the working directory is not the captured project. -/
+def ProjectStats.withKernelReplay (stats : ProjectStats) : IO ProjectStats := do
+  let root ← projectRoot stats.layout.projectRoot
+  unless (← ProjectIdentity.read root).name == stats.identity.name do
+    return stats
+  stats.withKernelReplayAt root
 
 end Informal.Stats

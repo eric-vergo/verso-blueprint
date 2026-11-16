@@ -33,7 +33,9 @@ Every number comes from the project statistics captured with the render model
 Each sentence on the page says what was looked at and no more. A status is about Lean code: its
 words are "Lean complete" (no `sorry` in a node's declarations or in what they use), never
 "proved" for a definition and never a word about an informal statement. The headline's verdict
-is about the Lean statement, in the build the site was generated from. Informal text (a
+is about the Lean statement, in the build the site was generated from; it says "proved" only
+when a kernel replay accepted the modules the solution rests on (`Informal.Replay`), and the page
+has a band that says what was replayed, by which checker, and what that leaves trusted. Informal text (a
 challenge's docstring, an author's claim about a manuscript) is shown with a caption naming its
 source and the sentence that no tool compared it with the Lean statement
 (`Informal.Meaning`); the page ends with a short explanation of the marks
@@ -274,11 +276,25 @@ private def notAllowedText (t : HeadlineTheorem) : String :=
     s!"{if one then "an axiom" else "axioms"} the challenge does not permit ({names})"
   else s!"{if one then "an axiom" else "axioms"} outside Lean's standard three ({names})"
 
+/-- The verdict when the comparison's conditions are met and no kernel replay stands behind
+them: exactly what the compiled files report. -/
+def conditionsMetText : String :=
+  "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files \
+    report, not replayed by a kernel"
+
 /-- The verdict on a theorem of the challenge: a token for markup and the words shown. The
-words are about the Lean statement: "proved" is said only of the same Lean statement as the
-challenge's, without `sorry` and without an axiom the verdict does not allow. -/
-def headlineVerdict (t : HeadlineTheorem) : String × String :=
-  if t.proved then ("proved", "Lean statement proved")
+words are about the Lean statement. "Proved" is said only of the same Lean statement as the
+challenge's, without `sorry`, without an axiom the verdict does not allow, and with the modules
+the solution rests on accepted by a kernel replay (`standing`). When the replay rejected the
+build the verdict says so; without a verdict of a replay it says what the compiled files report
+(`conditionsMetText`). -/
+def headlineVerdict (t : HeadlineTheorem)
+    (standing : Replay.Standing := .notReplayed Replay.noReplayText) : String × String :=
+  if t.conditionsMet then
+    match standing with
+    | .accepted => ("proved", "Lean statement proved")
+    | .rejected _ => ("rejected", "Proof rejected by the kernel checker")
+    | .notReplayed _ => ("not-replayed", conditionsMetText)
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -369,14 +385,37 @@ private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Outpu
       else s!"This site's {title}"
     el "span" "bp_stats_theorem_node" (link (ref?.bind (·.href)) (txt text))
 
-private def headlineTheoremHtml (view : StatsPageView) (t : HeadlineTheorem) : Output.Html :=
-  let (token, verdict) := headlineVerdict t
+/-- The line under a verdict that rests on the comparison's conditions: what the kernel replay
+did for the modules the solution rests on. -/
+def replayNoteText (replay? : Option Replay.Result) (needed : Array Name) : String :=
+  let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
+  match Replay.standing replay? needed with
+  | .accepted =>
+    let modules := if needed.size == 1 then "the project module" else
+      s!"the {needed.size} project modules"
+    s!"Kernel replay: {checker} accepted {modules} the solution rests on."
+  | .rejected module =>
+    let where_ := (module.map (s!" module {·}")).getD " this build"
+    let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
+    s!"Kernel replay: {checker} rejected{where_}{message}"
+  | .notReplayed why => s!"No kernel replay: {why}."
+
+private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : HeadlineTheorem) :
+    Output.Html :=
+  let replay? := view.stats.replay
+  let standing := Replay.standing replay? h.solutionModules
+  let (token, verdict) := headlineVerdict t standing
   let claim? := view.stats.claims.bind (·.view? t.name)
+  let replayNote : Output.Html :=
+    if !t.conditionsMet then .empty
+    else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
+      (txt (replayNoteText replay? h.solutionModules)) #[("data-bp-replay", token)]
   el "div" "bp_stats_theorem" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
       el "code" "bp_stats_theorem_name" (txt t.name.toString),
       el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
       theoremNodeHtml view t]),
+    replayNote,
     if t.statement.isEmpty then .empty
     else .seq #[
       el "p" "bp_stats_caption bp_stats_statement_caption" (txt "Lean statement, from the challenge"),
@@ -397,10 +436,13 @@ def headlineHintText : String :=
   "No headline result: a Comparator challenge (a module that states the main theorems with " ++
     "sorry, and a solution module that proves them) would add one here."
 
-/-- What the headline's comparison is and is not, in one sentence after the two file names. -/
+/-- What the headline's comparison is and is not, in one sentence after the two file names. The
+comparison itself runs no kernel; whether a kernel replay stands behind a verdict is said with
+the verdict (`replayNoteText`) and in the replay band. -/
 def headlineMethodText : String :=
-  "Compared by this site's generator from the compiled modules of this build: not rebuilt in a \
-    sandbox and not replayed in a kernel, as lake comparator does."
+  "Compared by this site's generator from the compiled modules of this build, which it does not \
+    rebuild in a sandbox as lake comparator does. The comparison runs no kernel: a verdict says \
+    \"proved\" only when a kernel replay of the solution's modules accepted them."
 
 private def headlineHtml (view : StatsPageView) : Output.Html :=
   match view.stats.headline with
@@ -427,11 +469,55 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
         commaList (h.definitions.map fun d =>
           .seq #[code d.name.toString, txt s!" ({definitionVerdict d.solution})"])])
     let theorems : Output.Html :=
-      if !h.theorems.isEmpty then .seq (h.theorems.map (headlineTheoremHtml view))
+      if !h.theorems.isEmpty then .seq (h.theorems.map (headlineTheoremHtml view h))
       -- a challenge that could not be read states nothing either way
       else if h.unavailable.isSome then .empty
       else el "p" "bp_stats_headline_unavailable" (txt "The challenge states no theorem.")
     band "bp_stats_headline" "Headline result" #[unavailable, theorems, definitions, source]
+
+/-! ## Kernel replay -/
+
+/-- The token of a replay for markup: `accepted`, `rejected` or `none`. -/
+def replayToken (replay? : Option Replay.Result) : String :=
+  match replay?.map (·.outcome) with
+  | some Replay.Outcome.accepted => "accepted"
+  | some Replay.Outcome.rejected => "rejected"
+  | _ => "none"
+
+/-- What the page says when the generator ran no replay. -/
+def noReplaySummary : String :=
+  s!"Not replayed by a kernel: {Replay.noReplayText}. The marks on this site say what the \
+    compiled files report."
+
+/-- The band on the kernel replay: its result, the checker with its version, the checker's
+message when it rejected the build or could not run, the modules replayed, and what a replay
+leaves trusted. -/
+private def replayHtml (view : StatsPageView) : Output.Html :=
+  let replay? := view.stats.replay
+  let token := replayToken replay?
+  let summary := (replay?.map (·.summary)).getD noReplaySummary
+  let message : Output.Html := match replay?.bind (·.message) with
+    | some m => el "pre" "bp_stats_replay_message" (txt m)
+    | Option.none => .empty
+  let names (cls caption : String) (modules : Array Name) : Output.Html :=
+    if modules.isEmpty then .empty
+    else el "details" s!"bp_stats_more {cls}" (.seq #[
+      .tag "summary" #[] (txt s!"{caption} ({formatCount modules.size})"),
+      el "ul" "bp_stats_files" (.seq (modules.map fun m => .tag "li" #[] (code m.toString)))])
+  let modules : Output.Html := match replay? with
+    | some r => .seq #[
+        names "bp_stats_replay_modules"
+          (if r.outcome == .accepted then "Modules replayed" else "Modules to replay") r.modules,
+        names "bp_stats_replay_not_compiled"
+          "Modules of the site with no compiled module in the project: not replayed"
+          r.notCompiled]
+    | Option.none => .empty
+  band "bp_stats_replay" "Kernel replay" #[
+    el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}" (txt summary)
+      #[("data-bp-replay", token)],
+    message,
+    modules,
+    el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)]
 
 /-! ## Author's claims -/
 
@@ -674,19 +760,25 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
 /-- The explanation of the marks: what each statement on a site reports, in the order a reader
 meets them, ending with what no tool here checks. One short sentence each. -/
 def meaningItems : Array (String × String) := #[
-  ("Lean complete, and the check mark on a node",
+  ("Lean complete",
     "the node's Lean declarations, and everything they use, contain no sorry. The generator reads \
-      this from the compiled modules; it does not run Lean's kernel again. Code that rests on an \
+      this from the compiled modules, which is not a check by a kernel. Code that rests on an \
       axiom beyond Lean's standard three gets the warning mark, with the axiom named."),
+  ("Kernel replay, and the check mark on a node",
+    "the toolchain's leanchecker checked every constant of the project's compiled modules again \
+      in Lean's kernel while this site was generated. A node has the check mark only when its \
+      Lean code is complete and the replay accepted its module; otherwise its mark is the \
+      diamond, which says what the compiled files report. A file can keep Lean's kernel from \
+      seeing a declaration, and only a replay notices."),
   ("Axioms",
     "the axioms each declaration depends on, as Lean reports them for this build. propext, \
       Classical.choice and Quot.sound are Lean's standard three; a sorry, the result of compiled \
       code (native_decide) and any other axiom are named."),
   ("Lean statement proved, in the headline",
     "the solution states the same Lean terms as the Comparator challenge, without sorry and \
-      without an axiom the challenge does not permit. The comparison reads the compiled modules \
-      of this build; lake comparator also rebuilds the project in a sandbox and replays the \
-      proofs in a kernel."),
+      without an axiom the challenge does not permit, and the kernel replay accepted the \
+      project's modules the solution rests on. The comparison reads the compiled modules of this \
+      build; lake comparator also rebuilds the project in a sandbox."),
   ("This build",
     "every report here is about the build the site was generated from, with the Lean version \
       and package revisions shown with the project's name. A port or an update is a different \
@@ -720,6 +812,7 @@ def statsPageHtml (view : StatsPageView) : Output.Html :=
   el "div" "bp_project_stats" (.seq #[
     identityHtml view,
     headlineHtml view,
+    replayHtml view,
     claimsHtml view,
     progressHtml view,
     sizeHtml view,

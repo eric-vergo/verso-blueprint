@@ -1455,9 +1455,13 @@ layout on:
   opening and closing, long proofs included) and `--bp-sbs-proof-easing`.
 - The node title carries a status glyph, which is about the node's Lean code
   and nothing else: ✓ the Lean declarations, and everything they use, contain
-  no `sorry` (the tooltip says "Lean proof complete" for a theorem and "Lean
-  definition complete" for a definition); ◐ a `sorry` in the proof or in what
-  it uses; ⚠ a `sorry` in the statement, an axiom beyond Lean's standard three
+  no `sorry`, and the kernel replay made while the site was generated accepted
+  their module (the tooltip says "Lean proof complete" for a theorem and "Lean
+  definition complete" for a definition, and names the checker); ◇ no `sorry`
+  as the compiled files report, with no accepted replay behind it (the tooltip
+  says why: no replay was run, no checker was found, it did not finish, or the
+  module is outside the project); ⊘ the kernel checker rejected the build; ◐ a
+  `sorry` in the proof or in what it uses; ⚠ a `sorry` in the statement, an axiom beyond Lean's standard three
   (also when there is no `sorry`: the tooltip names the axiom, or the compiled
   code the proof rests on), or code that could not be inspected; ✗ a
   declaration is missing; ○ no Lean declaration is attached. The glyph's
@@ -2085,25 +2089,38 @@ graph. It shows the project statistics on one page, in this order:
    solution's proof; then, under their own captions, the challenge's docstring
    and the author's claim. Under the cards: what the comparison is and is not.
    A project without a challenge gets one line saying that a challenge would
-   add a headline.
-3. **How far along**: how many nodes are theorems and how many definitions;
+   add a headline. "Lean statement proved" is said only when the kernel replay
+   accepted the project's modules the solution rests on; when the replay
+   rejected the build the verdict is "Proof rejected by the kernel checker",
+   and without a verdict of a replay it is what the compiled files report:
+   "Same Lean statement as the challenge; no sorry; permitted axioms: as the
+   compiled files report, not replayed by a kernel". A line under the verdict
+   names the checker and, for a rejection, gives its message.
+3. **Kernel replay**: what the replay of this build established (see "Kernel
+   replay" below): accepted, rejected with the checker's message, or not
+   replayed with the reason; the checker and its Lean version; the modules
+   replayed; and what a replay leaves trusted.
+4. **Author's claims**, when the project supplies claims about declarations
+   the headline does not judge.
+5. **How far along**: how many nodes are theorems and how many definitions;
    how many of each are Lean complete; how many nodes have an informal
    statement, with the sentence that no tool has checked any of them against
    the Lean statements; then the nodes by progress status as one bar with
    counts, a legend, a link to the work-queue page when the site has one, and
    a table with one row per chapter. The page never says "proved" of a
    definition or of a count of nodes.
-4. **How big**: Lean files, lines (code, comment and blank), declarations by
+6. **How big**: Lean files, lines (code, comment and blank), declarations by
    kind, Blueprint nodes by kind, chapters and dependencies.
-5. **Does it build**: how many Lean files the site's build compiled, how many
+7. **Does it build**: how many Lean files the site's build compiled, how many
    declarations have a `sorry` of their own, and the Lean files on disk that
    are in no build.
-6. **What the Lean code rests on**: the nodes whose declarations have a `sorry`
+8. **What the Lean code rests on**: the nodes whose declarations have a `sorry`
    (their own or through a dependency), use axioms beyond Lean's standard three
    or rest on the result of compiled code (`native_decide`), plus Lean names
    not found and references to no node.
-7. **What this page reports, and what it does not**: a short explanation of
-   the marks (Lean complete, axioms, the headline's verdict, this build) ending
+9. **What this page reports, and what it does not**: a short explanation of
+   the marks (Lean complete, the kernel replay, axioms, the headline's verdict,
+   this build) ending
    with what no tool checks: that a Lean statement says what an informal
    statement, a docstring or a manuscript says. Notes elsewhere on the site
    link to it ("What this means"). A viewer that documents the marks itself
@@ -2121,6 +2138,46 @@ should go; the generator then does not add a second one:
 ```
 {blueprint_stats}
 ```
+
+#### Kernel replay
+
+A site is generated from compiled modules, and what they say is what Lean's
+elaborator recorded: a file can keep the kernel from seeing a declaration
+(`set_option debug.skipKernelTC true`), and such a declaration has no `sorry`
+and adds no axiom. So a site says "proved", and draws the check mark, only
+after a kernel replay: `lake exe vbp build` and `vbp code-site` run the
+toolchain's `leanchecker` on the project's own compiled modules while the site
+is generated. For each module, `leanchecker` loads the module's imports and
+checks every constant the module adds again in Lean's kernel, in a process of
+its own.
+
+- **Which modules**: the project's modules in the environment the site is
+  generated from, the modules the Comparator solution rests on, and every
+  module of the project those import. Modules outside the project (Lean's own
+  library, Mathlib and other dependencies) are loaded as imports and not
+  replayed; `leanchecker --fresh` and `lake comparator` replay those too.
+- **What stays trusted**: the checker and Lean's kernel in it; the compiled
+  modules outside the project; and Lean's elaborator, for the step from the
+  source text to the compiled module. A replay says nothing about what a
+  statement means.
+- **Cost**: the checker runs at a lower priority with a time limit (900
+  seconds; `VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS` sets another). A replay
+  that is stopped at the limit is reported as not finished, never as accepted.
+- **Not twice**: an accepted module is recorded in
+  `.lake/build/blueprint-kernel-replay.json` (or the file
+  `VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names; empty for no record) under a
+  SHA-256 key of its compiled files, the keys of the project's modules it
+  imports, the checker, and the sizes and modification times of the compiled
+  modules outside the project. A later build replays only the modules whose
+  key is not recorded.
+- **The checker**: `leanchecker` in `LEAN_SYSROOT` (Lake sets it), or beside
+  the running `lean`; `VERSO_BLUEPRINT_KERNEL_CHECKER` names another program,
+  or is `off`. Without a checker the pages say so.
+- **Switching it off**: `lake exe vbp build --no-kernel-replay`,
+  `vbp code-site --no-kernel-replay`. A generator run directly replays only
+  with the flag `--kernel-replay` or `(kernelReplay := true)` passed to
+  `blueprintMain` or `blueprintMainWithPreviewData`. Without a replay every
+  verdict and mark says what the compiled files report.
 
 To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
 `blueprintMainWithPreviewData`, or run the generator with the flag
@@ -2585,7 +2642,7 @@ without changing the project and without loading its environment.
 lake exe vbp code-site --data code.json --root <project> [--output <dir>]
     [--title <text>] [--graphviz <program> | --no-graph-layout]
     [--no-comparator | --challenge-not-built <reason>]
-    [--no-stats-page] [--reproducible] [--verbose]
+    [--no-kernel-replay] [--no-stats-page] [--reproducible] [--verbose]
 ```
 
 The data (`doc/schemas/code-site.schema.json`, format tag

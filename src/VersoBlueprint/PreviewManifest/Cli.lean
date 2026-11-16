@@ -174,6 +174,13 @@ def parseReproducibilityOptions (opts : ReproducibilityOptions) (args : List Str
     else if arg == relativeSourcePathsFlag then ({ opts with relativeSourcePaths := true }, rest)
     else (opts, arg :: rest)
 
+/-- Replay the project's compiled modules in a kernel while the site is generated. -/
+def kernelReplayFlag : String := "--kernel-replay"
+
+/-- Extract `--kernel-replay`, returning whether it was given and the remaining arguments. -/
+def parseKernelReplayFlag (args : List String) : Bool × List String :=
+  (args.contains kernelReplayFlag, args.filter (· != kernelReplayFlag))
+
 def sideBySideFlag : String := "--side-by-side"
 
 /-- Extract `--side-by-side`, returning whether it was given and the remaining arguments. -/
@@ -198,6 +205,9 @@ def helpText : String := String.intercalate "\n" [
   s!"  {omitBuildTimeFlag}   Omit the build timestamp from the title-page build metadata.",
   s!"  {omitGitMetadataFlag}  Omit commits and subjects read from Git working trees.",
   s!"  {relativeSourcePathsFlag}  Emit manifest source paths relative to the project root.",
+  "",
+  "Blueprint kernel replay:",
+  s!"  {kernelReplayFlag}     Check the project's compiled modules again in Lean's kernel (leanchecker); without an accepted replay no page says \"proved\".",
   "",
   "Blueprint layout options:",
   s!"  {sideBySideFlag}      Render nodes in two columns with the Lean source of their declarations.",

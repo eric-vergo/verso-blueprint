@@ -2555,7 +2555,8 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
     (hoverState : Verso.Code.Hover.State Output.Html)
     (informalSource : Name → Option String := fun _ => none)
     (claimOf : Array Name → Option Informal.ClaimView.ClaimView := fun _ => none)
-    (meaningHref? : Option String := none) :
+    (meaningHref? : Option String := none)
+    (replay? : Option Informal.Replay.Result := none) :
     IO (NodeViewFile × Verso.Code.Hover.State Output.Html) := do
   let index := manifest.index
   let bodies : Std.HashMap String String :=
@@ -2590,7 +2591,7 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         title := node.title
         href? := node.href
         status := Informal.statusGlyph
-          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData)
+          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData) replay?
         informal?
         proof?
         lean := sourceParts ++ inlineParts
@@ -2671,9 +2672,9 @@ def buildPreviewDataFiles
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint resource {entry.key}: {error}")
     pure ({ key := entry.key, html := html.asString } : HtmlCache.Entry)
-  let claims? : Option Informal.Stats.Claims :=
-    (Informal.TraversalIndex.RenderOverviews.required (α := Informal.Stats.ProjectStats) state
-      `stats).toOption.bind (·.claims)
+  let stats? := (Informal.TraversalIndex.RenderOverviews.required
+    (α := Informal.Stats.ProjectStats) state `stats).toOption
+  let claims? : Option Informal.Stats.Claims := stats?.bind (·.claims)
   let (nodeViews, hoverState) ←
     withTimedBuildProgress verbose "building dependency-graph node views" <|
       buildNodeViews manifest resolvedEntries hoverState
@@ -2681,6 +2682,7 @@ def buildPreviewDataFiles
           (Informal.TraversalIndex.Nodes.occurrence? state label).bind (·.statementSource))
         (claimOf := fun decls => claims?.bind fun claims => decls.findSome? claims.view?)
         (meaningHref? := Informal.Commands.meaningHref? state)
+        (replay? := stats?.bind (·.replay))
   let hoverDocs ← hoverState.dedup.contentId.toArray.mapM fun (id, html) => do
     let html ← match resolve html with
       | .ok html => pure html
@@ -3004,7 +3006,11 @@ where
 
 The HTML site gets a Project Stats page at the end of its table of contents
 (`Informal.Commands.withStatsPage`); `statsPage := false` or the `--no-stats-page` flag leaves it
-out, and removes the page an earlier build wrote (unless the document places the page itself). -/
+out, and removes the page an earlier build wrote (unless the document places the page itself).
+
+With `kernelReplay`, or the `--kernel-replay` flag (which `vbp build` passes), the project's
+compiled modules are checked again in Lean's kernel while the site is generated
+(`Informal.Replay`); only then does a page say "proved". -/
 def blueprintMain (text : Part Manual)
     (extensionImpls : ExtensionImpls := by exact extension_impls%)
     (options : List String)
@@ -3015,9 +3021,11 @@ def blueprintMain (text : Part Manual)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none)
-    (statsPage : Bool := true) : IO UInt32 := do
+    (statsPage : Bool := true)
+    (kernelReplay : Bool := false) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
-  let model ← model.refreshStats
+  let (replayFlag, options) := parseKernelReplayFlag options
+  let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
@@ -3038,9 +3046,11 @@ def blueprintMainWithPreviewData
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none)
-    (statsPage : Bool := true) : IO UInt32 := do
+    (statsPage : Bool := true)
+    (kernelReplay : Bool := false) : IO UInt32 := do
   let (text, model) ← Informal.Resident.apply text model
-  let model ← model.refreshStats
+  let (replayFlag, options) := parseKernelReplayFlag options
+  let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
