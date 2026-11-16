@@ -174,7 +174,8 @@ def parseReproducibilityOptions (opts : ReproducibilityOptions) (args : List Str
     else if arg == relativeSourcePathsFlag then ({ opts with relativeSourcePaths := true }, rest)
     else (opts, arg :: rest)
 
-/-- Replay the project's compiled modules in a kernel while the site is generated. -/
+/-- Check the Lean declarations of the site again in a kernel, with everything they depend on,
+while the site is generated. -/
 def kernelReplayFlag : String := "--kernel-replay"
 
 /-- Extract `--kernel-replay`, returning whether it was given and the remaining arguments. -/
@@ -207,7 +208,8 @@ def helpText : String := String.intercalate "\n" [
   s!"  {relativeSourcePathsFlag}  Emit manifest source paths relative to the project root.",
   "",
   "Blueprint kernel replay:",
-  s!"  {kernelReplayFlag}     Check the project's compiled modules again in Lean's kernel (leanchecker); without an accepted replay no page says \"proved\".",
+  s!"  {kernelReplayFlag}     Check the Lean declarations of the site, and every constant they depend on, again in Lean's kernel (leanchecker); without an accepted replay no page says \"proved\".",
+  "  --kernel-replay-with <program>  The program that loads the modules and writes the export for the replay in a process of its own (vbp).",
   "",
   "Blueprint layout options:",
   s!"  {sideBySideFlag}      Render nodes in two columns with the Lean source of their declarations.",

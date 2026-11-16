@@ -104,10 +104,9 @@ private def rokickiLike : ProjectStats := {
       axioms := #[``Classical.choice, ``Quot.sound, ``propext]
       node := some `main }]
     definitions := #[{ name := `rho, solution := .same }]
-    solutionModules := #[`Comparator.Solution]
   }
   hasComparatorChallenge := true
-  replay := some { outcome := .accepted, version := some "4.35.0", modules := #[`Comparator.Solution] }
+  replay := some { outcome := .accepted, version := some "4.35.0", declarations := #[`rho_irrational] }
 }
 
 private def view (stats : ProjectStats) : StatsPageView := {

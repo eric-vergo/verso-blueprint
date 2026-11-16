@@ -184,7 +184,8 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   IO.FS.createDirAll (root / "Demo")
   IO.FS.writeFile (root / "Demo" / "Basic.lean") basicSource
   IO.FS.writeFile (root / "code.json") fixtureJson
-  try k root finally IO.FS.removeDirAll root
+  -- the generator's progress lines (the kernel replay's, for one) are not what is tested
+  try (·.2) <$> IO.FS.withIsolatedStreams (k root) finally IO.FS.removeDirAll root
 
 -- A generated site: the declaration is in the quick search's documentation domain and its
 -- docstring in the full-text index; the module docstring is on its page.

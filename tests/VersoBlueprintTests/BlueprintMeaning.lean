@@ -43,12 +43,14 @@ open Verso.VersoBlueprintTests.BlueprintCodeSite (fixture statedFixture)
 
 private def mark (kind : Data.NodeKind) (status : Data.ProvedStatus)
     (extraAxioms : Array Name := #[]) : BlockStatusMark :=
-  { status, title := "Lean statement: no sorry; Lean proof: blocked by sorry", kind, extraAxioms }
+  { status, title := "Lean statement: no sorry; Lean proof: blocked by sorry", kind, extraAxioms
+    declarations := #[`main] }
 
-/-- A kernel replay that accepted the project's modules (`BlueprintKernelReplay` has the other
-outcomes). -/
+/-- A kernel replay that accepted the declarations of these tests (`BlueprintKernelReplay` has
+the other outcomes). -/
 private def accepted : Replay.Result :=
-  { outcome := .accepted, version := some "4.35.0", modules := #[`Solution] }
+  { outcome := .accepted, version := some "4.35.0"
+    declarations := Informal.Stats.replayOrder #[`main, `Demo.double_eq] }
 
 private def directSorry : Data.ProvedStatus :=
   .incomplete { knownSorry := #[{ location := .proof, origin := .direct }] }
@@ -63,10 +65,10 @@ private def directSorry : Data.ProvedStatus :=
   let defn := statusGlyph (some (mark .definition .proved)) (some accepted)
   thm.1.modifier == "proved" &&
     thm.2 == "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's \
-      kernel by leanchecker (Lean 4.35.0)" &&
+      kernel by leanchecker (Lean 4.35.0), with everything it depends on" &&
     defn.1.modifier == "proved" &&
     defn.2 == "Lean definition complete: no sorry in it or in what it uses; checked again in \
-      Lean's kernel by leanchecker (Lean 4.35.0)" &&
+      Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on" &&
     !hasSubstr defn.2 "roved" && !hasSubstr thm.2 "Proved" &&
     (statusGlyph (some (mark .theorem .proved))).1.modifier == "reported" &&
     (statusGlyph (some (mark .definition .proved))).2 == "Lean definition without sorry, as the \
@@ -196,8 +198,7 @@ private def page (s : ProjectStats) : String :=
 
 private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   { challengeModule := `Challenge, solutionModule := `Solution
-    challengeFile := some "Challenge.lean", solutionFile := some "Solution.lean", theorems
-    solutionModules := #[`Solution] }
+    challengeFile := some "Challenge.lean", solutionFile := some "Solution.lean", theorems }
 
 -- Proved: the verdict, then the Lean statement, then the docstring under its own caption, then
 -- what the comparison is and is not; and which build the page reports on.
@@ -211,8 +212,8 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
     appearsBefore html "theorem main : P"
       "Docstring in the challenge (not checked against the Lean statement)" &&
     appearsBefore html "Docstring in the challenge" "The main result." &&
-    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted the project module the \
-      solution rests on." &&
+    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every \
+      constant it depends on" &&
     hasSubstr html "Compared by this site" && hasSubstr html "The comparison runs no kernel" &&
     hasSubstr html "This page reports on one build, made with Lean v4.35.0 and the package \
       revisions above. No other toolchain or revision was checked." &&
@@ -487,8 +488,9 @@ private def nodeView : NodeView.NodeView := {
     IO.FS.writeFile (root / "README.md") "# Readme\n\nA small project.\n"
     IO.FS.writeFile (root / "lake-manifest.json") "{\"name\": \"demo\", \"packages\": []}"
     IO.FS.writeFile (root / claimsFile) claimsText
-    let code ← CodeSite.generate (root / "code.json") root Option.none
-      ["--output", (root / "_out").toString, "--reproducible"]
+    -- the generator's progress lines are not what is tested
+    let (_, code) ← IO.FS.withIsolatedStreams <| CodeSite.generate (root / "code.json") root
+      Option.none ["--output", (root / "_out").toString, "--reproducible"]
     let html := root / "_out" / "html-multi"
     let index ← IO.FS.readFile (html / "index.html")
     let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")

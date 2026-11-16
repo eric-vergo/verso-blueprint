@@ -8,8 +8,9 @@ import VersoBlueprintTests.ReplayFixtures.Nested.Forged
 
 /-!
 An honest root module over a forged child: every constant of `Nested` is sound, and
-`Nested.Forged` adds one that no kernel accepts. A replay of `Nested` alone accepts it; the
-replay of the project must still reject the build, naming the child.
+`Nested.Forged` adds one that no kernel accepts. A replay of `root_true` accepts it, since it
+depends on nothing of the child; a replay that is also asked for the child's `ghost` rejects the
+build.
 -/
 
 namespace ReplayNested

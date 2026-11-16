@@ -273,8 +273,8 @@ structure BuildOptions where
   reproducible : Bool := false
   /-- Leave the automatic Project Stats page out (the generator's `--no-stats-page`). -/
   noStatsPage : Bool := false
-  /-- Do not replay the project's compiled modules in a kernel (the generator then gets no
-  `--kernel-replay`, and no page says "proved"). -/
+  /-- Run no kernel replay (the generator then gets no `--kernel-replay`, and no page says
+  "proved"). -/
   noKernelReplay : Bool := false
   serve : Bool := false
   port? : Option Nat := none
@@ -403,13 +403,16 @@ private def pdfGeneratorArgs (opts : BuildOptions) : Array String :=
   | some runs => args ++ #[Informal.PreviewManifest.pdfRunsFlag, toString runs]
   | none => args
 
-/-- The arguments the generator's `main` receives (what follows `--run <file>`). -/
-def generatorMainArgs (opts : BuildOptions) : Array String :=
+/-- The arguments the generator's `main` receives (what follows `--run <file>`). With a kernel
+replay, `worker?` is the program the generator runs as the replay's worker: this one. -/
+def generatorMainArgs (opts : BuildOptions) (worker? : Option FilePath := none) : Array String :=
   let args := #["--output", opts.output.toString] ++ (if opts.verbose then #["--verbose"] else #[])
   let args := args ++ pdfGeneratorArgs opts
   let args := if opts.noStatsPage then args.push Informal.Commands.noStatsPageFlag else args
   let args := if opts.noKernelReplay then args else
-    args.push Informal.PreviewManifest.kernelReplayFlag
+    args.push Informal.PreviewManifest.kernelReplayFlag ++ match worker? with
+      | some worker => #[Informal.Stats.replayWorkerProgramFlag, worker.toString]
+      | none => #[]
   if opts.reproducible then args.push Informal.PreviewManifest.reproducibleFlag else args
 
 private def generateSite (opts : BuildOptions) : IO UInt32 := do
@@ -418,11 +421,15 @@ private def generateSite (opts : BuildOptions) : IO UInt32 := do
       IO.eprintln err
       pure 1
   | .ok context =>
+      -- the generator is run by `lean`, with its modules loaded: this program is its worker
+      let worker ← IO.appPath
       if opts.resident then
-        Resident.run context.workspace context.generatorFile (generatorMainArgs opts).toList
+        Resident.run context.workspace context.generatorFile
+          (generatorMainArgs opts (some worker)).toList
       else
         buildComparatorChallenge context.workspace
-        runGenerator context (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts)
+        runGenerator context
+          (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts (some worker))
 
 private def serveScript : String := String.intercalate "\n" [
   "import functools, http.server, socketserver, sys",
@@ -513,6 +520,10 @@ def check (args : List String) : IO UInt32 := do
         pure 1
 
 def main (args : List String) : IO UInt32 := do
+  -- the kernel replay's worker: this program, started by a generator or by itself
+  if let flag :: rest := args then
+    if flag == Informal.Stats.replayWorkerFlag then return ← Informal.Stats.replayWorkerMain rest
+  Informal.Stats.registerSelfAsReplayWorker
   match args with
   | [] =>
       IO.println helpText

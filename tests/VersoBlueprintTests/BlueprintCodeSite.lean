@@ -253,7 +253,8 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   IO.FS.writeFile (root / "Demo" / "Hard.lean") "theorem hard : False := sorry\n"
   IO.FS.writeFile (root / "README.md") "# Demo project\n\nA small project.\n"
   IO.FS.writeFile (root / "code.json") fixtureJson
-  try k root finally IO.FS.removeDirAll root
+  -- the generator's progress lines (the kernel replay's, for one) are not what is tested
+  try (·.2) <$> IO.FS.withIsolatedStreams (k root) finally IO.FS.removeDirAll root
 
 -- A whole site: chapters, the graph with a node view per declaration, the stats page.
 /-- info: true -/

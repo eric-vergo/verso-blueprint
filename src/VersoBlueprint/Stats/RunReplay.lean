@@ -6,69 +6,80 @@ Author: Eric Vergo
 
 import Lean.Util.Path
 import Lean.Environment
+import LeanExport.Basic
+import VersoBlueprint.Axioms
 import VersoBlueprint.Lib.Sha256
 import VersoBlueprint.Replay
 
 /-!
 Running the kernel replay of a build (`Informal.Replay`).
 
-`replayBuild` runs the toolchain's `leanchecker` on the project's own compiled modules: for each
-module, `leanchecker` loads the module's imports and checks every constant the module adds again
-in Lean's kernel. Each module is replayed in a process of its own, at a lower priority, a few
-processes at a time, with a memory limit per process and a time limit for the whole replay; a
-run that is stopped at a limit is reported as such, never as accepted.
+A replay checks the Lean declarations a site reports on, and everything they depend on, again
+in Lean's kernel. It has two halves.
 
-## Which modules
+The first half (`prepareExport`, after `loadModules`) runs in a worker process:
 
-The modules asked for (the project's modules in the environment the site is generated from, and
-the modules a Comparator solution rests on), and every module of the project they import. A
-module with no compiled file among the project's own cannot be replayed and is reported
-(`Replay.Result.notCompiled`). Modules outside the project (Lean's library, dependencies) are
-loaded as imports and not replayed.
+1. It loads the compiled modules that hold the declarations into an environment, by the search
+   path of the build.
+2. It takes each declaration from that environment and walks the terms of everything it depends
+   on, which gives the axioms under it (`restingAxioms`).
+3. It writes the declarations and every constant they depend on to a file, with the exporter
+   of the Lean toolchain (`LeanExport`). The dependencies are followed wherever they lead: into
+   the project's other modules, its dependencies and Lean's own library.
 
-## One module per process
+The second half (`checkExport`) runs the toolchain's `leanchecker --from-export` on the file, at
+a lower priority, in one process, with a memory limit and a time limit. The checker adds every
+constant of the file to an empty environment through Lean's kernel. Only its own statement that
+it accepted counts (`parseVerdict`); a run that is stopped at a limit is reported as such, never
+as accepted.
 
-`leanchecker` takes module name prefixes: it replays every module on its search path whose name
-starts with one of its arguments, all of them at once in one process. Each of those modules
-loads its own copy of its imports, and only the first copy of a compiled file can be mapped from
-the disk, so the memory of one process grows with every module it replays (a project that
-imports Mathlib needs about one more gigabyte per module). One module alone needs a few hundred
-megabytes, whatever the size of its imports.
+## The worker
 
-So every module is replayed by a process of its own, which names exactly that module. A module
-named `A.B` is a prefix of its children `A.B.C`, and `leanchecker` would replay those too; the
-process is therefore given a search path on which `A.B` is the only module of the project that
-`leanchecker` finds by name (`buildShadow`): a directory in place of the project's that holds a
-link to `A/B.olean` and symbolic links to everything else. `leanchecker` lists modules by the
-real paths of the files it finds, and these lie outside every directory of its search path, so
-it finds the children by import and does not count them as modules to replay. The checker is
-run with `-v`, and the module it says it replayed is checked against the one asked for. Where
-the directory cannot be made (no `ln` program), the module is named on the project's own
-directory, and the checker replays it with its children.
+A generator usually has the project's compiled modules loaded already (a generator that
+`lean --run` runs has imported them), and a second copy of a compiled module in one process is
+not mapped from the disk but read into memory. So the first half runs in a process of its own,
+the worker: a compiled program whose `main` answers `replayWorkerFlag` with `replayWorkerMain`
+(`Informal.Stats.Comparator`). `vbp` is one, and names itself to the generators it runs
+(`replayWorkerProgramFlag`); a compiled generator is its own (`registerSelfAsReplayWorker`). The
+worker is given the request as a file and leaves its reply in another (`runWorker`); it is run
+under the replay's time limit and memory limit, like the checker. Without a worker there is no
+replay.
 
-`leanchecker` also looks through every directory of its search path once per process, which costs
-seconds in a project that depends on Mathlib; the processes therefore run a few at a time
-(`replayJobsVar`), and the search path is ordered with the largest directory first.
+## One environment
+
+Everything a positive statement of the site rests on is taken from the one environment the
+worker loads: the declaration that is exported and checked, the axioms under it, and (in
+`ReplayRequest.run`) the comparison of a judged theorem with its challenge. The
+checker is given no module name and reads no compiled module: it reads the export. So the
+constants it checks are the constants of the loaded environment, and no second lookup of a module
+by its name can find another file.
+
+The loaded environment itself is found by name, on the search path. A module whose compiled file
+exists in more than one directory of the search path could be either file, depending on the order
+of the path, so the replay then stops without a verdict and names the module and the
+directories (`duplicateModule?`). Directories are compared by their real paths, and two files
+that are one file by their real path count once. A name is looked up as the file system looks it
+up: on a file system that ignores case, two files whose names differ only by case are two
+candidates for one module and stop the replay as well.
 
 ## Limits
 
-The whole replay has a time limit (`replayLimitVar`). Every checker process has a memory limit
-(`replayMemoryVar`): its memory is sampled while it runs (its physical footprint on macOS, its
-anonymous and swapped memory on Linux, its resident size elsewhere), and a process over the
-limit is stopped; the result then says so (`Replay.Outcome.overMemory`). By default the
-processes run at once share a quarter of the machine's physical memory (`defaultMemoryLimit`).
+The whole replay has a time limit (`replayLimitVar`), the worker and the checker each a memory
+limit (`replayMemoryVar`: a process's memory is sampled while it runs, as its physical footprint
+on macOS, its anonymous and swapped memory on Linux, its resident size elsewhere), and the
+export a size limit (`replayExportVar`). By default a process may use a quarter of the
+machine's physical memory (`defaultMemoryLimit`).
 
 ## The record
 
-A module is not replayed twice. Each module a checker accepted has its key written to a record
-(`blueprint-kernel-replay.json` in the build directory that holds the project's compiled
-modules, or the file `VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names; empty for none); a later run
-replays only the modules whose key is not there. The key of a module is the SHA-256 of: its
-compiled files' contents; the keys of the project's modules it imports; the checker (path,
-size, modification time, Lean version); and the sizes and modification times of every compiled
-module outside the project on the search path. So a module counts as accepted only while its own
-bytes, the bytes of everything in the project below it, the checker and the files of its
-dependencies are what an accepted replay saw.
+An export is not checked twice. The key of an accepted export is written to a record: the file
+`VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names (empty for none), or else
+`verso-blueprint/kernel-replay.json` in the user's cache directory (`defaultRecordFile?`). The
+record is never looked for inside the project: a record says that a checker accepted something,
+and a project must not be able to bring such a statement with it. The key is the SHA-256 of the
+export's contents (`ExportKey`) together with the checker (path, size, modification time, Lean
+version). The export is written and hashed on every run, from the environment in memory, so an
+accepted key stands for exactly the constants that were checked.
 
 ## Finding the checker
 
@@ -89,55 +100,110 @@ def replayCheckerVar : String := "VERSO_BLUEPRINT_KERNEL_CHECKER"
 /-- The time limit of a replay, in seconds. -/
 def replayLimitVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS"
 
-/-- The file that records accepted modules; empty for none. -/
+/-- The file that records accepted exports; empty for none. -/
 def replayRecordVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD"
 
-/-- The number of checker processes run at once. -/
-def replayJobsVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_JOBS"
-
-/-- The memory limit of one checker process, in MiB; `0` for none. -/
+/-- The memory limit of the checker process, in MiB; `0` for none. -/
 def replayMemoryVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_MEMORY_MB"
+
+/-- The size limit of the export, in MiB; `0` for none. -/
+def replayExportVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_EXPORT_MB"
 
 /-- The time limit when `replayLimitVar` sets none. -/
 def defaultReplayLimit : Nat := 900
 
-/-- The record's file name in the project's build directory. -/
-def replayRecordFile : String := "blueprint-kernel-replay.json"
+/-- The size limit of the export when `replayExportVar` sets none: 4 GiB. -/
+def defaultExportLimit : Nat := 4 * 1024 * 1024 * 1024
 
-/-- The checker processes run at once on a machine with `cores` processors, when `replayJobsVar`
-sets none: a quarter of them, at least one and at most four. -/
-def defaultReplayJobs (cores : Nat) : Nat := max 1 (min 4 (cores / 4))
+/-- The record's file in the user's cache directory, from what the environment says: on macOS
+`Library/Caches` in `home`, on Windows `localAppData`, elsewhere `xdgCache` or `.cache` in
+`home`; then `verso-blueprint/kernel-replay.json`. `none` when the directory is not known. -/
+def recordFileIn (home xdgCache localAppData : Option String) (macOS windows : Bool) :
+    Option FilePath :=
+  let present (value : Option String) : Option FilePath :=
+    (value.filter (!·.trimAscii.isEmpty)).map FilePath.mk
+  let cache : Option FilePath :=
+    if windows then present localAppData
+    else if macOS then (present home).map (· / "Library" / "Caches")
+    else present xdgCache <|> (present home).map (· / ".cache")
+  cache.map (· / "verso-blueprint" / "kernel-replay.json")
 
-/-- The memory limit of one checker process, in bytes, when `replayMemoryVar` sets none: the
-`jobs` processes run at once share a quarter of the machine's physical memory `physical`. -/
-def defaultMemoryLimit (physical jobs : Nat) : Nat := physical / 4 / max 1 jobs
+/-- The record when `replayRecordVar` names none: `recordFileIn` of this process's
+environment. -/
+def defaultRecordFile? : IO (Option FilePath) :=
+  return recordFileIn (← IO.getEnv "HOME") (← IO.getEnv "XDG_CACHE_HOME")
+    (← IO.getEnv "LOCALAPPDATA") Platform.isOSX Platform.isWindows
 
-/-- The memory limit of one checker process when the machine's physical memory is not known:
-2 GiB. -/
-def fallbackMemoryLimit : Nat := 2 * 1024 * 1024 * 1024
+/-- The memory limit of the checker process, in bytes, when `replayMemoryVar` sets none: a
+quarter of the machine's physical memory `physical`. -/
+def defaultMemoryLimit (physical : Nat) : Nat := physical / 4
+
+/-- The memory limit of the checker process when the machine's physical memory is not known:
+4 GiB. -/
+def fallbackMemoryLimit : Nat := 4 * 1024 * 1024 * 1024
 
 /-- How a replay is run. -/
 structure ReplayConfig where
   /-- The checker program; `none` when none was found. -/
   checker? : Option FilePath := none
+  /-- The root of the Lean toolchain the project was built with, whose own library the compiled
+  modules are loaded on; `none` for the toolchain the checker is in. -/
+  sysroot? : Option FilePath := none
   /-- The replay is switched off. -/
   off : Bool := false
   /-- The time limit of the whole replay, in seconds. -/
   limitSeconds : Nat := defaultReplayLimit
-  /-- The number of checker processes run at once. -/
-  jobs : Nat := 1
-  /-- The memory limit of one checker process, in bytes; `none` for no limit. -/
+  /-- The memory limit of the checker process, in bytes; `none` for no limit. -/
   memoryLimit? : Option Nat := none
-  /-- The directories of the project's own compiled modules. -/
+  /-- The size limit of the export, in bytes; `none` for no limit. -/
+  exportLimit? : Option Nat := none
+  /-- The directories compiled modules are loaded from, in the order they are searched, without
+  the toolchain's own library (which is found from the checker and searched last). -/
+  searchPath : Array FilePath := #[]
+  /-- The directories of `searchPath` that hold the project's own compiled modules. -/
   projectDirs : Array FilePath := #[]
-  /-- The directories of the compiled modules of everything else, without the toolchain's own
-  library (which is found from the checker). -/
-  importDirs : Array FilePath := #[]
-  /-- The file that records accepted modules. -/
+  /-- The file that records accepted exports. -/
   record? : Option FilePath := none
-  /-- Print a line on the standard error for every module and for the end of the replay. -/
+  /-- The program that loads the modules and writes the export in a process of its own
+  (`registerReplayWorker`), with its leading arguments; `none` to do both in this process. -/
+  worker? : Option (FilePath × Array String) := none
+  /-- Print a line on the standard error for every step of the replay. -/
   progress : Bool := false
 deriving Inhabited, Repr
+
+/-- A declaration a replay is asked to check. -/
+structure ReplayTarget where
+  name : Name
+  /-- The module the site's data places the declaration in; `none` when it names none. A
+  declaration found in another module is not the one the site reports on. -/
+  module? : Option Name := none
+deriving Inhabited, Repr, BEq, ToJson, FromJson
+
+/-! ## The worker -/
+
+/-- The first argument of a program that is run as the replay's worker: the request file and
+the reply file follow. -/
+def replayWorkerFlag : String := "--kernel-replay-worker"
+
+/-- The generator's flag that names the worker program (`vbp build` passes itself). -/
+def replayWorkerProgramFlag : String := "--kernel-replay-with"
+
+/-- The worker of this process (`ReplayConfig.worker?`), when one is known. -/
+initialize replayWorkerRef : IO.Ref (Option (FilePath × Array String)) ← IO.mkRef none
+
+/-- Name the program that loads the modules and writes the export for the replays of this
+process: `program`, run with `replayWorkerFlag`, a request file and a reply file. -/
+def registerReplayWorker (program : FilePath) : IO Unit :=
+  replayWorkerRef.set (some (program, #[replayWorkerFlag]))
+
+/-- `registerReplayWorker` with this program itself, for a compiled program whose `main` answers
+`replayWorkerFlag`. A program run by `lean --run` is `lean`, which is no worker: nothing is
+registered then, nor when a worker is registered already. -/
+def registerSelfAsReplayWorker : IO Unit := do
+  if (← replayWorkerRef.get).isSome then return
+  let program ← IO.appPath
+  if program.fileStem == some "lean" then return
+  registerReplayWorker program
 
 private def checkerExe : String :=
   if Platform.isWindows then "leanchecker.exe" else "leanchecker"
@@ -156,7 +222,8 @@ def findChecker? : IO (Option FilePath) := do
 private def realOr (path : FilePath) : IO FilePath :=
   try IO.FS.realPath path catch _ => pure path
 
-private def dedupDirs (dirs : Array FilePath) : IO (Array FilePath) := do
+/-- The directories of `dirs` that exist, by their real paths, each once, in order. -/
+def dedupDirs (dirs : Array FilePath) : IO (Array FilePath) := do
   let mut out := #[]
   for dir in dirs do
     unless ← dir.isDir do continue
@@ -197,17 +264,6 @@ def physicalMemory? : IO (Option Nat) := do
     return (procField? (← IO.FS.readFile "/proc/meminfo") "MemTotal:").map (· * 1024)
   catch _ => return none
 
-/-- The machine's number of processors, when it can be found. -/
-def processorCount? : IO (Option Nat) := do
-  if Platform.isOSX then
-    let sysctl ← systemTool "sysctl" ["/usr/sbin", "/sbin"]
-    return (← commandOutput? sysctl #["-n", "hw.ncpu"]).bind (·.trimAscii.copy.toNat?)
-  try
-    let text ← IO.FS.readFile "/proc/cpuinfo"
-    let n := ((text.splitOn "\n").filter (·.startsWith "processor")).length
-    return if n == 0 then none else some n
-  catch _ => return none
-
 /-- The physical footprint in the output of macOS's `footprint` (`Footprint: 175 MB`), in
 bytes. -/
 def parseFootprint (text : String) : Option Nat := do
@@ -229,9 +285,7 @@ def parseFootprint (text : String) : Option Nat := do
 
 /-- The memory the process `pid` holds that the system cannot take back by dropping pages of
 files, in bytes: its physical footprint on macOS (`footprint`), its anonymous resident and
-swapped memory on Linux, else its resident size (`ps`). Pages of compiled modules mapped from
-the disk are not counted where the system says which pages those are. `none` when it cannot be
-read. -/
+swapped memory on Linux, else its resident size (`ps`). `none` when it cannot be read. -/
 def processMemory? (pid : UInt32) : IO (Option Nat) := do
   if Platform.isOSX then
     let tool : FilePath := "/usr/bin/footprint"
@@ -248,18 +302,21 @@ def processMemory? (pid : UInt32) : IO (Option Nat) := do
   return out.trimAscii.copy.toNat?.map (· * 1024)
 
 /-- The configuration for the project at `root`, whose own compiled modules are in
-`libraryDirs` (relative to `root`), from the environment variables above. The other compiled
-modules are looked for in the project's Lake packages and in `LEAN_PATH`. -/
+`libraryDirs` (relative to `root`), from the environment variables above. Modules are searched
+for in the directories of `LEAN_PATH`, in its order (Lake sets it for a program it runs), then in
+the project's own directories and those of its Lake packages. -/
 def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO ReplayConfig := do
   let projectDirs ← dedupDirs (libraryDirs.map fun dir : String => root / dir)
-  let mut others : Array FilePath := #[root / ".lake" / "build" / "lib" / "lean"]
+  let mut dirs : Array FilePath := #[]
+  if let some path ← IO.getEnv "LEAN_PATH" then
+    dirs := dirs ++ (SearchPath.parse path).toArray
+  dirs := dirs ++ projectDirs
+  dirs := dirs.push (root / ".lake" / "build" / "lib" / "lean")
   let packages := root / ".lake" / "packages"
   if ← packages.isDir then
     for entry in (← packages.readDir).qsort (·.fileName < ·.fileName) do
-      others := others.push (entry.path / ".lake" / "build" / "lib" / "lean")
-  if let some path ← IO.getEnv "LEAN_PATH" then
-    others := others ++ (SearchPath.parse path).toArray
-  let importDirs := (← dedupDirs others).filter (!projectDirs.contains ·)
+      dirs := dirs.push (entry.path / ".lake" / "build" / "lib" / "lean")
+  let searchPath ← dedupDirs dirs
   let choice := ((← IO.getEnv replayCheckerVar).map (·.trimAscii.copy)).filter (!·.isEmpty)
   let off := choice == some "off"
   let checker? ← match choice with
@@ -269,139 +326,325 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
   let number (var : String) : IO (Option Nat) :=
     return (← IO.getEnv var).bind (·.trimAscii.copy.toNat?)
   let limitSeconds := (← number replayLimitVar).getD defaultReplayLimit
-  let jobs ← match ← number replayJobsVar with
-    | some n => pure (max 1 n)
-    | none => pure (defaultReplayJobs ((← processorCount?).getD 1))
-  let memoryLimit? ← match ← number replayMemoryVar with
+  let megabytes (var : String) (otherwise : IO Nat) : IO (Option Nat) := do
+    match ← number var with
     | some 0 => pure none
     | some mib => pure (some (mib * 1024 * 1024))
-    | none =>
-      let physical? ← physicalMemory?
-      pure (some ((physical?.map (defaultMemoryLimit · jobs)).getD fallbackMemoryLimit))
+    | none => some <$> otherwise
+  let memoryLimit? ← megabytes replayMemoryVar do
+    return ((← physicalMemory?).map defaultMemoryLimit).getD fallbackMemoryLimit
+  let exportLimit? ← megabytes replayExportVar (pure defaultExportLimit)
   let record? ← match ← IO.getEnv replayRecordVar with
     | some path => pure (if path.trimAscii.isEmpty then none else some (FilePath.mk path))
-    | none =>
-      -- beside the project's compiled modules: `<package>/.lake/build`, above `lib/lean`
-      pure <| (projectDirs[0]?.bind fun dir => dir.parent.bind (·.parent)).map (· / replayRecordFile)
-  return { checker?, off, limitSeconds, jobs, memoryLimit?, projectDirs, importDirs, record?,
-           progress := true }
+    | none => defaultRecordFile?
+  let sysroot? := (← IO.getEnv "LEAN_SYSROOT").map FilePath.mk
+  return { checker?, sysroot?, off, limitSeconds, memoryLimit?, exportLimit?, searchPath,
+           projectDirs, record?, worker? := ← replayWorkerRef.get, progress := true }
 
-/-! ## Modules on disk -/
+/-! ## Loading the compiled modules -/
 
-/-- The module of a compiled file below `dir`: `dir/A/B.olean` is `A.B`. -/
-private def moduleOfFile? (dir file : FilePath) : Option Name := do
-  let dir := dir.toString
-  let file := file.toString
-  guard (file.startsWith dir && file.endsWith ".olean")
-  let rel := ((file.drop dir.length).copy.dropEnd ".olean".length).copy
-  let parts := (rel.splitOn FilePath.pathSeparator.toString).filter (!·.isEmpty)
-  guard !parts.isEmpty
-  return parts.foldl Name.str .anonymous
+/-- The top-level names in each directory of a search path, in lower case: a module can only
+be in a directory that has its first name component, whatever the file system does with case. -/
+private def topNames (path : Array FilePath) : IO (Array (Std.HashSet String)) :=
+  path.mapM fun dir => do
+    let entries ← try dir.readDir catch _ => pure #[]
+    return entries.foldl (init := {}) fun set entry => set.insert entry.fileName.toLower
 
-/-- The compiled files below `dir` (`.olean`, and the `.olean.server` and `.olean.private` parts
-the module system writes). -/
-private def compiledFiles (dir : FilePath) : IO (Array FilePath) := do
-  let all ← try dir.walkDir catch _ => pure #[]
-  return all.filter fun f =>
-    let s := f.toString
-    s.endsWith ".olean" || s.endsWith ".olean.server" || s.endsWith ".olean.private"
-
-/-- The parts of a compiled module, given its `.olean`. -/
-private def moduleParts (olean : FilePath) : IO (Array FilePath) := do
-  let mut parts := #[olean]
-  for ext in ["server", "private"] do
-    let part := olean.addExtension ext
-    if ← part.pathExists then parts := parts.push part
-  return parts
-
-private def hexOfFile (file : FilePath) : IO String :=
-  return Sha256.hex (← IO.FS.readBinFile file)
-
-/-- The modules a compiled module imports. The file stays mapped for the rest of the process. -/
-private def importsOf (olean : FilePath) : IO (Array Name) := do
-  let (data, _) ← readModuleData olean
-  return data.imports.map (·.module)
-
-/-- The modules of `modules` in an order where every module comes after the modules of
-`modules` it imports (`imports`). -/
-def importsFirst (modules : Array Name) (imports : NameMap (Array Name)) : Array Name := Id.run do
-  let mut done : NameSet := {}
+/-- The directories of `path` that hold a compiled file of `module`. -/
+private def dirsOf (path : Array FilePath) (tops : Array (Std.HashSet String)) (module : Name) :
+    IO (Array FilePath) := do
+  let top := (module.getRoot.toString (escape := false)).toLower
   let mut out := #[]
-  for root in modules do
-    -- an explicit stack: `(module, its imports were pushed)`
-    let mut stack := #[(root, false)]
-    while h : stack.size > 0 do
-      let (m, expanded) := stack[stack.size - 1]
-      stack := stack.pop
-      if done.contains m then continue
-      if expanded then
-        done := done.insert m
-        out := out.push m
-      else
-        stack := stack.push (m, true)
-        for d in (imports.find? m).getD #[] do
-          if modules.contains d && !done.contains d then stack := stack.push (d, false)
+  for dir in path, names in tops do
+    unless names.contains top || names.contains (top ++ ".olean") do continue
+    if ← (modToFilePath dir module "olean").pathExists then out := out.push dir
   return out
 
-/-! ## A search path with one module of the project -/
+/-- The directories of `path` that hold different compiled files of `module`, when there is
+more than one: the module could then be either, by the order of the path. Files that are one
+file by their real path count once. -/
+private def duplicateDirs (path : Array FilePath) (tops : Array (Std.HashSet String))
+    (module : Name) : IO (Array FilePath × Bool) := do
+  let dirs ← dirsOf path tops module
+  if dirs.size ≤ 1 then return (dirs, false)
+  let mut files : Array FilePath := #[]
+  for dir in dirs do
+    let real ← realOr (modToFilePath dir module "olean")
+    unless files.contains real do files := files.push real
+  return (dirs, files.size > 1)
 
-/-- The string components of a module name. -/
-private def nameParts (module : Name) : Array String :=
-  module.components.toArray.filterMap fun
-    | .str _ s => some s
-    | _ => none
+/-- The message for a module with more than one compiled file on the search path. -/
+def duplicateMessage (module : Name) (dirs : Array FilePath) : String :=
+  s!"module {module} has a compiled file in more than one directory of the search path \
+    ({", ".intercalate (dirs.toList.map (·.toString))}), so which of them a build means depends \
+    on the order of the path"
 
-/-- Make symbolic links in `dir` to each of `targets` (`ln -s`). -/
-private def linkInto (dir : FilePath) (targets : Array FilePath) : IO Bool := do
-  let mut rest := targets
-  while !rest.isEmpty do
-    let chunk := rest.extract 0 256
-    rest := rest.extract 256 rest.size
-    let args := #["-s", "--"] ++ chunk.map (·.toString) ++ #[dir.toString]
-    let some _ ← commandOutput? "ln" args | return false
-  return true
+/-- The compiled modules a replay loaded. -/
+structure LoadedModules where
+  env : Environment
+  /-- The toolchain's own library directory. -/
+  toolchainDir : FilePath
+  /-- For each module of `env`, by its index: the directory of the search path it was loaded
+  from. -/
+  dirs : Array FilePath
+  /-- The modules that were asked for and have no compiled file on the search path. -/
+  notCompiled : Array Name := #[]
 
-/-- Fill the empty directory `shadow` so that, put on a search path in place of the directory
-`lib` of compiled modules, it shows `leanchecker` the module `module` and no other module of
-`lib`, while every module of `lib` can still be imported. On the path from `shadow` to the module
-each directory is a real one; the module's compiled files are hard links (copies where a link
-cannot be made); everything else is a symbolic link into `lib`. `leanchecker` names the modules
-it finds by the real paths of their files, which lie outside every directory of its search path
-for everything but the module itself. `false` when the directory could not be made. -/
-def buildShadow (lib : FilePath) (module : Name) (shadow : FilePath) : IO Bool := do
-  let parts := nameParts module
-  if parts.isEmpty then return false
-  let lib ← realOr lib
-  let own := #["olean", "olean.server", "olean.private"].map (parts.back! ++ "." ++ ·)
-  let mut src := lib
-  let mut dst := shadow
-  IO.FS.createDirAll dst
-  for h : i in [0:parts.size] do
-    let next := parts[i]
-    let last := i + 1 == parts.size
-    unless ← src.isDir do return false
-    let mut links := #[]
-    for entry in ← src.readDir do
-      if !last && entry.fileName == next then continue
-      if last && own.contains entry.fileName then
-        let target := dst / entry.fileName
-        try IO.FS.hardLink entry.path target
-        catch _ => IO.FS.writeBinFile target (← IO.FS.readBinFile entry.path)
-        continue
-      links := links.push entry.path
-    unless ← linkInto dst links do return false
-    unless last do
-      src := src / next
-      dst := dst / next
-      IO.FS.createDir dst
-  return true
+/-- The search path of a replay: the configuration's, then the toolchain's own library. -/
+private def fullPath (config : ReplayConfig) (sysroot : FilePath) : IO (Array FilePath) :=
+  dedupDirs (config.searchPath.push (sysroot / "lib" / "lean"))
+
+/-- Whether `module` has more than one compiled file on the search path of `config`
+(`duplicateMessage`); `none` when it has at most one. -/
+def duplicateModule? (config : ReplayConfig) (sysroot : FilePath) (module : Name) :
+    IO (Option String) := do
+  let path ← fullPath config sysroot
+  let (dirs, duplicate) ← duplicateDirs path (← topNames path) module
+  return if duplicate then some (duplicateMessage module dirs) else none
+
+/-- Load the modules `modules` that have a compiled file, and everything they import, into an
+environment, by the search path of `config` and the toolchain's library in `sysroot`. Fails,
+with the reason, when the modules cannot be imported together, or when a module of the
+environment has more than one compiled file on the search path (`duplicateMessage`). The
+process's search path is put back afterwards. -/
+def loadModules (config : ReplayConfig) (sysroot : FilePath) (modules : Array Name) :
+    IO (Except String LoadedModules) := do
+  let path ← fullPath config sysroot
+  let toolchainDir ← realOr (sysroot / "lib" / "lean")
+  let tops ← topNames path
+  let mut wanted := #[]
+  let mut notCompiled := #[]
+  for m in modules do
+    if wanted.contains m || notCompiled.contains m then continue
+    if (← dirsOf path tops m).isEmpty then notCompiled := notCompiled.push m
+    else wanted := wanted.push m
+  if wanted.isEmpty then
+    return .error "none of the site's modules has a compiled file on the search path"
+  let before ← searchPathRef.get
+  let env ← try
+      searchPathRef.set path.toList
+      let env ← importModules (wanted.map ({ module := · })) {} (loadExts := false)
+      searchPathRef.set before
+      pure env
+    catch e =>
+      searchPathRef.set before
+      return .error s!"the site's modules could not be loaded into one environment: {e}"
+  let mut dirs := Array.mkEmpty env.header.moduleNames.size
+  for m in env.header.moduleNames do
+    let (found, duplicate) ← duplicateDirs path tops m
+    if duplicate then return .error (duplicateMessage m found)
+    let some dir := found[0]?
+      | return .error s!"the compiled file of module {m} was not found again on the search path"
+    dirs := dirs.push dir
+  return .ok { env, toolchainDir, dirs, notCompiled }
+
+/-! ## What a declaration depends on -/
+
+/-- The recursors of each inductive type of `env`. -/
+private def recursorsOf (env : Environment) : NameMap (Array Name) :=
+  env.constants.fold (init := {}) fun map _ info =>
+    match info with
+    | .recInfo val => val.all.foldl (init := map) fun map type =>
+      map.insert type (((map.find? type).getD #[]).push val.name)
+    | _ => map
+
+/-- The constant that stands for `name` in the walk: an inductive type, its constructors and its
+recursors refer to each other and are checked as one block, as are the constants of `Quot`, so
+each block is one node (the first type of the block, or `Quot`). -/
+private def blockOf (env : Environment) (name : Name) : Name :=
+  let ofType (type : Name) : Name :=
+    match env.find? type with
+    | some (.inductInfo val) => val.all.headD type
+    | _ => type
+  match env.find? name with
+  | some (.inductInfo val) => val.all.headD name
+  | some (.ctorInfo val) => ofType val.induct
+  | some (.recInfo val) => ofType (val.all.headD name)
+  | some (.quotInfo _) => `Quot
+  | _ => name
+
+/-- The constants the block of `block` refers to, as the exporter follows them: types and
+values; for an inductive block the types of its types, constructors and recursors and the
+recursors' rules; for `Quot` its four constants and `Eq`. -/
+private def blockUses (env : Environment) (recursors : NameMap (Array Name)) (block : Name) :
+    Array Name :=
+  let ofInfo (info : ConstantInfo) : Array Name :=
+    info.type.getUsedConstants ++
+      ((info.value? (allowOpaque := true)).map (·.getUsedConstants)).getD #[]
+  match env.find? block with
+  | some (.inductInfo val) => Id.run do
+    let mut out := #[]
+    for type in val.all do
+      let some (.inductInfo typeVal) := env.find? type | continue
+      out := out ++ typeVal.type.getUsedConstants
+      for ctor in typeVal.ctors do
+        if let some info := env.find? ctor then out := out ++ info.type.getUsedConstants
+      for recursor in (recursors.find? type).getD #[] do
+        if let some (.recInfo recVal) := env.find? recursor then
+          out := out ++ recVal.type.getUsedConstants
+          for rule in recVal.rules do
+            out := out ++ rule.rhs.getUsedConstants
+    return out
+  | some (.quotInfo _) =>
+    #[``Eq] ++ #[`Quot, ``Quot.mk, ``Quot.lift, ``Quot.ind].flatMap fun c =>
+      ((env.find? c).map (·.type.getUsedConstants)).getD #[]
+  | some info => ofInfo info
+  | none => #[]
+
+/-- The axioms outside Lean's standard three under each of `roots` (with `standard`, those
+three as well), found by walking the terms of `env` (types, values, the parts of inductive
+types), sorted; a root with none is left out. The tables of axioms that compiled modules record
+are not read. Fails when declarations depend on each other in a cycle, which no well-formed
+environment has. -/
+def restingAxioms (env : Environment) (roots : Array Name) (standard : Bool := false) :
+    Except String (Array (Name × Array Name)) := Id.run do
+  let recursors := recursorsOf env
+  -- the axioms under each block that is done; a block on the stack has none yet
+  let mut done : Std.HashMap Name (Array Name) := {}
+  let mut open_ : Std.HashSet Name := {}
+  for root in roots do
+    -- `(block, what it uses)`; the uses are there once the block is open
+    let mut stack : Array (Name × Option (Array Name)) := #[(blockOf env root, none)]
+    while h : stack.size > 0 do
+      let (block, uses?) := stack[stack.size - 1]
+      stack := stack.pop
+      if done.contains block then continue
+      match uses? with
+      | some uses =>
+        let mut axioms : Array Name := #[]
+        if let some (.axiomInfo _) := env.find? block then
+          if standard || !Data.standardAxioms.contains block then axioms := axioms.push block
+        for used in uses do
+          for a in done.getD used #[] do
+            unless axioms.contains a do axioms := axioms.push a
+        done := done.insert block axioms
+        open_ := open_.erase block
+      | none =>
+        let uses := (blockUses env recursors block).map (blockOf env) |>.filter (· != block)
+        open_ := open_.insert block
+        stack := stack.push (block, some uses)
+        for used in uses do
+          unless done.contains used do
+            if open_.contains used then
+              return .error s!"the loaded modules hold declarations that depend on each other \
+                in a cycle (at {used})"
+            stack := stack.push (used, none)
+  let mut out := #[]
+  for root in roots do
+    let axioms := done.getD (blockOf env root) #[]
+    unless axioms.isEmpty do out := out.push (root, Data.sortAxioms axioms)
+  return .ok out
+
+/-! ## The export -/
+
+/-- The size of the pieces an export is hashed in. -/
+private def pieceSize : Nat := 4 * 1024 * 1024
+
+/-- Why an export was stopped. -/
+private inductive ExportStop where
+  | overExport
+  | timedOut
+deriving Inhabited, DecidableEq
+
+/-- Where an export goes: a file, written in pieces that are hashed as they are written. -/
+private structure Sink where
+  handle : IO.FS.Handle
+  buffer : IO.Ref ByteArray
+  digests : IO.Ref (Array (Task ByteArray))
+  bytes : IO.Ref Nat
+  stopped : IO.Ref (Option ExportStop)
+  limit? : Option Nat
+  deadline : Nat
+
+private def Sink.flush (sink : Sink) : IO Unit := do
+  let piece ← sink.buffer.modifyGet fun b => (b, ByteArray.emptyWithCapacity 0)
+  if piece.isEmpty then return
+  sink.handle.write piece
+  sink.digests.modify (·.push (Task.spawn fun _ => Sha256.digest piece))
+  let bytes ← sink.bytes.modifyGet fun n => (n + piece.size, n + piece.size)
+  if sink.limit?.any (bytes > ·) then
+    sink.stopped.set (some .overExport)
+    throw (IO.userError "the export went over its size limit")
+  if (← IO.monoMsNow) ≥ sink.deadline then
+    sink.stopped.set (some .timedOut)
+    throw (IO.userError "the export went over the time limit")
+
+private def Sink.put (sink : Sink) (bytes : ByteArray) : IO Unit := do
+  let size ← sink.buffer.modifyGet fun b => let b := b ++ bytes; (b.size, b)
+  if size ≥ pieceSize then sink.flush
+
+/-- What names an export by its contents: its length and the SHA-256 of the SHA-256 digests of
+its pieces (of `pieceSize` bytes, cut at the end of the line that fills one), in hexadecimal. -/
+structure ExportKey where
+  bytes : Nat
+  hash : String
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+private def Sink.key (sink : Sink) : IO ExportKey := do
+  let mut all := ByteArray.emptyWithCapacity 0
+  for digest in ← sink.digests.get do
+    all := all ++ digest.get
+  let bytes ← sink.bytes.get
+  return { bytes, hash := Sha256.hex (all ++ (toString bytes).toUTF8) }
+
+/-- Write `roots` and every constant they depend on to `file`, in the export format of the Lean
+toolchain, with its exporter. Gives the constants written and the export's key, or why the
+export was stopped. The exporter prints to the standard output, which is redirected for this
+thread while it runs. -/
+private def writeExport (env : Environment) (roots : Array Name) (file : FilePath)
+    (limit? : Option Nat) (deadline : Nat) :
+    IO (Except ExportStop (Array Name × ExportKey)) := do
+  let handle ← IO.FS.Handle.mk file .write
+  let sink : Sink := {
+    handle, limit?, deadline
+    buffer := ← IO.mkRef (ByteArray.emptyWithCapacity 0)
+    digests := ← IO.mkRef #[]
+    bytes := ← IO.mkRef 0
+    stopped := ← IO.mkRef none }
+  let stream : IO.FS.Stream := {
+    flush := pure ()
+    read := fun _ => pure (ByteArray.emptyWithCapacity 0)
+    write := sink.put
+    getLine := pure ""
+    putStr := fun text => sink.put text.toUTF8
+    isTty := pure false }
+  let state : LeanExport.State := {
+    visitedNames := (Std.HashMap.emptyWithCapacity 65536).insert .anonymous 0
+    visitedLevels := (Std.HashMap.emptyWithCapacity 1024).insert .zero 0
+    visitedExprs := Std.HashMap.emptyWithCapacity 262144
+    noMDataExprs := Std.HashMap.emptyWithCapacity 1024 }
+  let action : LeanExport.M Unit := do
+    LeanExport.initState env
+    LeanExport.dumpMetadata
+    for root in roots do
+      modify fun st => { st with noMDataExprs := {} }
+      LeanExport.dumpConstant root
+  let before ← IO.setStdout stream
+  let written ← try
+      let (_, state) ← StateT.run (ReaderT.run action { env }) state
+      sink.flush
+      discard <| IO.setStdout before
+      pure (some state.visitedConstants.toArray)
+    catch e =>
+      discard <| IO.setStdout before
+      if (← sink.stopped.get).isNone then throw e
+      pure none
+  handle.flush
+  match written, ← sink.stopped.get with
+  | some constants, none => return .ok (constants, ← sink.key)
+  | _, some stop => return .error stop
+  | none, none => throw (IO.userError "the export was not written")
 
 /-! ## The record -/
+
+/-- How many accepted exports a record keeps: the newest. -/
+private def recordSize : Nat := 256
 
 private def readRecord (file? : Option FilePath) : IO (Array String) := do
   let some file := file? | return #[]
   try
     let json ← IO.ofExcept (Json.parse (← IO.FS.readFile file))
+    let .ok 2 := json.getObjValAs? Nat "version" | return #[]
     IO.ofExcept (json.getObjValAs? (Array String) "accepted")
   catch _ => return #[]
 
@@ -410,8 +653,8 @@ private def writeRecord (file? : Option FilePath) (keys : Array String) : IO Uni
   try
     if let some dir := file.parent then IO.FS.createDirAll dir
     let tmp := file.addExtension s!"tmp{← IO.monoNanosNow}"
-    IO.FS.writeFile tmp (Json.mkObj [("version", 1),
-      ("accepted", toJson (keys.qsort (· < ·)))]).compress
+    let keys := keys.extract (keys.size - recordSize) keys.size
+    IO.FS.writeFile tmp (Json.mkObj [("version", 2), ("accepted", toJson keys)]).compress
     IO.FS.rename tmp file
   catch _ => return
 
@@ -427,25 +670,26 @@ def leanVersionOf (lean : FilePath) : IO (Option String) := do
     return if version.isEmpty then none else some version
   catch _ => return none
 
-/-- What a run of the checker gave. -/
+/-- What a run of a process gave; `peak` is the most memory it was seen to hold
+(`processMemory?`), in bytes. -/
 private inductive RunEnd where
-  | exited (code : UInt32) (stdout stderr : String)
+  | exited (code : UInt32) (stdout stderr : String) (peak : Nat)
   | timedOut
   | overMemory
-  | stopped
   | notStarted (error : String)
 
-/-- How often a checker process's memory is looked at, in milliseconds. -/
+/-- How often the checker process's memory is looked at, in milliseconds. -/
 private def sampleMs : Nat := 500
 
 /-- Run `cmd` with `args` and `env` at a lower priority (through `nice`, when there is one),
-killing it when the clock passes `deadline` (`IO.monoMsNow`), when its memory passes
-`memoryLimit?` (`processMemory?`) or when `stop` is set. The process stays in this process's
-process group, so that whatever stops the generator's group (an interrupt at the terminal, the
-program that started the generator) stops the checker too. -/
+killing it when the clock passes `deadline` (`IO.monoMsNow`) or when its memory passes
+`memoryLimit?` (`processMemory?`, looked at every `sampleMs`). The process stays in this
+process's process group, so that
+whatever stops the generator's group (an interrupt at the terminal, the program that started the
+generator) stops the checker too. -/
 private def runLimited (cmd : String) (args : Array String)
-    (env : Array (String × Option String)) (deadline : Nat) (memoryLimit? : Option Nat)
-    (stop : IO.Ref Bool) : IO RunEnd := do
+    (env : Array (String × Option String)) (deadline : Nat) (memoryLimit? : Option Nat) :
+    IO RunEnd := do
   if (← IO.monoMsNow) ≥ deadline then return .timedOut
   let spawn (cmd : String) (args : Array String) :=
     IO.Process.spawn { cmd, args, env, stdin := .null, stdout := .piped, stderr := .piped }
@@ -458,24 +702,24 @@ private def runLimited (cmd : String) (args : Array String)
     discard <| child.wait
     return r
   let mut nextSample := (← IO.monoMsNow) + sampleMs
+  let mut peak := 0
   let mut code? : Option UInt32 := none
   while code?.isNone do
     code? ← child.tryWait
     if code?.isSome then break
     let now ← IO.monoMsNow
     if now ≥ deadline then return ← finish .timedOut
-    if ← stop.get then return ← finish .stopped
-    if let some limit := memoryLimit? then
-      if now ≥ nextSample then
-        if let some used ← processMemory? child.pid then
-          if used > limit then return ← finish .overMemory
-        nextSample := (← IO.monoMsNow) + sampleMs
+    if now ≥ nextSample then
+      if let some used ← processMemory? child.pid then
+        peak := max peak used
+        if memoryLimit?.any (used > ·) then return ← finish .overMemory
+      nextSample := (← IO.monoMsNow) + sampleMs
     IO.sleep 50
   let text (t : Task (Except IO.Error String)) : String :=
     match t.get with
     | .ok s => s
     | .error _ => ""
-  return .exited (code?.getD 1) (text stdout) (text stderr)
+  return .exited (code?.getD 1) (text stdout) (text stderr) peak
 
 /-- The longest message a result keeps. -/
 private def messageLimit : Nat := 2000
@@ -484,236 +728,262 @@ private def clip (text : String) : String :=
   let text := text.trimAscii.copy
   if text.length ≤ messageLimit then text else (text.take messageLimit).copy ++ " …"
 
-/-- The line `leanchecker` prints before the error of a module it rejects. -/
-private def problemMarker : String := "leanchecker found a problem in "
+/-- The line `leanchecker --from-export` prints when the kernel accepted every constant. -/
+def acceptedLine : String := "Lean default kernel accepts the solution"
 
-/-- The module `leanchecker` rejected and what it said, from its error output. -/
-def parseRejection (stderr : String) : Option Name × String :=
-  let lines := stderr.splitOn "\n"
-  let module := lines.findSome? fun line =>
-    if line.startsWith problemMarker then
-      some (line.drop problemMarker.length).trimAscii.copy.toName
-    else none
-  let rest := lines.filter (!·.startsWith problemMarker)
-  let text := "\n".intercalate rest
-  let text := if text.trimAscii.copy.startsWith "uncaught exception: " then
-      (text.trimAscii.copy.drop "uncaught exception: ".length).copy else text
-  (module.filter (!·.isAnonymous), clip text)
+/-- What `leanchecker --from-export` prints before the kernel's error, or before the reason its
+check of the quotient constants failed. -/
+def rejectedMarkers : List String :=
+  ["Lean default kernel rejects the solution: ", "Quotient post-check rejects the solution: "]
 
-/-- The line `leanchecker -v` prints for each module it replays. -/
-private def replayingMarker : String := "replaying "
-
-/-- The modules `leanchecker -v` says it replayed, from its standard output. -/
-def parseReplayed (stdout : String) : Array Name :=
-  (stdout.splitOn "\n").toArray.filterMap fun line =>
-    if line.startsWith replayingMarker then
-      let m := (line.drop replayingMarker.length).trimAscii.copy.toName
-      if m.isAnonymous then none else some m
-    else none
-
-/-- How the replay of one module ended. -/
-inductive ModuleEnd where
-  /-- The checker accepted the module. -/
+/-- What `leanchecker --from-export` said: accepted (exit status 0 and the line that says so),
+rejected with the kernel's message, or neither. -/
+inductive CheckerVerdict where
   | accepted
-  /-- The checker rejected the module `module` (the one asked for, or a child replayed with it)
-  and said `message`. -/
-  | rejected (module : Name) (message : String)
-  /-- The checker was stopped at the time limit. -/
-  | timedOut
-  /-- The checker was stopped over the memory limit. -/
-  | overMemory
-  /-- The checker was stopped because another module was rejected. -/
-  | stopped
-  /-- The checker could not run to a verdict. -/
-  | failed (message : String)
+  | rejected (message : String)
+  | none (message : String)
 deriving Repr, Inhabited, DecidableEq
 
-/-- What the replay of one module did: how it ended, and the modules the checker said it
-replayed. -/
-structure ModuleRun where
-  module : Name
-  ending : ModuleEnd
-  replayed : Array Name := #[]
-deriving Repr, Inhabited
+/-- Read the checker's exit status and output. Only its own statement counts as acceptance: an
+exit status of 0 without the line is no verdict. -/
+def parseVerdict (code : UInt32) (stdout stderr : String) : CheckerVerdict :=
+  let lines := stdout.splitOn "\n"
+  let rejection := rejectedMarkers.findSome? fun marker =>
+    match stdout.splitOn marker with
+    | _ :: rest@(_ :: _) => some (clip (marker.intercalate rest))
+    | _ => Option.none
+  match rejection with
+  | some message => .rejected message
+  | Option.none =>
+    if code == 0 && lines.any (·.trimAscii.copy == acceptedLine) then .accepted
+    else .none (clip (if stderr.trimAscii.isEmpty then stdout else stderr))
 
-/-- What a replay of a build did: the result, and one entry per module that was replayed. -/
-structure ReplayRun where
-  result : Replay.Result
-  runs : Array ModuleRun := #[]
-deriving Repr, Inhabited
+/-! ## The replay -/
 
-private def mib (bytes : Nat) : Nat := bytes / (1024 * 1024)
+private def mebibytes (bytes : Nat) : Nat := (bytes + 1024 * 1024 - 1) / (1024 * 1024)
 
-/-- Replay the modules `wanted` of a project, and the project's modules they import (the module
-docstring says how), with an entry for each module that was replayed. -/
-def replayBuildRuns (config : ReplayConfig) (wanted : Array Name) : IO ReplayRun := do
+/-- A process's time and memory for a progress line: "47 s, at most 688 MiB of memory". The
+memory is left out when it was never read. -/
+private def usedText (ms peak : Nat) : String :=
+  let memory := if peak == 0 then "" else s!", at most {mebibytes peak} MiB of memory"
+  s!"{(ms + 500) / 1000} s{memory}"
+
+/-- Where the constants `constants` of `loaded` come from: the project (`projectDirs`), Lean's
+own library, and each dependency by the first component of its modules' names. -/
+private def originsOf (loaded : LoadedModules) (projectDirs : Array FilePath)
+    (constants : Array Name) : Array Origin := Id.run do
+  let env := loaded.env
+  -- per kind: the first name components seen, and for a dependency its own count
+  let mut project : Nat := 0
+  let mut projectNames : Array String := #[]
+  let mut toolchain : Nat := 0
+  let mut toolchainNames : Array String := #[]
+  let mut dependencies : Std.HashMap String Nat := {}
+  for c in constants do
+    let some idx := env.getModuleIdxFor? c | continue
+    let some module := env.header.moduleNames[idx.toNat]? | continue
+    let some dir := loaded.dirs[idx.toNat]? | continue
+    let top := module.getRoot.toString (escape := false)
+    if projectDirs.contains dir then
+      project := project + 1
+      unless projectNames.contains top do projectNames := projectNames.push top
+    else if dir == loaded.toolchainDir then
+      toolchain := toolchain + 1
+      unless toolchainNames.contains top do toolchainNames := toolchainNames.push top
+    else
+      dependencies := dependencies.insert top (dependencies.getD top 0 + 1)
+  let joined (names : Array String) := ", ".intercalate (names.qsort (· < ·)).toList
+  let mut out : Array Origin := #[]
+  if project > 0 then
+    out := out.push { kind := .project, name := joined projectNames, constants := project }
+  for (name, n) in dependencies.toArray.qsort
+      (fun a b => a.2 > b.2 || (a.2 == b.2 && a.1 < b.1)) do
+    out := out.push { kind := .dependency, name, constants := n }
+  if toolchain > 0 then
+    out := out.push { kind := .toolchain, name := joined toolchainNames, constants := toolchain }
+  return out
+
+/-- The checker program of `config`, the root of the Lean toolchain the modules are loaded on
+(`ReplayConfig.sysroot?`, else the toolchain the checker is in) and the Lean version of the
+checker's toolchain; the outcome to report when there is no checker. -/
+def ReplayConfig.toolchain (config : ReplayConfig) :
+    IO (Except Replay.Outcome (FilePath × FilePath × Option String)) := do
+  if config.off then return .error .off
+  let some checker := config.checker? | return .error .noChecker
+  let checker ← realOr checker
+  let some binDir := checker.parent | return .error .noChecker
+  let sysroot := config.sysroot?.getD (binDir.parent.getD binDir)
+  let version ← leanVersionOf (binDir / (if Platform.isWindows then "lean.exe" else "lean"))
+  return .ok (checker, sysroot, version)
+
+/-- `names`, each once, in the order `Replay.Result.declarations` keeps. -/
+def replayOrder (names : Array Name) : Array Name :=
+  let distinct : NameHashSet := names.foldl (init := {}) fun set n => set.insert n
+  distinct.toArray.qsort Name.quickLt
+
+/-- What the first half of a replay gives (`prepareExport`): the declarations that were exported
+and the export's key, or why there is no export. It holds nothing of the loaded environment, so
+it can come from another process. -/
+structure Prepared where
+  /-- The declarations exported, in `replayOrder`. -/
+  declarations : Array Name := #[]
+  /-- `Replay.Result.notCovered`. -/
+  notCovered : Array (Name × String) := #[]
+  /-- `Replay.Result.axioms`. -/
+  axioms : Array (Name × Array Name) := #[]
+  /-- The number of constants in the export. -/
+  constants : Nat := 0
+  origins : Array Origin := #[]
+  /-- The export's key, when the export was written. -/
+  key? : Option ExportKey := none
+  /-- Without an export: how the replay ends (`overExport`, `timedOut`, `failed`). -/
+  stop? : Option Replay.Outcome := none
+  /-- With `stop?` of `failed`: why. -/
+  message : Option String := none
+deriving Inhabited, Repr, ToJson, FromJson
+
+/-- The first half of a replay: take the declarations `targets` from the loaded modules
+`loaded`, walk what they depend on for the axioms, and write them with everything they depend
+on to `file` (the module docstring says how). -/
+def prepareExport (loaded : LoadedModules) (projectDirs : Array FilePath)
+    (targets : Array ReplayTarget) (file : FilePath) (exportLimit? : Option Nat)
+    (deadline : Nat) : IO Prepared := do
+  let env := loaded.env
+  -- the declarations the loaded modules have where the site's data places them
+  let mut roots : Array Name := #[]
+  let mut seen : NameHashSet := {}
+  let mut notCovered : Array (Name × String) := #[]
+  for target in targets do
+    if seen.contains target.name then continue
+    seen := seen.insert target.name
+    let leaveOut (why : String) := notCovered.push (target.name, why)
+    match env.find? target.name with
+    | none =>
+      let why := match target.module? with
+        | some m => if loaded.notCompiled.contains m then
+            s!"is not compiled: module {m} has no compiled file on the search path"
+          else "is not in the compiled modules that were loaded"
+        | none => "is not in the compiled modules that were loaded"
+      notCovered := leaveOut why
+    | some info =>
+      let module? := (env.getModuleIdxFor? target.name).bind fun idx =>
+        env.header.moduleNames[idx.toNat]?
+      if info.isUnsafe then
+        notCovered := leaveOut "is unsafe code, which a kernel does not check"
+      else if target.module?.any (some · != module?) then
+        notCovered := leaveOut s!"is in module {(module?.map toString).getD "?"} in the \
+          compiled modules that were loaded, not in {(target.module?.map toString).getD "?"}"
+      else roots := roots.push target.name
+  let base : Prepared := {
+    declarations := replayOrder roots
+    notCovered := notCovered.qsort (·.1.toString < ·.1.toString) }
+  let failed (message : String) : Prepared :=
+    { base with stop? := some .failed, message := some message }
+  if roots.isEmpty then
+    return failed "none of the site's Lean declarations is in the compiled modules that were \
+      loaded"
+  let axioms ← match restingAxioms env roots with
+    | .ok axioms => pure (axioms.qsort (·.1.toString < ·.1.toString))
+    | .error message => return failed message
+  let base := { base with axioms }
+  -- the export, written and hashed from the environment in memory
+  let exported ← try writeExport env roots file exportLimit? deadline
+    catch e => return { base with stop? := some .failed, message := some s!"the export failed: {e}" }
+  let (constants, key) ← match exported with
+    | .ok written => pure written
+    | .error .overExport => return { base with stop? := some .overExport }
+    | .error .timedOut => return { base with stop? := some .timedOut }
+  -- the exporter leaves out what it cannot export; a root it left out was not checked
+  let exportedSet : NameHashSet := constants.foldl (init := {}) fun set c => set.insert c
+  if let some missing := roots.find? (!exportedSet.contains ·) then
+    return { base with stop? := some .failed, message := some s!"the export does not hold {missing}" }
+  return { base with
+    constants := constants.size, origins := originsOf loaded projectDirs constants
+    key? := some key }
+
+/-- The second half of a replay: have `checker` check the export `file` that `prepared`
+describes, unless the record has it as accepted, and give the replay's result. `version` is the
+Lean version of the checker's toolchain. -/
+def checkExport (config : ReplayConfig) (checker : FilePath) (version : Option String)
+    (prepared : Prepared) (file : FilePath) (deadline : Nat) : IO Replay.Result := do
   let say (line : String) : IO Unit := do
     if config.progress then IO.eprintln s!"Kernel replay: {line}"
-  -- the project's compiled modules, and everything else on the search path
-  let mut own : NameMap (FilePath × FilePath) := {}
-  for dir in config.projectDirs do
-    for file in ← compiledFiles dir do
-      if let some m := moduleOfFile? dir file then
-        unless own.contains m do own := own.insert m (dir, file)
-  -- the modules to cover: the wanted ones that are compiled, and the project's below them
-  let mut imports : NameMap (Array Name) := {}
-  let mut covered : NameSet := {}
-  let mut notCompiled : Array Name := #[]
-  let mut todo := wanted
-  while h : todo.size > 0 do
-    let m := todo[todo.size - 1]
-    todo := todo.pop
-    if covered.contains m then continue
-    let some (_, olean) := own.find? m
-      | if wanted.contains m && !notCompiled.contains m then notCompiled := notCompiled.push m
-        continue
-    covered := covered.insert m
-    let deps ← try importsOf olean catch _ => pure #[]
-    let deps := deps.filter own.contains
-    imports := imports.insert m deps
-    todo := todo ++ deps
-  let modules := covered.toArray.qsort (·.toString < ·.toString)
-  let base : Replay.Result :=
-    { outcome := .off, modules, notCompiled := notCompiled.qsort (·.toString < ·.toString) }
-  if config.off then return { result := base }
-  let some checker := config.checker? | return { result := { base with outcome := .noChecker } }
-  let checker ← realOr checker
-  let some binDir := checker.parent | return { result := { base with outcome := .noChecker } }
-  let sysroot := binDir.parent.getD binDir
-  let version ← leanVersionOf (binDir / (if Platform.isWindows then "lean.exe" else "lean"))
-  let base := { base with version }
-  if modules.isEmpty then
-    let message := "none of the site's modules has a compiled module among the project's own"
-    return { result := { base with outcome := .failed, message := some message } }
-  -- everything a module's acceptance rests on outside the project
-  let mut counts : Array (FilePath × Nat) := #[]
-  for dir in config.projectDirs do
-    counts := counts.push (dir, (← compiledFiles dir).size)
-  let mut outside := ""
-  let sysLib := sysroot / "lib" / "lean"
-  for dir in config.importDirs.push sysLib do
-    let files ← compiledFiles dir
-    counts := counts.push (dir, files.size)
-    for file in files.qsort (·.toString < ·.toString) do
-      let (size, modified) ← try
-          let md ← file.metadata
-          pure (md.byteSize, s!"{md.modified.sec}.{md.modified.nsec}")
-        catch _ => pure (0, "")
-      outside := outside ++ s!"{file} {size} {modified}\n"
+  let base : Replay.Result := {
+    outcome := .failed, version, declarations := prepared.declarations
+    -- the program that was run, by its own name
+    checker := (checker.fileStem.filter (!·.isEmpty)).getD "leanchecker"
+    notCovered := prepared.notCovered, axioms := prepared.axioms
+    constants := prepared.constants, origins := prepared.origins }
+  let finish (result : Replay.Result) : IO Replay.Result := do
+    say (match result.outcome with
+      | .accepted => s!"accepted, {counted result.constants "constant"}"
+      | .rejected => "rejected"
+      | _ => result.whyNot)
+    return result
+  let key ← match prepared.key?, prepared.stop? with
+    | some key, none => pure key
+    | _, some .overExport =>
+      return ← finish { base with outcome := .overExport, exportLimit := config.exportLimit? }
+    | _, some .timedOut =>
+      return ← finish { base with outcome := .timedOut, limitSeconds := some config.limitSeconds }
+    | _, _ =>
+      return ← finish { base with message := prepared.message <|> some "no export was written" }
   let checkerId ← try
       let md ← checker.metadata
       pure s!"{checker} {md.byteSize} {md.modified.sec}.{md.modified.nsec} {version}"
     catch _ => pure s!"{checker} {version}"
-  let outsideKey := Sha256.hexOfString (checkerId ++ "\n" ++ outside)
-  -- the modules' keys, imports first
-  let order := importsFirst modules imports
-  let mut keys : NameMap String := {}
-  for m in order do
-    let deps := (imports.find? m).getD #[]
-    let some (_, olean) := own.find? m | continue
-    let mut contents := ""
-    for part in ← moduleParts olean do
-      contents := contents ++ (← hexOfFile part) ++ "\n"
-    let below := "\n".intercalate ((deps.filterMap keys.find?).qsort (· < ·)).toList
-    keys := keys.insert m
-      (Sha256.hexOfString s!"replay 1\n{outsideKey}\n{m}\n{contents}{below}")
+  let recordKey := Sha256.hexOfString s!"export 1\n{checkerId}\n{key.bytes}\n{key.hash}"
   let recorded ← readRecord config.record?
-  let keyOf (m : Name) : String := (keys.find? m).getD ""
-  let pending := order.filter fun m => !recorded.contains (keyOf m)
-  let stillAccepted := (modules.filter (!pending.contains ·)).map keyOf
-  if pending.isEmpty then
-    say s!"every one of the {modules.size} modules was accepted before"
-    return { result := { base with outcome := .accepted } }
-  -- the search path: the largest directory first, as the checker tries them in turn per file
-  let dirs := (counts.qsort (·.2 > ·.2)).map (·.1)
-  let jobs := max 1 (min config.jobs pending.size)
-  let limitText := match config.memoryLimit? with
-    | some limit => s!", at most {mib limit} MiB each"
-    | none => ""
-  say s!"{pending.size} of {modules.size} modules to replay with {checker.fileName.getD "the \
-    checker"}, {jobs} at a time{limitText}"
-  let deadline := (← IO.monoMsNow) + config.limitSeconds * 1000
-  let work ← IO.FS.createTempDir
-  let next ← IO.mkRef 0
-  let stop ← IO.mkRef false
-  let runs ← IO.mkRef (#[] : Array ModuleRun)
-  let replayOne (slot : Nat) (m : Name) : IO ModuleRun := do
-    let some (lib, _) := own.find? m | return { module := m, ending := .failed "not compiled" }
-    let shadow := work / s!"path{slot}"
-    if ← shadow.pathExists then IO.FS.removeDirAll shadow
-    let isolated ← try buildShadow lib m shadow catch _ => pure false
-    let path := dirs.map fun d => if isolated && d == lib then shadow else d
-    let env : Array (String × Option String) := #[
-      ("LEAN_PATH", some (SearchPath.toString path.toList)),
-      ("LEAN_SYSROOT", some sysroot.toString)]
-    let ending ← runLimited checker.toString #["-v", m.toString] env deadline
-      config.memoryLimit? stop
-    if ← shadow.pathExists then try IO.FS.removeDirAll shadow catch _ => pure ()
-    match ending with
-    | .notStarted error => return { module := m, ending := .failed (clip error) }
-    | .timedOut => return { module := m, ending := .timedOut }
-    | .overMemory => return { module := m, ending := .overMemory }
-    | .stopped => return { module := m, ending := .stopped }
-    | .exited code stdout stderr =>
-      let replayed := parseReplayed stdout
-      if code == 0 then
-        if replayed.contains m then return { module := m, ending := .accepted, replayed }
-        let message := s!"the checker did not report replaying {m}"
-        return { module := m, ending := .failed message, replayed }
-      let (module?, message) := parseRejection stderr
-      match module? with
-      | some r =>
-        if covered.contains r then return { module := m, ending := .rejected r message, replayed }
-        let message := s!"it stopped on module {r}, which is not a module of this site: {message}"
-        return { module := m, ending := .failed message, replayed }
-      | none => return { module := m, ending := .failed message, replayed }
-  let worker (slot : Nat) : IO Unit := do
-    repeat
-      if ← stop.get then break
-      let i ← next.modifyGet fun i => (i, i + 1)
-      let some m := pending[i]? | break
-      let run ← replayOne slot m
-      if run.ending matches .rejected .. then stop.set true
-      let done ← runs.modifyGet fun rs => (rs.size + 1, rs.push run)
-      match run.ending with
-      | .accepted => say s!"accepted {m} ({done} of {pending.size})"
-      | .rejected r _ => say s!"rejected {r}"
-      | .overMemory =>
-        say s!"stopped over the memory limit in {m}"
-      | .failed message => say s!"could not replay {m}: {message}"
-      | _ => pure ()
-  let tasks ← (List.range jobs).toArray.mapM fun slot =>
-    IO.asTask (worker slot) Task.Priority.dedicated
-  for t in tasks do
-    discard <| IO.wait t
-  try IO.FS.removeDirAll work catch _ => pure ()
-  let runs ← runs.get
-  let acceptedNow := (runs.filter (·.ending == .accepted)).map (keyOf ·.module)
-  writeRecord config.record? (stillAccepted ++ acceptedNow)
-  let ordered := order.filterMap fun m => runs.find? (·.module == m)
-  let result : Replay.Result ←
-    if let some (r, message) := ordered.findSome? fun run =>
-        match run.ending with | .rejected r message => some (r, message) | _ => none then
-      pure { base with outcome := .rejected, rejectedModule := some r, message := some message }
-    else if let some run := ordered.find? (·.ending == .overMemory) then
-      pure { base with outcome := .overMemory, stoppedModule := some run.module,
-                       memoryLimit := config.memoryLimit? }
-    else if ordered.size < pending.size || ordered.any (·.ending == .timedOut) then
-      pure { base with outcome := .timedOut, limitSeconds := some config.limitSeconds }
-    else if let some (m, message) := ordered.findSome? fun run =>
-        match run.ending with | .failed message => some (run.module, message) | _ => none then
-      pure { base with outcome := .failed, message := some s!"module {m}: {message}" }
-    else
-      pure { base with outcome := .accepted }
-  say (match result.outcome with
-    | .accepted => s!"accepted, {modules.size} modules"
-    | .rejected => s!"rejected ({(result.rejectedModule.map toString).getD "a module"})"
-    | _ => result.whyNot)
-  return { result, runs := ordered }
+  if recorded.contains recordKey then
+    say s!"an identical export ({mebibytes key.bytes} MiB) was accepted before"
+    return ← finish { base with outcome := .accepted, recorded := true }
+  say s!"checking {counted prepared.constants "constant"} ({mebibytes key.bytes} MiB) with \
+    {checker.fileName.getD "the checker"}"
+  let sysroot := (checker.parent.bind (·.parent)).getD "."
+  let start ← IO.monoMsNow
+  let ending ← runLimited checker.toString #["--from-export", file.toString]
+    #[("LEAN_SYSROOT", some sysroot.toString)] deadline config.memoryLimit?
+  if let .exited _ _ _ peak := ending then
+    say s!"the checker ran for {usedText ((← IO.monoMsNow) - start) peak}"
+  match ending with
+  | .notStarted error =>
+    finish { base with message := some s!"the checker could not be started: {clip error}" }
+  | .timedOut => finish { base with outcome := .timedOut, limitSeconds := some config.limitSeconds }
+  | .overMemory => finish { base with outcome := .overMemory, memoryLimit := config.memoryLimit? }
+  | .exited code stdout stderr _ =>
+    match parseVerdict code stdout stderr with
+    | .accepted =>
+      writeRecord config.record? ((recorded.filter (· != recordKey)).push recordKey)
+      finish { base with outcome := .accepted }
+    | .rejected message => finish { base with outcome := .rejected, message := some message }
+    | .none message => finish { base with message := some s!"the checker said: {message}" }
 
-/-- Replay the modules `wanted` of a project, and the project's modules they import
-(`replayBuildRuns`). -/
-def replayBuild (config : ReplayConfig) (wanted : Array Name) : IO Replay.Result :=
-  return (← replayBuildRuns config wanted).result
+/-- How a worker process ended (`runWorker`). -/
+inductive WorkerEnd where
+  /-- It exited with status 0; `used` says how long it ran and how much memory it held. -/
+  | done (used : String)
+  /-- It was stopped at the time limit. -/
+  | timedOut
+  /-- It was stopped over the memory limit. -/
+  | overMemory
+  /-- It could not be started, or exited with another status: what it said. -/
+  | failed (message : String)
+deriving Repr, Inhabited, DecidableEq
+
+/-- Run the worker of `config` on the request file `request`, for the reply file `reply`, under
+the time limit `deadline` and the memory limit of `config`. -/
+def runWorker (config : ReplayConfig) (request reply : FilePath) (deadline : Nat) :
+    IO WorkerEnd := do
+  let some (program, args) := config.worker? | return .failed "no worker program is known"
+  let start ← IO.monoMsNow
+  let ending ← runLimited program.toString (args ++ #[request.toString, reply.toString]) #[]
+    deadline config.memoryLimit?
+  match ending with
+  | .timedOut => return .timedOut
+  | .overMemory => return .overMemory
+  | .notStarted error => return .failed s!"the export process could not be started: {clip error}"
+  | .exited 0 _ _ peak => return .done (usedText ((← IO.monoMsNow) - start) peak)
+  | .exited code _ stderr _ =>
+    return .failed s!"the export process ended with status {code}: {clip stderr}"
 
 end Informal.Stats

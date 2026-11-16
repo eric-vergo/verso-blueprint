@@ -10,27 +10,32 @@ import VersoBlueprint.PreviewManifest
 import VersoBlueprint.ReplayView
 import VersoBlueprintTests.ComparatorFixtures.Match.Solution
 import VersoBlueprintTests.ComparatorFixtures.Forged.Solution
-import VersoBlueprintTests.ReplayFixtures.Tree
 import VersoBlueprintTests.ReplayFixtures.Nested
+import VersoBlueprintTests.ReplayFixtures.Reach
 
 /-!
 The kernel replay of a build, and the words that depend on it.
 
-A page says "proved", and a node gets the check mark, only when the toolchain's `leanchecker`
-accepted the compiled modules concerned. These tests run the real checker on the Comparator
-fixtures and pin the four states a reader can meet:
+A page says "proved", and a node gets the check mark, only for a declaration that the
+toolchain's `leanchecker` accepted together with every constant it depends on, in the project,
+in its dependencies and in Lean's own library. These tests run the real checker on fixtures and
+pin the states a reader can meet:
 
 * the replay accepts: "Lean statement proved", the check mark;
 * a forged proof (`ComparatorFixtures.Forged.Solution`: no `sorry`, no axiom, same statement,
   and a constant no kernel saw): the comparison's conditions are met, the replay rejects the
-  module, and the headline says so with the checker's message;
-* no checker: what the compiled files report, with a mark that is not a check mark;
-* the replay stopped at its time limit: the same, with the reason.
+  build, and the headline says so with the checker's message;
+* a forged constant in a dependency (`ReplayFixtures.Reach` over
+  `VersoBlueprintReplayDependency.Lemmas`): rejected just the same, while a declaration that does
+  not depend on it is accepted;
+* a module whose compiled file exists in two directories of the search path: no verdict, in
+  either order of the path;
+* a declaration that rests on an axiom of the project: checked, and not shown as proved;
+* no checker, a replay stopped at a limit (time, memory, the size of the export): what the
+  compiled files report, with the reason, and a mark that is not a check mark.
 
-They also pin the parts: SHA-256 against the standard's test vectors, the record of accepted
-modules, the checker's output as it is read, and how the replay is run: every module of the
-project in a process of its own, exactly once, a root module apart from its children, under a
-memory limit and a time limit.
+They also pin the parts: SHA-256 against the standard's test vectors, the checker's output as it
+is read, the record of accepted exports, and the worker process that loads the modules.
 -/
 
 namespace Verso.VersoBlueprintTests.BlueprintKernelReplay
@@ -57,80 +62,129 @@ open Verso.VersoBlueprintTests.Blueprint.Support
     Sha256.hex (ByteArray.mk (Array.replicate 1000000 97)) ==
       "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
 
-/-! ## The checker's arguments and output -/
+/-! ## The machine, and the checker's output -/
 
--- What `leanchecker -v` says it replayed, the memory `footprint` reports, and a `/proc` field.
-/--
-info: (#[`A.B, `C], some 1753088, some 1610612736, some 183500800, none, some 8)
--/
+-- The memory `footprint` reports, a `/proc` field, and the default memory limit of the checker:
+-- a quarter of the physical memory.
+/-- info: (some 1753088, some 1610612736, some 183500800, none, some 8, 17179869184) -/
 #guard_msgs in
 #eval
-  (parseReplayed "replaying A.B\nsomething\nreplaying C\n",
-   parseFootprint "zsh [7431]: 64-bit    Footprint: 1712 KB (16384 bytes per page)\n",
+  (parseFootprint "zsh [7431]: 64-bit    Footprint: 1712 KB (16384 bytes per page)\n",
    parseFootprint "leanchecker [1]: 64-bit    Footprint: 1.5 GB (16384 bytes per page)",
    parseFootprint "x: Footprint: 175 MB", parseFootprint "no footprint here",
-   procField? "Name:\tx\nRssAnon:\t       8 kB\n" "RssAnon:")
+   procField? "Name:\tx\nRssAnon:\t       8 kB\n" "RssAnon:",
+   defaultMemoryLimit 68719476736)
 
--- The default number of checker processes, and the memory limit of each: the processes run at
--- once share a quarter of the physical memory.
-/-- info: ([1, 1, 2, 4, 4], [17179869184, 4294967296, 1073741824]) -/
-#guard_msgs in
+-- Only the checker's own statement is an acceptance: its line and the exit status 0 together.
+-- A rejection is read with the kernel's message; anything else is no verdict.
+/--
+info: [Informal.Stats.CheckerVerdict.accepted,
+ Informal.Stats.CheckerVerdict.none "",
+ Informal.Stats.CheckerVerdict.none "Lean default kernel accepts the solution",
+ Informal.Stats.CheckerVerdict.rejected "(kernel) declaration type mismatch\nmore",
+ Informal.Stats.CheckerVerdict.rejected "Quot.mk differs",
+ Informal.Stats.CheckerVerdict.none "uncaught exception: bad export"]
+-/
+#guard_msgs (whitespace := lax) in
 #eval
-  ([1, 4, 8, 16, 24].map defaultReplayJobs,
-   [(68719476736, 1), (68719476736, 4), (17179869184, 4)].map fun (m, j) => defaultMemoryLimit m j)
+  [parseVerdict 0 "Lean default kernel accepts the solution\n" "",
+   parseVerdict 0 "" "",
+   parseVerdict 1 "Lean default kernel accepts the solution\n" "",
+   parseVerdict 1 "Lean default kernel rejects the solution: (kernel) declaration type mismatch\nmore\n" "",
+   parseVerdict 0 "Lean default kernel accepts the solution\nQuotient post-check rejects the solution: Quot.mk differs\n" "",
+   parseVerdict 1 "" "uncaught exception: bad export\n"]
 
--- A module comes after the modules it imports.
-/-- info: [`C, `B, `A, `D] -/
-#guard_msgs in
+-- The record of accepted exports is in the user's cache directory, never in a project.
+/--
+info: [some "/Users/a/Library/Caches/verso-blueprint/kernel-replay.json",
+ some "/x/cache/verso-blueprint/kernel-replay.json",
+ some "/home/a/.cache/verso-blueprint/kernel-replay.json",
+ none,
+ none]
+-/
+#guard_msgs (whitespace := lax) in
 #eval
-  let imports : Lean.NameMap (Array Name) :=
-    ({} : Lean.NameMap (Array Name)).insert `A #[`B, `C] |>.insert `B #[`C] |>.insert `D #[`A]
-  (importsFirst #[`A, `B, `C, `D] imports).toList
-
--- The module and the message of a rejection, as `leanchecker` prints them.
-/-- info: (some `Comparator.Solution, "(kernel) declaration type mismatch", none, "something else") -/
-#guard_msgs in
-#eval
-  let rejected := parseRejection
-    "leanchecker found a problem in Comparator.Solution\nuncaught exception: (kernel) declaration type mismatch\n"
-  let other := parseRejection "something else\n"
-  (rejected.1, rejected.2, other.1, other.2)
+  [recordFileIn (some "/Users/a") (some "/x/cache") none (macOS := true) (windows := false),
+   recordFileIn (some "/home/a") (some "/x/cache") none (macOS := false) (windows := false),
+   recordFileIn (some "/home/a") (some " ") none (macOS := false) (windows := false),
+   recordFileIn none none none (macOS := true) (windows := false),
+   recordFileIn (some "/home/a") none none (macOS := false) (windows := true)].map
+    (·.map (·.toString))
 
 /-! ## What a replay establishes -/
 
 private def result (outcome : Replay.Outcome) : Replay.Result :=
-  { outcome, version := some "4.35.0", modules := #[`P.Solution, `P.Basic]
-    rejectedModule := if outcome == .rejected then some `P.Solution else none
+  { outcome, version := some "4.35.0"
+    declarations := replayOrder #[`P.main, `P.lemma, `P.assumed, `P.unfinished]
+    axioms := #[(`P.assumed, #[`P.ax]), (`P.unfinished, #[``sorryAx])]
+    notCovered := #[(`P.script, "is not in the compiled modules that were loaded")]
+    constants := 3409
+    origins := #[{ kind := .project, name := "P", constants := 87 },
+                 { kind := .dependency, name := "Mathlib", constants := 860 },
+                 { kind := .toolchain, name := "Init, Std", constants := 2462 }]
     message := if outcome == .rejected then some "(kernel) declaration type mismatch" else none
     limitSeconds := if outcome == .timedOut then some 900 else none }
 
--- Only an accepted replay that covers the modules asked about is a standing of `accepted`.
+-- Only an accepted replay that covers the declarations asked about is a standing of
+-- `accepted`; a declaration the replay left out says why.
 /-- info: true -/
 #guard_msgs in
 #eval
-  let needed := #[`P.Solution]
+  let needed := #[`P.main]
   Replay.standing (some (result .accepted)) needed == .accepted &&
-    Replay.standing (some (result .accepted)) #[`Mathlib.Data.Nat.Basic] ==
-      .notReplayed "not part of a replayed module: Mathlib.Data.Nat.Basic is not among the \
-        project's modules that were replayed" &&
-    Replay.standing (some (result .rejected)) needed == .rejected (some `P.Solution) &&
+    Replay.standing (some (result .accepted)) #[`P.main, `Mathlib.other] ==
+      .notReplayed "not part of the replay: Mathlib.other is not among the declarations that \
+        were checked" &&
+    Replay.standing (some (result .accepted)) #[`P.script] ==
+      .notReplayed "not part of the replay: P.script is not in the compiled modules that were \
+        loaded" &&
+    Replay.standing (some (result .rejected)) needed == .rejected &&
     Replay.standing none needed ==
       .notReplayed "this site was generated without a kernel replay" &&
     Replay.standing (some (result .noChecker)) needed ==
       .notReplayed "no kernel checker was found" &&
     Replay.standing (some (result .timedOut)) needed ==
-      .notReplayed "leanchecker (Lean 4.35.0) did not finish within 900 s" &&
+      .notReplayed "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s" &&
     Replay.standing (some (result .off)) needed ==
       .notReplayed "the kernel replay was switched off for this build" &&
-    Replay.standing (some (result .failed)) needed ==
-      .notReplayed "leanchecker (Lean 4.35.0) could not run to a verdict"
+    Replay.standing (some { result .failed with message := some "no export was written" })
+        needed ==
+      .notReplayed "the replay could not run to a verdict: no export was written" &&
+    Replay.standing (some { result .overMemory with memoryLimit := some (64 * 1024 * 1024) })
+        needed ==
+      .notReplayed "the replay was stopped: leanchecker (Lean 4.35.0) went over its memory \
+        limit of 64 MiB" &&
+    Replay.standing (some { result .overExport with exportLimit := some (8 * 1024 * 1024) })
+        needed ==
+      .notReplayed "the replay was stopped: the export of what the site's declarations depend \
+        on went over its size limit of 8 MiB"
+
+-- A kernel accepts an axiom without a proof. A declaration the replay checked counts as proved
+-- only when the replay found no axiom under it beyond the permitted ones: Lean's standard three,
+-- or the list a challenge states. A `sorry` is such an axiom.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let replay? := some (result .accepted)
+  Replay.provedStanding replay? #[`P.main] == .accepted &&
+    Replay.standing replay? #[`P.assumed] == .accepted &&
+    Replay.provedStanding replay? #[`P.assumed] == .assumed #[`P.ax] &&
+    Replay.provedStanding replay? #[`P.main, `P.unfinished] == .assumed #[``sorryAx] &&
+    Replay.provedStanding replay? #[`P.assumed] (permitted := #[`P.ax]) == .accepted &&
+    Replay.provedStanding replay? #[`P.main] (unplaced := some `Main.forged) ==
+      .notReplayed "not part of the replay: the module of Main.forged is not known" &&
+    (Replay.Standing.assumed #[`P.ax]).token == "none" &&
+    (Replay.Standing.assumed #[`P.ax]).why == "the replay found an axiom under it that a kernel \
+      accepts without a proof (P.ax)"
 
 /-! ## The headline's verdict -/
 
 private def met : HeadlineTheorem :=
-  { name := `main, solution := .same, sorryFree := some true, conditionsMet := true }
+  { name := `P.main, solution := .same, sorryFree := some true, conditionsMet := true }
 
--- The four states. "Proved" is said in one of them.
+private def headline : Headline := { challengeModule := `P.Challenge, solutionModule := `P.Solution }
+
+-- The states. "Proved" is said in one of them.
 /--
 info: [("proved", "Lean statement proved"),
  ("rejected", "Proof rejected by the kernel checker"),
@@ -145,49 +199,62 @@ info: [("proved", "Lean statement proved"),
 #eval
   [some (result .accepted), some (result .rejected), some (result .noChecker),
    some (result .timedOut), none].map fun replay? =>
-    headlineVerdict met (Replay.standing replay? #[`P.Solution])
+    headlineVerdict met (headlineStanding replay? headline met)
 
 -- Without a standing the verdict is the one without a replay; a theorem that does not meet the
--- comparison's conditions keeps its verdict whatever the replay says.
+-- comparison's conditions keeps its verdict whatever the replay says; a theorem the replay did
+-- not check, or under which it found an axiom the challenge does not permit, is not called
+-- proved, whatever the replay accepted.
 /-- info: true -/
 #guard_msgs in
 #eval
+  let replay? := some (result .accepted)
   (headlineVerdict met).1 == "not-replayed" &&
     (headlineVerdict { met with conditionsMet := false, sorryFree := some false } .accepted).1 ==
-      "sorry"
+      "sorry" &&
+    headlineStanding replay? headline { met with name := `P.other } ==
+      .notReplayed "not part of the replay: P.other is not among the declarations that were \
+        checked" &&
+    headlineStanding replay? headline { met with name := `P.assumed } == .assumed #[`P.ax] &&
+    (headlineVerdict met (headlineStanding replay? headline { met with name := `P.assumed })).1
+      == "not-replayed" &&
+    headlineStanding replay? { headline with permittedAxioms := some #[`P.ax] }
+      { met with name := `P.assumed } == .accepted
 
 -- The line under the verdict: the checker with its version, and for a rejection its message.
 /--
-info: ["Kernel replay: leanchecker (Lean 4.35.0) accepted the project module the solution rests on.",
- "Kernel replay: leanchecker (Lean 4.35.0) rejected module P.Solution: (kernel) declaration type mismatch",
+info: ["Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment.",
+ "Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment (in an earlier run, for an export identical to this build's).",
+ "Kernel replay: leanchecker (Lean 4.35.0) rejected this build: (kernel) declaration type mismatch",
  "No kernel replay: no kernel checker was found.",
- "No kernel replay: leanchecker (Lean 4.35.0) did not finish within 900 s.",
+ "No kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.",
  "No kernel replay: this site was generated without a kernel replay."]
 -/
 #guard_msgs (whitespace := lax) in
 #eval
-  [some (result .accepted), some (result .rejected), some (result .noChecker),
-   some (result .timedOut), none].map fun replay? => replayNoteText replay? #[`P.Solution]
+  [some (result .accepted), some { result .accepted with recorded := true },
+   some (result .rejected), some (result .noChecker), some (result .timedOut), none].map
+    fun replay? => replayNoteText replay? (headlineStanding replay? headline met)
 
 /-! ## A node's mark -/
 
-private def mark (modules : Array Name := #[`P.Basic]) : BlockStatusMark :=
+private def mark (declarations : Array Name := #[`P.lemma]) : BlockStatusMark :=
   { status := .proved, title := "Lean statement: no sorry; Lean proof: no sorry", kind := .theorem
-    modules }
+    declarations }
 
--- The check mark needs an accepted replay of the node's module; the other states have marks of
--- their own, and their words say what was established.
+-- The check mark needs an accepted replay of the node's declarations; the other states have
+-- marks of their own, and their words say what was established.
 /--
 info: [("proved",
   "✓",
-  "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0)"),
- ("rejected", "⊘", "Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build (module P.Solution)"),
+  "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on"),
+ ("rejected", "⊘", "Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build"),
  ("reported",
   "◇",
   "Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)"),
  ("reported",
   "◇",
-  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (leanchecker (Lean 4.35.0) did not finish within 900 s)"),
+  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)"),
  ("reported",
   "◇",
   "Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)")]
@@ -199,14 +266,14 @@ info: [("proved",
     let (kind, text) := statusGlyph (some (mark)) replay?
     (kind.modifier, kind.glyph, text)
 
--- A node whose declaration is in a module outside the project is not covered by the replay.
+-- A node with a declaration the replay did not check is not covered by it.
 /--
 info: ("reported",
- "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: Mathlib.Data.Nat.Basic is not among the project's modules that were replayed)")
+ "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: Mathlib.other is not among the declarations that were checked)")
 -/
 #guard_msgs (whitespace := lax) in
 #eval
-  let (kind, text) := statusGlyph (some (mark #[`Mathlib.Data.Nat.Basic])) (some (result .accepted))
+  let (kind, text) := statusGlyph (some (mark #[`P.lemma, `Mathlib.other])) (some (result .accepted))
   (kind.modifier, text)
 
 -- A declaration whose module is not known (it is declared where the site's data was captured,
@@ -217,59 +284,69 @@ info: ("reported",
   let (kind, text) := statusGlyph (some { mark #[] with unplaced := some `Main.forged })
     (some (result .accepted))
   kind.modifier == "reported" && text == "Lean proof without sorry, as the compiled files \
-    report; not replayed by a kernel (not part of a replayed module: the module of Main.forged \
-    is not known)"
-
--- A headline whose solution module is not among the project's replayed modules is not called
--- proved, whatever the replay accepted.
-/-- info: true -/
-#guard_msgs in
-#eval
-  let h : Headline := { challengeModule := `P.Challenge, solutionModule := `P.Solution }
-  let covered := { h with solutionModules := #[`P.Basic, `P.Solution] }
-  headlineStanding (some (result .accepted)) covered == .accepted &&
-    headlineStanding (some (result .accepted)) h == .notReplayed "the solution module \
-      P.Solution is not among the project's compiled modules, so it was not replayed" &&
-    headlineStanding (some (result .rejected)) h == .rejected (some `P.Solution) &&
-    (headlineVerdict met (headlineStanding (some (result .accepted)) h)).1 == "not-replayed"
+    report; not replayed by a kernel (not part of the replay: the module of Main.forged is not \
+    known)"
 
 -- The marks that are not about a replay do not change with it: an axiom beyond the standard
--- three keeps the warning mark under an accepted replay.
-/-- info: true -/
-#guard_msgs in
+-- three keeps the warning mark under an accepted replay. And an axiom that only the replay
+-- found, in the terms, takes the check mark away as well.
+/--
+info: ("problem",
+ "problem",
+ "Lean proof without sorry, resting on an axiom outside Lean's standard three (P.ax) (found by the kernel replay in the terms; the compiled files report none)")
+-/
+#guard_msgs (whitespace := lax) in
 #eval
-  (statusGlyph (some { mark with extraAxioms := #[`Demo.ax] }) (some (result .accepted))).1.modifier
-    == "problem"
+  let reported := statusGlyph (some { mark with extraAxioms := #[`Demo.ax] })
+    (some (result .accepted))
+  let found := statusGlyph (some (mark #[`P.assumed])) (some (result .accepted))
+  (reported.1.modifier, found.1.modifier, found.2)
 
 /-! ## The Project Stats page -/
 
 private def stats (replay? : Option Replay.Result) : ProjectStats := {
   identity := { name := some "demo", toolchain := some "leanprover/lean4:v4.35.0" }
-  headline := some {
-    challengeModule := `P.Challenge, solutionModule := `P.Solution
-    solutionModules := #[`P.Basic, `P.Solution]
-    theorems := #[{ met with statement := "theorem main : True" }] }
+  headline := some { headline with theorems := #[{ met with statement := "theorem main : True" }] }
   hasComparatorChallenge := true
   replay := replay? }
 
 private def page (replay? : Option Replay.Result) : String :=
   (statsPageHtml { stats := stats replay? }).asString
 
--- Accepted: the verdict, the line under it, and the band with the checker, the modules and
--- what a replay leaves trusted.
+-- Accepted: the verdict, the line under it, and the band with the checker, what was checked,
+-- where it comes from, what was left out, and what a replay leaves trusted.
 /-- info: true -/
 #guard_msgs in
 #eval
   let html := page (some (result .accepted))
   hasSubstr html "data-bp-verdict=\"proved\"" && hasSubstr html ">Lean statement proved</span>" &&
-    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted the 2 project modules the \
-      solution rests on." &&
+    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every \
+      constant it depends on" &&
     hasSubstr html "class=\"bp_stats_band bp_stats_replay\"" &&
     hasSubstr html "data-bp-replay=\"accepted\"" &&
-    hasSubstr html "Accepted: leanchecker (Lean 4.35.0) checked every constant of this" &&
-    hasSubstr html "Modules replayed (2)" && hasSubstr html "<code>P.Solution</code>" &&
+    hasSubstr html "Accepted: leanchecker (Lean 4.35.0) checked 4 declarations and everything \
+      they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of \
+      Lean's own library (Init, Std)) again in Lean's kernel, starting from an empty \
+      environment." &&
+    hasSubstr html "Declarations checked, each with everything it depends on (4)" &&
+    hasSubstr html "<code>P.main</code>" &&
+    hasSubstr html "Declarations of the site that the replay does not cover (1)" &&
+    hasSubstr html "<code>P.script</code> is not in the compiled modules that were loaded" &&
+    hasSubstr html "Declarations that depend on an axiom outside Lean's standard three, \
+      as the replay found by walking the terms (2)" &&
+    hasSubstr html "<code>P.assumed</code>: P.ax" &&
     hasSubstr html "It leaves trusted: the checker and Lean" &&
     hasSubstr html "The comparison runs no kernel"
+
+-- An export the checker accepted in an earlier run: the band says so.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let html := page (some { result .accepted with recorded := true })
+  hasSubstr html "Accepted: leanchecker (Lean 4.35.0) accepted an export identical to this \
+    build's in an earlier run: 4 declarations and everything they depend on, 3,409 \
+    constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library \
+    (Init, Std))."
 
 -- Rejected: no "proved" as a verdict, the checker's message, the error state.
 /-- info: true -/
@@ -280,9 +357,10 @@ private def page (replay? : Option Replay.Result) : String :=
     hasSubstr html ">Proof rejected by the kernel checker</span>" &&
     !hasSubstr html ">Lean statement proved</span>" &&
     hasSubstr html "data-bp-replay=\"rejected\"" &&
-    hasSubstr html "Rejected: leanchecker (Lean 4.35.0) found a problem in module P.Solution." &&
+    hasSubstr html "Rejected: leanchecker (Lean 4.35.0) found a problem in what this site's \
+      declarations depend on." &&
     hasSubstr html "class=\"bp_stats_replay_message\">(kernel) declaration type mismatch</pre>" &&
-    hasSubstr html "Modules to replay (2)"
+    hasSubstr html "Declarations to check (4)"
 
 -- No checker, a replay stopped at its limit, and no replay at all: what the compiled files
 -- report, the reason, and never "proved" as a verdict.
@@ -290,7 +368,7 @@ private def page (replay? : Option Replay.Result) : String :=
 #guard_msgs in
 #eval
   let states := [(some (result .noChecker), "no kernel checker was found"),
-    (some (result .timedOut), "leanchecker (Lean 4.35.0) did not finish within 900 s"),
+    (some (result .timedOut), "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s"),
     (some (result .off), "the kernel replay was switched off for this build"),
     (none, "this site was generated without a kernel replay")]
   states.all fun (replay?, why) =>
@@ -339,9 +417,11 @@ private def page (replay? : Option Replay.Result) : String :=
         !hasSubstr neutral s!"var({c.name}-accepted)") &&
     hasSubstr Informal.Commands.blueprintTokensCss css
 
--- The state of a site: accepted only under an accepted replay that leaves no node uncovered.
+-- The state of a site: accepted only under an accepted replay that leaves no node uncovered
+-- and no node without `sorry` resting on an axiom outside the standard three.
 /--
 info: [("accepted", "bp_replay_accepted", none),
+ ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
  ("rejected", "bp_replay_rejected", some "this build was rejected by the kernel checker"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
@@ -352,6 +432,7 @@ info: [("accepted", "bp_replay_accepted", none),
 #eval
   [Replay.siteState (some (result .accepted)),
    Replay.siteState (some (result .accepted)) #[`literate.node],
+   Replay.siteState (some (result .accepted)) #[] #[`axiom.node],
    Replay.siteState (some (result .rejected)) #[`literate.node],
    Replay.siteState (some (result .noChecker)),
    Replay.siteState (some (result .timedOut)),
@@ -361,7 +442,10 @@ info: [("accepted", "bp_replay_accepted", none),
 #guard_msgs in
 #eval
   Replay.siteState (some (result .accepted)) #[`a, `b] ==
-      .none "2 nodes with Lean code are not part of a replayed module" &&
+      .none "2 nodes with Lean code are not part of the replay" &&
+    Replay.siteState (some (result .accepted)) #[] #[`a] ==
+      .none "1 node with Lean code rests on an axiom outside Lean's standard three, which a \
+        kernel accepts without a proof" &&
     (Replay.siteState none).sentence == "The counts are as the compiled files report, not \
       replayed by a kernel: this site was generated without a kernel replay." &&
     (Replay.siteState (some (result .rejected))).sentence == "This build was rejected by the \
@@ -406,7 +490,7 @@ info: [("accepted", "bp_replay_accepted", none),
   hasSubstr partly "class=\"bp_project_stats bp_replay_none\"" &&
     hasSubstr partly "class=\"bp_stats_theorem bp_replay_accepted\"" &&
     hasSubstr partly "bp_stats_replay_accepted bp_replay_accepted" &&
-    hasSubstr partly "1 node with Lean code is not part of a replayed module."
+    hasSubstr partly "1 node with Lean code is not part of the replay."
 
 -- A view built with nothing said about a replay is neutral: the default is never green.
 /-- info: true -/
@@ -471,29 +555,36 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
     replay?
     standings := Std.HashMap.ofList [
       (`top, .accepted), (`mid, .accepted), (`side, .accepted), (`loop, .accepted),
-      (`leaf, Replay.standing replay? #[`Script])]
+      (`leaf, Replay.standing replay? #[`Script.decl])]
     uses := Std.HashMap.ofList [
       (`top, #[`mid, `side]), (`mid, #[`leaf]), (`leaf, #[]), (`side, #[`text]), (`text, #[]),
       (`loop, #[`loop, `side])] }
   [`top, `mid, `leaf, `side, `text, `loop].map fun label => (label, index.nodeReplay label)
 
--- The nodes an accepted replay leaves uncovered keep the site neutral; without an accepted
--- replay the site is neutral as a whole and no node is singled out.
+-- The nodes an accepted replay leaves uncovered keep the site neutral, and so does a node
+-- without `sorry` that rests on an axiom; a node with a `sorry` is not counted as complete, so
+-- it does not. Without an accepted replay the site is neutral as a whole and no node is
+-- singled out.
 /-- info: true -/
 #guard_msgs in
 #eval
   let standings : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
-    (`covered, .accepted), (`script, .notReplayed "not part of a replayed module")]
+    (`covered, .accepted), (`script, .notReplayed "not part of the replay")]
   let accepted : ReplayView.Index := { replay? := some (result .accepted), standings }
   let rejected : ReplayView.Index := { replay? := some (result .rejected), standings }
+  let withAxioms : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
+    (`covered, .accepted), (`assumed, .assumed #[`P.ax]), (`unfinished, .assumed #[``sorryAx])]
+  let resting : ReplayView.Index := { replay? := some (result .accepted), standings := withAxioms }
   accepted.uncovered == #[`script] && accepted.siteState.token == "none" &&
     rejected.uncovered == #[] && rejected.siteState == .rejected &&
+    resting.uncovered == #[] && resting.resting == #[`assumed] &&
+    resting.siteState.token == "none" && !resting.accepted `assumed &&
     ({ replay? := some (result .accepted) } : ReplayView.Index).siteState == .accepted
 
 /-! ## A code block in a module that was not replayed -/
 
 -- A code block written in the Blueprint's own text records the module it was elaborated in. A
--- kernel replay covers the node only when that module is among the replayed ones.
+-- kernel replay covers the node only when it checked the block's declaration.
 #docs (Genre.Manual) literateDoc "Literate" :=
 :::::::
 :::theorem "replay.literate"
@@ -509,11 +600,12 @@ theorem replay_literate_fact : True := by
 /-- The module this file is. -/
 private def thisModule : Name := `VersoBlueprintTests.BlueprintKernelReplay
 
-/-- The replay `result .accepted` with `modules` as the modules replayed. -/
-private def acceptedFor (modules : Array Name) : Replay.Result :=
-  { result .accepted with modules }
+/-- The replay `result .accepted` with `declarations` as the declarations checked. -/
+private def acceptedFor (declarations : Array Name) : Replay.Result :=
+  { result .accepted with declarations := replayOrder declarations }
 
--- The declaration of the block knows its module, in the captured node and in the render model.
+-- The declaration of the block knows its module, in the captured node and in the render model,
+-- and the render model asks a replay for it there.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -524,19 +616,23 @@ private def acceptedFor (modules : Array Name) : Replay.Result :=
     let model : RenderModel := blueprint_render_model%
     let some rendered := model.nodes.find? (·.label == Name.mkSimple "replay.literate") | pure false
     let code := rendered.toBlockData.codeData.getD {}
-    pure (captured == #[some thisModule] && code.modules == #[thisModule] &&
-      code.unplaced == none)
+    pure (captured == #[some thisModule] && code.declarations.size == 1 &&
+      code.declarations.all (·.toString.endsWith "replay_literate_fact") &&
+      code.placedDeclarations == code.declarations.map (·, thisModule) &&
+      code.unplaced == none &&
+      code.declarations.all fun d =>
+        model.replayTargets.contains { name := d, module? := some thisModule })
 
--- The mark of such a node: the check mark when the replay accepted its module, the neutral
--- mark with the reason when the module is not among the replayed ones (a file run as a script,
--- never compiled), and when the module is not known at all.
+-- The mark of such a node: the check mark when the replay checked its declaration, the neutral
+-- mark with the reason when it did not (a file run as a script, never compiled), and when the
+-- module is not known at all.
 /--
 info: [("proved",
-  "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0)"),
+  "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on"),
  ("reported",
-  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: VersoBlueprintTests.BlueprintKernelReplay is not among the project's modules that were replayed)"),
+  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: replay_literate_fact is not among the declarations that were checked)"),
  ("reported",
-  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of a replayed module: the module of replay_literate_fact is not known)")]
+  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: the module of replay_literate_fact is not known)")]
 -/
 #guard_msgs (whitespace := lax) in
 #eval
@@ -548,12 +644,12 @@ info: [("proved",
     let (kind, text) := statusGlyph (CodeSummary.statusMark? .theorem (some (code module)))
       (some replay)
     (kind.modifier, text)
-  [glyph (acceptedFor #[thisModule]) (some thisModule),
-   glyph (acceptedFor #[`P.Basic]) (some thisModule),
-   glyph (acceptedFor #[`P.Basic]) none]
+  [glyph (acceptedFor #[`replay_literate_fact]) (some thisModule),
+   glyph (acceptedFor #[`P.main]) (some thisModule),
+   glyph (acceptedFor #[`replay_literate_fact]) none]
 
 -- On the rendered page: the block says what stands behind it, and the symbol of its Lean link
--- is the check mark only when the replay covers the module.
+-- is the check mark only when the replay covers the declaration.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -562,8 +658,10 @@ info: [("proved",
     let render (replay? : Option Replay.Result) : IO String :=
       renderManualDocHtmlString extension_impls% literateDoc
         (model := { model with stats := { model.stats with replay := replay? } })
-    let covered ← render (some (acceptedFor #[thisModule]))
-    let uncovered ← render (some (acceptedFor #[`P.Basic]))
+    let declared := (model.nodes.find? (·.label == Name.mkSimple "replay.literate")).map
+      (·.literateDeclarations.declarations.map (·.name)) |>.getD #[]
+    let covered ← render (some (acceptedFor declared))
+    let uncovered ← render (some (acceptedFor #[`P.main]))
     let unreplayed ← render none
     let symbol (html mark : String) : Bool :=
       hasSubstr html s!"class=\"bp_code_status_symbol\">{mark}</span>"
@@ -582,187 +680,315 @@ private def packageRoot : CoreM System.FilePath := do
   let file ← if file.isAbsolute then pure file else return (← IO.currentDir) / file
   return (file.parent.bind (·.parent) |>.bind (·.parent)).getD "."
 
-private def fixtureModule (scenario role : String) : Name :=
+/-- The compiled modules of this package. -/
+private def ownLibrary : CoreM System.FilePath := do
+  IO.FS.realPath ((← packageRoot) / ".lake" / "build" / "lib" / "lean")
+
+private def comparatorFixture (scenario role : String) : Name :=
   `VersoBlueprintTests.ComparatorFixtures ++ scenario.toName ++ role.toName
 
-/-- A replay configuration for the fixtures: this package's compiled modules, the search path
-of this build for everything else, the toolchain's checker, and a record of its own. -/
-private def config (record : System.FilePath) : CoreM ReplayConfig := do
-  let own ← IO.FS.realPath ((← packageRoot) / ".lake" / "build" / "lib" / "lean")
-  let mut importDirs := #[]
-  for dir in ← searchPathRef.get do
-    if ← dir.isDir then
-      let dir ← IO.FS.realPath dir
-      unless dir == own || importDirs.contains dir do importDirs := importDirs.push dir
-  return { checker? := ← findChecker?, projectDirs := #[own], importDirs
-           record? := some record }
+private def reachModule : Name := `VersoBlueprintTests.ReplayFixtures.Reach
+private def dependencyModule : Name := `VersoBlueprintReplayDependency.Lemmas
+private def nestedModule : Name := `VersoBlueprintTests.ReplayFixtures.Nested
+private def forgedChild : Name := `VersoBlueprintTests.ReplayFixtures.Nested.Forged
 
-private def describe (r : Replay.Result) : String × List Name × Option Name :=
-  (toString (repr r.outcome), r.modules.toList.map fun m => m.components.getLast!,
-    r.rejectedModule.map fun m => m.components.getLast!)
+/-- A replay configuration for the fixtures: the search path `path` (this package's compiled
+modules when none is given), the toolchain's checker, a record of its own, and as the worker the
+interpreter on `tests/KernelReplayWorkerMain.lean`, so that the modules are loaded in a process
+that has not loaded them already. -/
+private def config (record : System.FilePath) (path : Array System.FilePath := #[])
+    (project : Array System.FilePath := #[]) : CoreM ReplayConfig := do
+  let own ← ownLibrary
+  let worker := (← packageRoot) / "tests" / "KernelReplayWorkerMain.lean"
+  let lean ← IO.appPath
+  return {
+    checker? := ← findChecker?, record? := some record
+    sysroot? := lean.parent.bind (·.parent)
+    searchPath := if path.isEmpty then #[own] else path
+    projectDirs := if path.isEmpty then #[own] else project
+    worker? := some (lean, #["--run", worker.toString]) }
 
--- An honest solution is accepted, with the toolchain's version; a second run finds it in the
--- record and does not start the checker (which a limit of no time would stop); a record of its
--- own and no time gives a replay that did not finish, and that is not recorded as accepted.
+/-- The replay of `targets` as a site's generator runs it (`ProjectStats.withKernelReplayAt`),
+without a Comparator challenge. -/
+private def replay (config : ReplayConfig) (targets : Array ReplayTarget) : IO Replay.Result := do
+  let stats ← ({} : ProjectStats).withKernelReplayAt "." targets (config? := some config)
+    (compare := false)
+  return stats.replay.getD { outcome := .off }
+
+private def target (module name : Name) : ReplayTarget := { name, module? := some module }
+
+/-- Copy the compiled files of `module` from this package's build to `dir`, as the module `as`. -/
+private def place (dir : System.FilePath) (module : Name) (as : Option Name := none) :
+    CoreM Unit := do
+  let own ← ownLibrary
+  for ext in ["olean", "olean.server", "olean.private"] do
+    let source := modToFilePath own module ext
+    if ← source.pathExists then
+      let file := modToFilePath dir (as.getD module) ext
+      if let some parent := file.parent then IO.FS.createDirAll parent
+      IO.FS.writeBinFile file (← IO.FS.readBinFile source)
+
+private def describe (r : Replay.Result) : String × List Name × Bool :=
+  (toString (repr r.outcome), (r.declarations.qsort (·.toString < ·.toString)).toList, r.recorded)
+
+-- An honest solution is accepted, with the toolchain's version and what was checked. A second
+-- run finds the identical export in the record and does not run the checker; with a record of
+-- its own the checker runs again.
 /--
-info: [("Informal.Replay.Outcome.accepted", [`Solution], none),
- ("Informal.Replay.Outcome.accepted", [`Solution], none),
- ("Informal.Replay.Outcome.timedOut", [`Solution], none),
- ("Informal.Replay.Outcome.timedOut", [`Solution], none)]
-true
+info: [("Informal.Replay.Outcome.accepted", [`CmpMatch.double_cases, `CmpMatch.double_eq], false),
+ ("Informal.Replay.Outcome.accepted", [`CmpMatch.double_cases, `CmpMatch.double_eq], true),
+ ("Informal.Replay.Outcome.accepted", [`CmpMatch.double_cases, `CmpMatch.double_eq], false)]
+(true, true, true, true)
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
-  let wanted := #[fixtureModule "Match" "Solution"]
+  let solution := comparatorFixture "Match" "Solution"
+  let targets := #[target solution `CmpMatch.double_eq, target solution `CmpMatch.double_cases]
   let base ← config (dir / "record.json")
-  let first ← replayBuild base wanted
-  let second ← replayBuild { base with limitSeconds := 0 } wanted
-  let fresh := { base with record? := some (dir / "other.json"), limitSeconds := 0 }
-  let third ← replayBuild fresh wanted
-  let fourth ← replayBuild fresh wanted
+  let first ← replay base targets
+  let second ← replay base targets
+  let third ← replay { base with record? := some (dir / "other.json") } targets
   IO.FS.removeDirAll dir
-  IO.println (repr [describe first, describe second, describe third, describe fourth])
-  IO.println (first.version == some Lean.versionString && first.checker == "leanchecker" &&
-    third.limitSeconds == some 0)
+  IO.println (repr [describe first, describe second, describe third])
+  -- neither theorem rests on an axiom outside the standard three, and their constants come
+  -- from this package and from Lean's own library
+  IO.println (repr (first.version == some Lean.versionString && first.checker == "leanchecker",
+    first.axioms.isEmpty && first.notCovered.isEmpty,
+    first.constants > 2 && second.constants == first.constants,
+    first.origins.map (·.kind) == #[.project, .toolchain] ||
+      first.origins.map (·.kind) == #[.toolchain, .project]))
 
--- The forged solution meets every condition of the comparison: the same statement, no `sorry`,
--- no axiom.
-/-- info: [("CmpForged.double_odd", true, some true, [], [`Solution])] -/
-#guard_msgs in
-#eval show CoreM _ from do
-  let layout : WorkspaceLayout :=
-    { sourceDirs := #["tests"], libraryDirs := #[".lake/build/lib/lean"] }
-  let config : ChallengeConfig := {
-    challengeModule := fixtureModule "Forged" "Challenge"
-    solutionModule := fixtureModule "Forged" "Solution" }
-  let h ← Headline.compute config (← packageRoot) layout (← searchPathRef.get)
-  return h.theorems.toList.map fun t =>
-    (t.name.toString, t.conditionsMet, t.sorryFree, t.axioms.toList,
-      h.solutionModules.toList.map fun m => m.components.getLast!)
-
--- The kernel replay rejects it, naming the module and the constant; the headline then says
--- rejected, a node of the site gets no check mark, and nothing is recorded as accepted.
+-- The forged solution: the replay rejects it, naming the constant; nothing is recorded as
+-- accepted, so a second run rejects it again; the headline then says rejected and a node of
+-- the site gets no check mark.
 /--
-info: ("Informal.Replay.Outcome.rejected", [`Solution], some `Solution)
+info: ("Informal.Replay.Outcome.rejected", [`CmpForged.double_odd], false)
 (true, true)
 ("rejected", "Proof rejected by the kernel checker")
 "rejected"
-("Informal.Replay.Outcome.rejected", [`Solution], some `Solution)
+("Informal.Replay.Outcome.rejected", [`CmpForged.double_odd], false)
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
-  let solution := fixtureModule "Forged" "Solution"
+  let targets := #[target (comparatorFixture "Forged" "Solution") `CmpForged.double_odd]
   let base ← config (dir / "record.json")
-  let r ← replayBuild base #[solution]
-  let again ← replayBuild base #[solution]
+  let r ← replay base targets
+  let again ← replay base targets
   IO.FS.removeDirAll dir
   let message := r.message.getD ""
   IO.println (repr (describe r))
   IO.println (repr (hasSubstr message "sneaky", hasSubstr message "(kernel)"))
-  IO.println (repr (headlineVerdict met (Replay.standing (some r) #[solution])))
-  IO.println (repr (statusGlyph (some (mark #[solution])) (some r)).1.modifier)
+  let judged := { met with name := `CmpForged.double_odd }
+  IO.println (repr (headlineVerdict judged (headlineStanding (some r) headline judged)))
+  IO.println (repr (statusGlyph (some (mark #[`CmpForged.double_odd])) (some r)).1.modifier)
   IO.println (repr (describe again))
 
--- Without a checker, and with the replay switched off, nothing is replayed and the result says
--- which; the modules that would have been replayed are still named.
+-- A record entry stands for one export, byte for byte: with the honest solution's export
+-- recorded as accepted, the forged solution is still checked and rejected against the same
+-- record, and so is the honest module once another declaration is asked for with it.
 /--
-info: [("Informal.Replay.Outcome.noChecker", [`Solution], none),
- ("Informal.Replay.Outcome.off", [`Solution], none),
- ("Informal.Replay.Outcome.failed", [], none)]
-[`NoSuchModule]
+info: [("Informal.Replay.Outcome.accepted", false),
+ ("Informal.Replay.Outcome.rejected", false),
+ ("Informal.Replay.Outcome.accepted", false),
+ ("Informal.Replay.Outcome.accepted", true)]
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
-  let wanted := #[fixtureModule "Match" "Solution"]
+  let honest := comparatorFixture "Match" "Solution"
   let base ← config (dir / "record.json")
-  let missing ← replayBuild { base with checker? := none } wanted
-  let off ← replayBuild { base with off := true } wanted
-  -- a module that is not compiled in the project cannot be replayed
-  let absent ← replayBuild base #[`NoSuchModule]
+  let one ← replay base #[target honest `CmpMatch.double_eq]
+  let forged ← replay base #[target (comparatorFixture "Forged" "Solution") `CmpForged.double_odd]
+  let two ← replay base #[target honest `CmpMatch.double_eq, target honest `CmpMatch.double_cases]
+  let again ← replay base #[target honest `CmpMatch.double_eq]
   IO.FS.removeDirAll dir
-  IO.println (repr [describe missing, describe off, describe absent])
-  IO.println (repr absent.notCompiled.toList)
+  IO.println (repr ([one, forged, two, again].map fun r => (toString (repr r.outcome), r.recorded)))
 
-/-! ## One module per process -/
-
-private def treeModule (path : String) : Name :=
-  `VersoBlueprintTests.ReplayFixtures ++ path.toName
-
-private def short (m : Name) : String :=
-  ".".intercalate ((m.components.drop 2).map (·.toString))
-
--- Every module of an honest tree is replayed once, in a process that replays that module and
--- nothing else: also the root and the middle module, whose names are prefixes of their
--- children's; with one process at a time and with two.
+-- What a declaration depends on decides. The honest root over a forged child: its own theorem
+-- depends on nothing of the child and is accepted, although the child's module is loaded with
+-- it; a replay that is also asked for the child's constant rejects the build.
 /--
-info: [("Informal.Replay.Outcome.accepted",
-  ["Tree.Mid.Leaf", "Tree.Mid", "Tree.Leaf", "Tree"],
-  [["Tree.Mid.Leaf"], ["Tree.Mid"], ["Tree.Leaf"], ["Tree"]]),
- ("Informal.Replay.Outcome.accepted",
-  ["Tree", "Tree.Leaf", "Tree.Mid", "Tree.Mid.Leaf"],
-  [["Tree"], ["Tree.Leaf"], ["Tree.Mid"], ["Tree.Mid.Leaf"]])]
+info: ("Informal.Replay.Outcome.accepted", [`ReplayNested.root_true], false)
+("Informal.Replay.Outcome.rejected", true)
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
   let base ← config (dir / "record.json")
-  let one ← replayBuildRuns { base with record? := none } #[treeModule "Tree"]
-  let two ← replayBuildRuns { base with record? := none, jobs := 2 } #[treeModule "Tree"]
+  let root ← replay base #[target nestedModule `ReplayNested.root_true]
+  let both ← replay base #[target nestedModule `ReplayNested.root_true,
+    target forgedChild `ReplayNested.ghost]
   IO.FS.removeDirAll dir
-  let describeRuns (r : ReplayRun) (sorted : Bool) :=
-    let runs := if sorted then r.runs.qsort (·.module.toString < ·.module.toString) else r.runs
-    (toString (repr r.result.outcome), runs.toList.map (short ·.module),
-      runs.toList.map fun run => run.replayed.toList.map short)
-  IO.println (repr [describeRuns one false, describeRuns two true])
+  IO.println (repr (describe root))
+  IO.println (repr (toString (repr both.outcome), hasSubstr (both.message.getD "") "ghost"))
 
--- A replay of the honest root `Nested` on its own accepts it: its process does not replay the
--- forged child. The project's replay still replays the child and rejects the build, naming it.
--- The checker named on the directory of compiled modules itself replays the child as well, and
--- rejects.
+/-! ## A dependency -/
+
+/-- A project and a dependency in directories of their own: `proj` holds `ReplayFixtures.Reach`,
+`dep` the module it imports. -/
+private def projectOverDependency (dir : System.FilePath) :
+    CoreM (System.FilePath × System.FilePath) := do
+  let proj := dir / "proj"
+  let dep := dir / "dep"
+  place proj reachModule
+  place dep dependencyModule
+  return (← IO.FS.realPath proj, ← IO.FS.realPath dep)
+
+-- A theorem of the project whose proof rests on a constant of a dependency that no kernel
+-- accepts: every constant of the project's own module is sound, and the replay still rejects
+-- the build, because it checks what the theorem depends on wherever that is. It names the
+-- dependency's constant.
 /--
-info: (true, ["Nested"])
-("Informal.Replay.Outcome.rejected", some "Nested.Forged", true)
-(false, true)
+info: ("Informal.Replay.Outcome.rejected", [`ReplayReach.double_odd], false)
+(true, true)
+("rejected", "Proof rejected by the kernel checker")
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
-  let base ← config (dir / "record.json")
-  let some checker := base.checker? | throwError "no checker"
-  let some lib := base.projectDirs[0]? | throwError "no compiled modules"
-  let run (path : System.FilePath) : CoreM (Bool × List String) := do
-    let searchPath := System.SearchPath.toString (base.importDirs.push path).toList
-    let sysroot := (checker.parent.bind (·.parent)).getD "."
-    let out ← IO.Process.output {
-      cmd := checker.toString, args := #["-v", (treeModule "Nested").toString]
-      env := #[("LEAN_PATH", some searchPath), ("LEAN_SYSROOT", some sysroot.toString)] }
-    return (out.exitCode == 0, (parseReplayed out.stdout).toList.map short)
-  let shadow := dir / "path"
-  let made ← buildShadow lib (treeModule "Nested") shadow
-  let alone ← run shadow
-  let r ← replayBuild { base with record? := none } #[treeModule "Nested"]
-  let plain ← run lib
+  let (proj, dep) ← projectOverDependency dir
+  let base ← config (dir / "record.json") #[proj, dep] #[proj]
+  let r ← replay base #[target reachModule `ReplayReach.double_odd]
   IO.FS.removeDirAll dir
-  IO.println (repr (made && alone.1, alone.2))
-  IO.println (repr (toString (repr r.outcome), r.rejectedModule.map short,
-    hasSubstr (r.message.getD "") "ghost"))
-  IO.println (repr (plain.1, plain.2.contains "Nested.Forged"))
+  IO.println (repr (describe r))
+  IO.println (repr (hasSubstr (r.message.getD "") "ReplayDependency.helper",
+    hasSubstr (r.message.getD "") "(kernel)"))
+  let judged := { met with name := `ReplayReach.double_odd }
+  IO.println (repr (headlineVerdict judged (headlineStanding (some r) headline judged)))
 
--- Removing the directory made for a module leaves the project's compiled files as they were.
-/-- info: true -/
-#guard_msgs in
-#eval show CoreM Bool from do
+-- Declarations of the same project that do not depend on the forged constant are accepted,
+-- one of them through a sound lemma of the dependency; the band's counts say where the checked
+-- constants come from. A declaration that rests on an axiom of the project is checked too, and
+-- is not proved: the replay finds the axiom in the terms. Unsafe code, a declaration that is
+-- not there, and one the site's data places in another module are left out, each with its
+-- reason.
+/--
+info: ("Informal.Replay.Outcome.accepted",
+ [`ReplayReach.double_zero, `ReplayReach.from_axiom, `ReplayReach.uses_fine],
+ false)
+[("ReplayReach.from_axiom", ["ReplayReach.assumed"])]
+[("ReplayReach.double_zero", "accepted"),
+ ("ReplayReach.uses_fine", "accepted"),
+ ("ReplayReach.from_axiom", "assumed"),
+ ("ReplayReach.unsafeValue", "none"),
+ ("ReplayReach.nothing", "none"),
+ ("ReplayReach.double", "none")]
+[("ReplayReach.double",
+  "is in module VersoBlueprintTests.ReplayFixtures.Reach in the compiled modules that were loaded, not in Other.Module"),
+ ("ReplayReach.nothing", "is not in the compiled modules that were loaded"),
+ ("ReplayReach.unsafeValue", "is unsafe code, which a kernel does not check")]
+[(Informal.Replay.OriginKind.dependency, "VersoBlueprintReplayDependency", true),
+ (Informal.Replay.OriginKind.project, "VersoBlueprintTests", true),
+ (Informal.Replay.OriginKind.toolchain, "Init", true)]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
-  let base ← config (dir / "record.json")
-  let some lib := base.projectDirs[0]? | throwError "no compiled modules"
-  let count := do return (← (lib / "VersoBlueprintTests" / "ReplayFixtures").walkDir).size
-  let before ← count
-  let made ← buildShadow lib (treeModule "Tree.Mid") (dir / "path")
+  let (proj, dep) ← projectOverDependency dir
+  let base ← config (dir / "record.json") #[proj, dep] #[proj]
+  let names := #[`ReplayReach.double_zero, `ReplayReach.uses_fine, `ReplayReach.from_axiom,
+    `ReplayReach.unsafeValue, `ReplayReach.nothing]
+  let r ← replay base (names.map (target reachModule) ++ #[target `Other.Module `ReplayReach.double])
   IO.FS.removeDirAll dir
-  return made && before > 0 && (← count) == before
+  IO.println (repr (describe r))
+  IO.println (repr (r.axioms.toList.map fun ((d, axioms) : Name × Array Name) =>
+    (d.toString, axioms.toList.map fun (a : Name) => a.toString)))
+  let standingOf (d : Name) : String :=
+    match Replay.provedStanding (some r) #[d] with
+    | .accepted => "accepted"
+    | .assumed _ => "assumed"
+    | .rejected => "rejected"
+    | .notReplayed _ => "none"
+  IO.println (repr ((names.push `ReplayReach.double).toList.map fun (d : Name) =>
+    (d.toString, standingOf d)))
+  IO.println (repr (r.notCovered.toList.map fun ((d, why) : Name × String) => (d.toString, why)))
+  IO.println (repr ((r.origins.qsort (fun a b => toString (repr a.kind) < toString (repr b.kind))
+    |>.map fun o => (o.kind, o.name, decide (o.constants > 0))).toList))
+
+/-! ## One module, two files -/
+
+-- The compiled file of the forged solution in the project's directory, and a harmless file of
+-- the same module name in a dependency's. Which of them a build means depends on the order of
+-- the search path, so the replay gives no verdict in either order, names the module, and the
+-- headline is not compared. Nothing is accepted.
+/--
+info: #[("Informal.Replay.Outcome.failed", true, true), ("Informal.Replay.Outcome.failed", true, true)]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let forged := comparatorFixture "Forged" "Solution"
+  place (dir / "proj") forged
+  place (dir / "dep") (comparatorFixture "Match" "Solution") (as := some forged)
+  let proj ← IO.FS.realPath (dir / "proj")
+  let dep ← IO.FS.realPath (dir / "dep")
+  let targets := #[target forged `CmpForged.double_odd]
+  let mut out := #[]
+  for path in [#[proj, dep], #[dep, proj]] do
+    let base ← config (dir / "record.json") path #[proj]
+    let r ← replay base targets
+    out := out.push (toString (repr r.outcome),
+      hasSubstr (r.message.getD "") s!"module {forged} has a compiled file in more than one \
+        directory of the search path",
+      !(Replay.provedStanding (some r) #[`CmpForged.double_odd]).isAccepted)
+  IO.FS.removeDirAll dir
+  IO.println (repr out)
+
+-- A second name for the same file is not a second file: with a symbolic link to the project's
+-- compiled file in the other directory the module is loaded, and the forged proof is rejected.
+-- A hard link is a file of its own by its path, and gives no verdict.
+/-- info: ("Informal.Replay.Outcome.rejected", "Informal.Replay.Outcome.failed") -/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let forged := comparatorFixture "Forged" "Solution"
+  place (dir / "proj") forged
+  let proj ← IO.FS.realPath (dir / "proj")
+  let targets := #[target forged `CmpForged.double_odd]
+  let other (name : String) (link : System.FilePath → System.FilePath → IO Unit) :
+      CoreM Replay.Result := do
+    let file := modToFilePath (dir / name) forged "olean"
+    if let some parent := file.parent then IO.FS.createDirAll parent
+    link (modToFilePath proj forged "olean") file
+    let base ← config (dir / s!"{name}.json") #[proj, ← IO.FS.realPath (dir / name)] #[proj]
+    replay base targets
+  let symbolic ← other "symbolic" fun source file => do
+    discard <| IO.Process.output { cmd := "ln", args := #["-s", source.toString, file.toString] }
+  let hard ← other "hard" IO.FS.hardLink
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr symbolic.outcome), toString (repr hard.outcome)))
+
+/-! ## Without a verdict -/
+
+-- Without a checker, and with the replay switched off, nothing is checked and the result says
+-- which; the declarations that would have been checked are still named. A declaration whose
+-- module is not compiled is left out with that reason, and a site none of whose modules is
+-- compiled gets no verdict.
+/--
+info: [("Informal.Replay.Outcome.noChecker", [`CmpMatch.double_eq], false),
+ ("Informal.Replay.Outcome.off", [`CmpMatch.double_eq], false),
+ ("Informal.Replay.Outcome.accepted", [`CmpMatch.double_eq], false),
+ ("Informal.Replay.Outcome.failed", [`Script.fact], false)]
+[("Script.fact", "is not compiled: module NoSuchModule has no compiled file on the search path")]
+"the replay could not run to a verdict: none of the site's modules has a compiled file on the search path"
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let honest := target (comparatorFixture "Match" "Solution") `CmpMatch.double_eq
+  let script := target `NoSuchModule `Script.fact
+  let base ← config (dir / "record.json")
+  let missing ← replay { base with checker? := none } #[honest]
+  let off ← replay { base with off := true } #[honest]
+  let mixed ← replay base #[honest, script]
+  let absent ← replay base #[script]
+  IO.FS.removeDirAll dir
+  IO.println (repr [describe missing, describe off, describe mixed, describe absent])
+  IO.println (repr (mixed.notCovered.toList.map fun ((d, why) : Name × String) =>
+    (d.toString, why)))
+  IO.println (repr absent.whyNot)
 
 /-! ## The limits -/
 
@@ -775,11 +1001,36 @@ private def standIn (dir : System.FilePath) (command : String) : IO System.FileP
     { user := { read := true, write := true, execution := true } }
   return script
 
--- A checker that holds more memory than its limit is stopped: no verdict, with the reason and
--- the module, and long before the time limit. Nothing is recorded as accepted.
+-- An export larger than its limit is not checked: no verdict, with the reason.
 /--
-info: ("Informal.Replay.Outcome.overMemory", some "Tree.Leaf", true, true)
-"the replay was stopped: leanchecker went over its memory limit of 64 MiB while it replayed module M"
+info: ("Informal.Replay.Outcome.overExport", some 1000)
+"the replay was stopped: the export of what the site's declarations depend on went over its size limit of 0 MiB"
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let r ← replay { base with exportLimit? := some 1000 }
+    #[target (comparatorFixture "Match" "Solution") `CmpMatch.double_eq]
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr r.outcome), r.exportLimit))
+  IO.println (repr r.whyNot)
+
+/-- The checking half of a replay on a made-up export, with `checker` and the limits of
+`config`: what a checker that does not behave leads to, whatever the export is. -/
+private def checkWith (dir : System.FilePath) (config : ReplayConfig) : IO Replay.Result := do
+  let file := dir / "export.ndjson"
+  IO.FS.writeFile file "{}\n"
+  let some checker := config.checker? | throw (IO.userError "no checker")
+  let prepared : Prepared := {
+    declarations := #[`P.main], constants := 1, key? := some { bytes := 3, hash := "0" } }
+  checkExport config checker none prepared file ((← IO.monoMsNow) + config.limitSeconds * 1000)
+
+-- A checker that holds more memory than its limit is stopped: no verdict, with the reason, and
+-- long before the time limit. Nothing is recorded as accepted.
+/--
+info: ("Informal.Replay.Outcome.overMemory", true, true)
+"the replay was stopped: checker went over its memory limit of 64 MiB"
 "Informal.Replay.Outcome.overMemory"
 -/
 #guard_msgs (whitespace := lax) in
@@ -787,17 +1038,17 @@ info: ("Informal.Replay.Outcome.overMemory", some "Tree.Leaf", true, true)
   let dir ← IO.FS.createTempDir
   -- `dd` keeps a buffer of its block size, written full of zeros, until it has copied `count`
   let checker ← standIn dir "dd if=/dev/zero of=/dev/null bs=268435456 count=1000000"
-  let base ← config (dir / "record.json")
-  let config := { base with checker? := some checker, memoryLimit? := some (64 * 1024 * 1024)
-                            limitSeconds := 120 }
+  let limit := 64 * 1024 * 1024
+  let config : ReplayConfig := { checker? := some checker, memoryLimit? := some limit
+                                 limitSeconds := 120, record? := some (dir / "record.json") }
   let start ← IO.monoMsNow
-  let r ← replayBuild config #[treeModule "Tree.Leaf"]
+  let r ← checkWith dir config
   let elapsed := (← IO.monoMsNow) - start
-  let again ← replayBuild config #[treeModule "Tree.Leaf"]
+  let again ← checkWith dir config
   IO.FS.removeDirAll dir
-  IO.println (repr (toString (repr r.outcome), r.stoppedModule.map short,
-    r.memoryLimit == some (64 * 1024 * 1024), decide (elapsed < 60000)))
-  IO.println (repr (r.whyNot.replace (toString (treeModule "Tree.Leaf")) "M"))
+  IO.println (repr (toString (repr r.outcome), r.memoryLimit == some limit,
+    decide (elapsed < 60000)))
+  IO.println (repr r.whyNot)
   IO.println (repr (toString (repr again.outcome)))
 
 -- A checker that does not end is stopped at the time limit: no verdict, with the limit.
@@ -806,12 +1057,74 @@ info: ("Informal.Replay.Outcome.overMemory", some "Tree.Leaf", true, true)
 #eval show CoreM Unit from do
   let dir ← IO.FS.createTempDir
   let checker ← standIn dir "sleep 60"
-  let base ← config (dir / "record.json")
   let start ← IO.monoMsNow
-  let r ← replayBuild { base with checker? := some checker, limitSeconds := 1 }
-    #[treeModule "Tree.Leaf"]
+  let r ← checkWith dir { checker? := some checker, limitSeconds := 1 }
   let elapsed := (← IO.monoMsNow) - start
   IO.FS.removeDirAll dir
   IO.println (repr (toString (repr r.outcome), r.limitSeconds, decide (elapsed < 30000)))
+
+-- A checker that exits with status 0 and does not say that it accepted is no acceptance, and
+-- nothing is recorded.
+/-- info: ("Informal.Replay.Outcome.failed", "the replay could not run to a verdict: the checker said: fine", false) -/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let checker ← standIn dir "echo fine"
+  let config : ReplayConfig := { checker? := some checker, record? := some (dir / "record.json") }
+  let r ← checkWith dir config
+  let recorded ← (dir / "record.json").pathExists
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr r.outcome), r.whyNot, recorded))
+
+-- The whole replay has the time limit too: with no time, the worker is not even started.
+/-- info: ("Informal.Replay.Outcome.timedOut", some 0) -/
+#guard_msgs in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let r ← replay { base with limitSeconds := 0 }
+    #[target (comparatorFixture "Match" "Solution") `CmpMatch.double_eq]
+  IO.FS.removeDirAll dir
+  IO.println (repr (toString (repr r.outcome), r.limitSeconds))
+
+/-! ## The headline, compared where the replay exports -/
+
+/-- A project root with a `comparator.json` for the Comparator fixture `scenario`. -/
+private def challengeRoot (dir : System.FilePath) (scenario : String) (theorems : Array Name) :
+    IO System.FilePath := do
+  let root := dir / scenario
+  IO.FS.createDirAll root
+  IO.FS.writeFile (root / "comparator.json") (Json.mkObj [
+    ("challenge_module", toJson (comparatorFixture scenario "Challenge")),
+    ("solution_module", toJson (comparatorFixture scenario "Solution")),
+    ("theorem_names", toJson theorems),
+    ("permitted_axioms", toJson #[``propext, ``Quot.sound, ``Classical.choice])]).compress
+  return root
+
+-- A site's generator with a Comparator challenge: the solution is loaded once, the headline is
+-- computed in that environment with the axioms walked from its terms, and the judged theorems
+-- are exported from it and checked. The honest solution is called proved; the forged one meets
+-- every condition of the comparison and is rejected.
+/--
+info: [("CmpMatch.double_eq", true, [], "proved"),
+ ("CmpMatch.double_cases", true, ["Classical.choice", "Quot.sound", "propext"], "proved")]
+[("CmpForged.double_odd", true, [], "rejected")]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let dir ← IO.FS.createTempDir
+  let base ← config (dir / "record.json")
+  let judge (scenario : String) (theorems : Array Name) : CoreM _ := do
+    let root ← challengeRoot dir scenario theorems
+    let stats ← ({} : ProjectStats).withKernelReplayAt root #[] (config? := some base)
+    let some h := stats.headline | throwError "no headline"
+    return h.theorems.toList.map fun t =>
+      (t.name.toString, t.conditionsMet, t.axioms.toList.map (·.toString),
+        (headlineVerdict t (headlineStanding stats.replay h t)).1)
+  let honest ← judge "Match" #[`CmpMatch.double_eq, `CmpMatch.double_cases]
+  let forged ← judge "Forged" #[`CmpForged.double_odd]
+  IO.FS.removeDirAll dir
+  IO.println (repr honest)
+  IO.println (repr forged)
 
 end Verso.VersoBlueprintTests.BlueprintKernelReplay

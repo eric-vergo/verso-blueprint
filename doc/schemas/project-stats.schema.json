@@ -9,7 +9,7 @@
     "claims", "replay"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 5 },
+    "schemaVersion": { "const": 6 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -174,41 +174,81 @@
       "type": "boolean"
     },
     "replay": {
-      "description": "The kernel replay of the project's compiled modules made while the site was generated; null when the generator ran none. A page says \"proved\" only with an accepted replay that covers the modules concerned.",
+      "description": "The kernel replay made while the site was generated, of the Lean declarations the site reports on and every constant they depend on; null when the generator ran none. A page says \"proved\" only with an accepted replay that covers the declarations concerned.",
       "oneOf": [
         { "type": "null" },
         {
           "type": "object",
-          "required": ["outcome", "checker", "version", "modules", "notCompiled", "rejectedModule",
-            "message", "limitSeconds", "memoryLimit", "stoppedModule"],
+          "required": ["outcome", "checker", "version", "declarations", "notCovered", "axioms",
+            "constants", "origins", "recorded", "message", "limitSeconds", "memoryLimit",
+            "exportLimit"],
           "additionalProperties": false,
           "properties": {
             "outcome": {
-              "description": "accepted: the checker replayed every module of modules and accepted them. rejected: it rejected rejectedModule. noChecker: none was found. timedOut: it was stopped at limitSeconds. overMemory: a checker process went over memoryLimit while it replayed stoppedModule, and was stopped. failed: it could not run to a verdict (message). off: the replay was switched off.",
-              "enum": ["accepted", "rejected", "noChecker", "timedOut", "overMemory", "failed", "off"]
+              "description": "accepted: the checker accepted the export, every declaration of declarations with every constant it depends on. rejected: it rejected the export (message). noChecker: none was found. timedOut: the replay was stopped at limitSeconds. overMemory: a process of the replay went over memoryLimit and was stopped. overExport: the export went over exportLimit and was not checked. failed: the replay could not run to a verdict (message). off: the replay was switched off.",
+              "enum": ["accepted", "rejected", "noChecker", "timedOut", "overMemory", "overExport", "failed", "off"]
             },
             "checker": { "description": "The checker's name.", "type": "string" },
             "version": { "description": "The Lean version of the checker's toolchain.", "$ref": "#/$defs/nullableString" },
-            "modules": {
-              "description": "The project's modules the replay covers, sorted: with accepted, each was replayed and accepted; otherwise the modules that were to be replayed.",
+            "declarations": {
+              "description": "The declarations the replay covers: with accepted, each was exported with every constant it depends on and accepted; otherwise the declarations that were to be checked. In the order of Lean's Name.quickLt.",
               "type": "array",
               "items": { "$ref": "#/$defs/name" }
             },
-            "notCompiled": {
-              "description": "Modules of the site with no compiled module among the project's own, which could not be replayed, sorted.",
+            "notCovered": {
+              "description": "Declarations the replay was asked for and does not cover, each with the reason.",
               "type": "array",
-              "items": { "$ref": "#/$defs/name" }
+              "items": {
+                "type": "array",
+                "prefixItems": [{ "$ref": "#/$defs/name" }, { "type": "string" }],
+                "minItems": 2,
+                "maxItems": 2
+              }
             },
-            "rejectedModule": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }] },
-            "message": { "description": "What the checker said, with rejected or failed.", "$ref": "#/$defs/nullableString" },
+            "axioms": {
+              "description": "For each covered declaration that depends on an axiom outside Lean's standard three: those axioms, as found by walking the terms of the loaded modules.",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  { "$ref": "#/$defs/name" },
+                  { "type": "array", "items": { "$ref": "#/$defs/name" } }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "constants": { "description": "The number of constants in the export.", "$ref": "#/$defs/count" },
+            "origins": {
+              "description": "Where the exported constants come from: the project, each dependency, Lean's own library.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["kind", "name", "constants"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "enum": ["project", "dependency", "toolchain"] },
+                  "name": {
+                    "description": "The first component of the modules' names; for the project and for Lean's own library, every such component joined by commas.",
+                    "type": "string"
+                  },
+                  "constants": { "$ref": "#/$defs/count" }
+                }
+              }
+            },
+            "recorded": {
+              "description": "With accepted: the checker accepted an identical export in an earlier run and was not run again.",
+              "type": "boolean"
+            },
+            "message": { "description": "With rejected or failed: what the checker, or the generator, said. With overMemory: what went over the limit, when it was not the checker.", "$ref": "#/$defs/nullableString" },
             "limitSeconds": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }] },
             "memoryLimit": {
-              "description": "With overMemory: the memory limit of one checker process, in bytes.",
+              "description": "With overMemory: the memory limit of the process, in bytes.",
               "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }]
             },
-            "stoppedModule": {
-              "description": "With overMemory: the module the checker was replaying when it was stopped.",
-              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
+            "exportLimit": {
+              "description": "With overExport: the size limit of the export, in bytes.",
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }]
             }
           }
         }
@@ -279,7 +319,7 @@
       "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
       "type": "object",
       "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
-        "permittedAxioms", "unavailable", "unavailableDetail", "solutionModules", "theorems",
+        "permittedAxioms", "unavailable", "unavailableDetail", "theorems",
         "definitions"],
       "additionalProperties": false,
       "properties": {
@@ -296,21 +336,17 @@
           "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
         },
         "unavailable": {
-          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source, or is unreadable; the environment of the site lacks the solution module or a module the challenge imports. Null when the comparison was made.",
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source, or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay. Null when the comparison was made.",
           "oneOf": [
             { "type": "null" },
             { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate",
-                "challengeUnreadable", "solutionNotImported", "importsNotAvailable"] }
+                "challengeUnreadable", "solutionNotImported", "importsNotAvailable",
+                "modulesNotLoaded"] }
           ]
         },
         "unavailableDetail": {
           "description": "The module, file or error message behind unavailable.",
           "$ref": "#/$defs/nullableString"
-        },
-        "solutionModules": {
-          "description": "The project's modules the solution rests on: the solution module and every module of the project it imports, sorted. A kernel replay must cover them before a theorem is called proved.",
-          "type": "array",
-          "items": { "$ref": "#/$defs/name" }
         },
         "theorems": {
           "description": "The theorems judged (theorem_names, or every theorem of the challenge), in source order.",
@@ -360,7 +396,7 @@
                 "items": { "$ref": "#/$defs/name" }
               },
               "conditionsMet": {
-                "description": "What the compiled modules report: the same Lean statement as the challenge, without sorry and with axiomsNotAllowed empty. No kernel is run for it; a theorem is called proved only when replay is also accepted and covers solutionModules.",
+                "description": "What the compiled modules report: the same Lean statement as the challenge, without sorry and with axiomsNotAllowed empty. No kernel is run for it; a theorem is called proved only when replay is also accepted, covers the theorem and found no axiom under it that is not permitted.",
                 "type": "boolean"
               },
               "node": {

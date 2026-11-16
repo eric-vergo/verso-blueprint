@@ -882,11 +882,11 @@ structure StatusGlyphKind where
   meaning : String
 
 namespace StatusGlyphKind
-/-- The check mark: only for Lean code without `sorry` whose module a kernel replay accepted
-while the site was generated. -/
+/-- The check mark: only for Lean code without `sorry` that a kernel replay accepted, with
+everything it depends on, while the site was generated. -/
 def proved : StatusGlyphKind :=
-  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, and its module was \
-    checked again in Lean's kernel for this site"⟩
+  ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, and it was checked \
+    again in Lean's kernel for this site, with everything it depends on"⟩
 /-- What the compiled files report, with no kernel replay behind it: not a check mark. -/
 def reported : StatusGlyphKind :=
   ⟨"◇", "reported", "Lean code without sorry, as the compiled files report; not replayed by a \
@@ -927,9 +927,10 @@ def extraAxiomsText (axioms : Array Lean.Name) : String :=
 /-- The status glyph of a node and its text (the glyph's meaning for this node, then the
 detailed status where it adds something). A node whose Lean code has no `sorry` but depends on
 an axiom outside Lean's standard three does not get the check mark: the text names the axiom.
-Nor does a node whose module no kernel replay accepted (`replay?`, the replay made while the
-site was generated): its mark says what the compiled files report, or that the replay rejected
-the build. -/
+Nor does a node that no kernel replay covers (`replay?`, the replay made while the site was
+generated, of the node's declarations and everything they depend on): its mark says what the
+compiled files report, or that the replay rejected the build. A node under which the replay
+itself found an axiom that the compiled files did not report gets the warning mark too. -/
 def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result := none) :
     StatusGlyphKind × String :=
   match mark? with
@@ -940,16 +941,18 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
       let noun := leanCodeNoun mark.kind
       if mark.extraAxioms.isEmpty then
         let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
-        match Replay.standingOf replay? mark.modules mark.unplaced with
+        match Replay.provedStanding replay? mark.declarations mark.unplaced with
         | .accepted =>
           (.proved, s!"{noun} complete: no sorry in it or in what it uses; checked again in \
-            Lean's kernel by {checker}")
-        | .rejected module =>
-          let where_ := (module.map (s!" (module {·})")).getD ""
-          (.rejected, s!"{noun} not accepted: {checker} rejected this build{where_}")
+            Lean's kernel by {checker}, with everything it depends on")
+        | .rejected =>
+          (.rejected, s!"{noun} not accepted: {checker} rejected this build")
         | .notReplayed why =>
           (.reported, s!"{noun} without sorry, as the compiled files report; not replayed by a \
             kernel ({why})")
+        | .assumed axioms =>
+          (.problem, s!"{noun} without sorry, resting on {extraAxiomsText axioms} (found by \
+            the kernel replay in the terms; the compiled files report none)")
       else
         (.problem, s!"{noun} without sorry, resting on {extraAxiomsText mark.extraAxioms}")
     else if status.isAxiomLike then

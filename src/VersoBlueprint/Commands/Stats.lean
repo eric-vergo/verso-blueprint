@@ -35,8 +35,9 @@ Each sentence on the page says what was looked at and no more. A status is about
 words are "Lean complete" (no `sorry` in a node's declarations or in what they use), never
 "proved" for a definition and never a word about an informal statement. The headline's verdict
 is about the Lean statement, in the build the site was generated from; it says "proved" only
-when a kernel replay accepted the modules the solution rests on (`Informal.Replay`), and the page
-has a band that says what was replayed, by which checker, and what that leaves trusted. Informal text (a
+when a kernel replay accepted the theorem with everything it depends on (`Informal.Replay`), and
+the page has a band that says what was checked, by which checker, and what that leaves trusted.
+Informal text (a
 challenge's docstring, an author's claim about a manuscript) is shown with a caption naming its
 source and the sentence that no tool compared it with the Lean statement
 (`Informal.Meaning`); the page ends with a short explanation of the marks
@@ -114,6 +115,9 @@ structure StatsPageView where
   site : Replay.SiteState := .none Replay.noReplayText
   /-- The nodes with Lean code that an accepted replay does not cover, sorted. -/
   notReplayed : Array Name := #[]
+  /-- The nodes whose Lean code an accepted replay covers, under which it found an axiom outside
+  Lean's standard three, sorted (`ReplayView.Index.resting`). -/
+  resting : Array Name := #[]
 deriving Inhabited
 
 /-- The title of the page in the table of contents. -/
@@ -294,17 +298,17 @@ def conditionsMetText : String :=
 
 /-- The verdict on a theorem of the challenge: a token for markup and the words shown. The
 words are about the Lean statement. "Proved" is said only of the same Lean statement as the
-challenge's, without `sorry`, without an axiom the verdict does not allow, and with the modules
-the solution rests on accepted by a kernel replay (`standing`). When the replay rejected the
-build the verdict says so; without a verdict of a replay it says what the compiled files report
-(`conditionsMetText`). -/
+challenge's, without `sorry`, without an axiom the verdict does not allow, and with the theorem
+and everything it depends on accepted by a kernel replay (`standing`). When the replay rejected
+the build the verdict says so; without a verdict of a replay it says what the compiled files
+report (`conditionsMetText`). -/
 def headlineVerdict (t : HeadlineTheorem)
     (standing : Replay.Standing := .notReplayed Replay.noReplayText) : String × String :=
   if t.conditionsMet then
     match standing with
     | .accepted => ("proved", "Lean statement proved")
-    | .rejected _ => ("rejected", "Proof rejected by the kernel checker")
-    | .notReplayed _ => ("not-replayed", conditionsMetText)
+    | .rejected => ("rejected", "Proof rejected by the kernel checker")
+    | .notReplayed _ | .assumed _ => ("not-replayed", conditionsMetText)
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -339,6 +343,7 @@ def unavailableText : Unavailable → String
   | .challengeUnreadable => "The compiled challenge module could not be read."
   | .solutionNotImported => "The Blueprint does not import the solution module."
   | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
+  | .modulesNotLoaded => "The compiled modules were not loaded for the comparison."
 
 private def axiomChip (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
@@ -396,41 +401,40 @@ private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Outpu
     el "span" "bp_stats_theorem_node" (link (ref?.bind (·.href)) (txt text))
 
 /-- The line under a verdict that rests on the comparison's conditions: what the kernel replay
-did for the modules the solution rests on. -/
-def replayNoteText (replay? : Option Replay.Result) (needed : Array Name)
-    (standing? : Option Replay.Standing := Option.none) : String :=
+did for the judged theorem (`standing`). -/
+def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing) : String :=
   let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
-  match standing?.getD (Replay.standing replay? needed) with
+  match standing with
   | .accepted =>
-    let modules := if needed.size == 1 then "the project module" else
-      s!"the {needed.size} project modules"
-    s!"Kernel replay: {checker} accepted {modules} the solution rests on."
-  | .rejected module =>
-    let where_ := (module.map (s!" module {·}")).getD " this build"
+    let earlier := if replay?.any (·.recorded) then
+        " (in an earlier run, for an export identical to this build's)" else ""
+    s!"Kernel replay: {checker} accepted this theorem and every constant it depends on, in \
+      this project, in its dependencies and in Lean's own library, starting from an empty \
+      environment{earlier}."
+  | .rejected =>
     let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
-    s!"Kernel replay: {checker} rejected{where_}{message}"
+    s!"Kernel replay: {checker} rejected this build{message}"
   | .notReplayed why => s!"No kernel replay: {why}."
+  | .assumed _ => s!"No verdict of a kernel replay: {standing.why}."
 
-/-- What the replay establishes for a headline: the standing of the modules the solution rests
-on. A headline that does not name the solution module among them (its compiled module is not one
-of the project's own) has nothing replayed behind it, whatever the replay accepted. -/
-def headlineStanding (replay? : Option Replay.Result) (h : Headline) : Replay.Standing :=
-  if h.solutionModules.contains h.solutionModule then Replay.standing replay? h.solutionModules
-  else match Replay.standing replay? #[] with
-    | .accepted => .notReplayed s!"the solution module {h.solutionModule} is not among the \
-        project's compiled modules, so it was not replayed"
-    | other => other
+/-- What the replay establishes for a judged theorem of a headline: whether it checked the
+theorem with everything it depends on, and found no axiom under it beyond those the challenge
+permits (Lean's standard three when it states no list). -/
+def headlineStanding (replay? : Option Replay.Result) (h : Headline) (t : HeadlineTheorem) :
+    Replay.Standing :=
+  Replay.provedStanding replay? #[t.name]
+    (permitted := h.permittedAxioms.getD Data.standardAxioms)
 
 private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : HeadlineTheorem) :
     Output.Html :=
   let replay? := view.stats.replay
-  let standing := headlineStanding replay? h
+  let standing := headlineStanding replay? h t
   let (token, verdict) := headlineVerdict t standing
   let claim? := view.stats.claims.bind (·.view? t.name)
   let replayNote : Output.Html :=
     if !t.conditionsMet then .empty
     else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
-      (txt (replayNoteText replay? h.solutionModules (some standing))) #[("data-bp-replay", token)]
+      (txt (replayNoteText replay? standing)) #[("data-bp-replay", token)]
   -- the card's success colours follow the replay behind this verdict
   el "div" s!"bp_stats_theorem {standing.scopeClass}" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
@@ -464,7 +468,7 @@ the verdict (`replayNoteText`) and in the replay band. -/
 def headlineMethodText : String :=
   "Compared by this site's generator from the compiled modules of this build, which it does not \
     rebuild in a sandbox as lake comparator does. The comparison runs no kernel: a verdict says \
-    \"proved\" only when a kernel replay of the solution's modules accepted them."
+    \"proved\" only when a kernel replay accepted the theorem with everything it depends on."
 
 private def headlineHtml (view : StatsPageView) : Output.Html :=
   match view.stats.headline with
@@ -512,36 +516,53 @@ def noReplaySummary : String :=
     compiled files report."
 
 /-- The band on the kernel replay: its result, the checker with its version, the checker's
-message when it rejected the build or could not run, the modules replayed, and what a replay
-leaves trusted. -/
+message when it rejected the build or could not run, the declarations checked and those left
+out, the axioms found, and what a replay leaves trusted. -/
 private def replayHtml (view : StatsPageView) : Output.Html :=
   let replay? := view.stats.replay
   let token := replayToken replay?
   let summary := (replay?.map (·.summary)).getD noReplaySummary
-  let message : Output.Html := match replay?.bind (·.message) with
+  -- the checker's message; what kept a replay from a verdict is in the summary already
+  let message : Output.Html := match replay?.filter (·.outcome == .rejected) |>.bind (·.message) with
     | some m => el "pre" "bp_stats_replay_message" (txt m)
     | Option.none => .empty
-  let names (cls caption : String) (modules : Array Name) : Output.Html :=
-    if modules.isEmpty then .empty
+  let listed (cls caption : String) (items : Array Output.Html) : Output.Html :=
+    if items.isEmpty then .empty
     else el "details" s!"bp_stats_more {cls}" (.seq #[
-      .tag "summary" #[] (txt s!"{caption} ({formatCount modules.size})"),
-      el "ul" "bp_stats_files" (.seq (modules.map fun m => .tag "li" #[] (code m.toString)))])
+      .tag "summary" #[] (txt s!"{caption} ({formatCount items.size})"),
+      el "ul" "bp_stats_files" (.seq (items.map fun item => .tag "li" #[] item))])
+  let byName (names : Array Name) := names.qsort (·.toString < ·.toString)
   let modules : Output.Html := match replay? with
     | some r => .seq #[
-        names "bp_stats_replay_modules"
-          (if r.outcome == .accepted then "Modules replayed" else "Modules to replay") r.modules,
-        names "bp_stats_replay_not_compiled"
-          "Modules of the site with no compiled module in the project: not replayed"
-          r.notCompiled]
+        listed "bp_stats_replay_declarations"
+          (if r.outcome == .accepted then
+            "Declarations checked, each with everything it depends on"
+          else "Declarations to check")
+          ((byName r.declarations).map fun d => code d.toString),
+        listed "bp_stats_replay_not_covered"
+          "Declarations of the site that the replay does not cover"
+          (r.notCovered.map fun (d, why) => .seq #[code d.toString, txt s!" {why}"]),
+        listed "bp_stats_replay_axioms"
+          "Declarations that depend on an axiom outside Lean's standard three, as the replay \
+            found by walking the terms"
+          (r.axioms.map fun (d, axioms) => .seq #[code d.toString,
+            txt s!": {", ".intercalate (axioms.toList.map (·.toString))}"])]
     | Option.none => .empty
   -- the sentence that the replay accepted the build is itself a positive statement
   let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}" else ""
   let uncovered : Output.Html :=
     if view.notReplayed.isEmpty then .empty
     else el "details" "bp_stats_more bp_stats_replay_uncovered" (.seq #[
-      .tag "summary" #[] (txt s!"Nodes with Lean code that is not part of a replayed module \
+      .tag "summary" #[] (txt s!"Nodes with Lean code that is not part of the replay \
         ({formatCount view.notReplayed.size})"),
       el "ul" "bp_stats_files" (.seq (view.notReplayed.map fun label =>
+        .tag "li" #[] (nodeLink view label)))])
+  let resting : Output.Html :=
+    if view.resting.isEmpty then .empty
+    else el "details" "bp_stats_more bp_stats_replay_resting" (.seq #[
+      .tag "summary" #[] (txt s!"Nodes without sorry whose Lean code rests on an axiom outside \
+        Lean's standard three ({formatCount view.resting.size})"),
+      el "ul" "bp_stats_files" (.seq (view.resting.map fun label =>
         .tag "li" #[] (nodeLink view label)))])
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
@@ -549,6 +570,7 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
     message,
     modules,
     uncovered,
+    resting,
     el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)]
 
 /-! ## Author's claims -/
@@ -804,15 +826,18 @@ def meaningItems : Array (String × String) := #[
       axiom beyond Lean's standard three gets the warning mark, with the axiom named."),
   ("Green",
     "a success colour is drawn only where a kernel replay accepted the Lean code concerned: on a \
-      node whose module the replay accepted, and on counts, bars and legends only when the \
-      replay accepted the build and covers every node with Lean code. Everywhere else the same \
+      node whose declarations the replay checked with everything they depend on, finding no \
+      axiom outside Lean's standard three under them, and on counts, bars and legends only when \
+      that holds for every node with Lean code that has no sorry. Everywhere else the same \
       statuses are drawn in grey, and after a rejected replay nothing is green."),
   ("Kernel replay, and the check mark on a node",
-    "the toolchain's leanchecker checked every constant of the project's compiled modules again \
-      in Lean's kernel while this site was generated. A node has the check mark only when its \
-      Lean code is complete and the replay accepted its module; otherwise its mark is the \
-      diamond, which says what the compiled files report. A file can keep Lean's kernel from \
-      seeing a declaration, and only a replay notices."),
+    "while this site was generated, the Lean declarations of its nodes and every constant they \
+      depend on, in this project, in its dependencies and in Lean's own library, were exported \
+      and checked again in Lean's kernel by the toolchain's leanchecker, starting from an empty \
+      environment. A node has the check mark only when its Lean code is complete and the replay \
+      accepted it; otherwise its mark is the diamond, which says what the compiled files \
+      report. A file can keep Lean's kernel from seeing a declaration, in a project or in \
+      something it depends on, and only a replay notices."),
   ("Axioms",
     "the axioms each declaration depends on, as Lean reports them for this build. propext, \
       Classical.choice and Quot.sound are Lean's standard three; a sorry, the result of compiled \
@@ -820,8 +845,8 @@ def meaningItems : Array (String × String) := #[
   ("Lean statement proved, in the headline",
     "the solution states the same Lean terms as the Comparator challenge, without sorry and \
       without an axiom the challenge does not permit, and the kernel replay accepted the \
-      project's modules the solution rests on. The comparison reads the compiled modules of this \
-      build; lake comparator also rebuilds the project in a sandbox."),
+      solution's theorem with every constant it depends on. The comparison reads the compiled \
+      modules of this build; lake comparator also rebuilds the project in a sandbox."),
   ("This build",
     "every report here is about the build the site was generated from, with the Lean version \
       and package revisions shown with the project's name. A port or an update is a different \
@@ -954,6 +979,7 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
     stats, page, chapters, nodes
     site := replays.siteState
     notReplayed := replays.uncovered
+    resting := replays.resting
     workQueueSize := (workQueue graph).size
     summaryHref := (pageSection? sections summaryPageTitle).map (·.link.relativeLink)
     workQueueHref := (pageSection? sections workQueuePageTitle).map (·.link.relativeLink)

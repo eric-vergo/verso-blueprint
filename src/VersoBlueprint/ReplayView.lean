@@ -11,16 +11,18 @@ import VersoBlueprint.TraversalIndex
 What the kernel replay of a build establishes for the nodes of a site, read from the traversal
 state: the standing of each node's Lean code, and the state of the site as a whole.
 
-One rule decides every positive display. A node's check mark and its success colours (the
-graph's fill and border, the status chips of its Lean code) need Lean code without `sorry` and an
-accepted replay that covers the module of every Lean declaration of the node; a declaration
-whose module is not known, or is not among the replayed modules, is covered by nothing. Counts,
-bars and legends are about every node at once, so they take the success colours only when the
-replay accepted the build and no node with Lean code is left uncovered (`Replay.siteState`).
+One rule decides every positive display (`Replay.provedStanding`). A node's check mark and its
+success colours (the graph's fill and border, the status chips of its Lean code) need an accepted
+replay that covers every Lean declaration of the node, each checked with everything it depends
+on, under which the replay found no axiom outside Lean's standard three (`sorryAx` is one). A
+declaration whose module is not known, or that the replay did not check, is covered by nothing.
+Counts, bars and legends are about every node at once, so they take the success colours only
+when the replay accepted the build, no node with Lean code is left uncovered, and no node
+without `sorry` rests on such an axiom (`Replay.siteState`).
 
-After a rejected replay nothing is drawn in a success colour, also not the nodes of modules the
-checker did not complain about: it stops at its first problem, the result records no module as
-accepted, and which declarations rest on the rejected one is not known.
+After a rejected replay nothing is drawn in a success colour, also not the nodes whose
+declarations the checker did not complain about: it stops at its first problem, and what else
+it would have rejected is not known.
 -/
 
 namespace Informal.ReplayView
@@ -34,9 +36,10 @@ def replay? (state : TraverseState) : Option Replay.Result := do
   (fromJson? (α := Replay.Result) json).toOption
 
 /-- What `replay?` establishes for the Lean code `code`: accepted only when every declaration's
-module is known and was replayed and accepted. -/
+module is known, the replay checked each with everything it depends on and accepted them, and
+it found no axiom outside Lean's standard three under them. -/
 def standingOfCode (replay? : Option Replay.Result) (code : BlockCodeData) : Replay.Standing :=
-  Replay.standingOf replay? code.modules code.unplaced
+  Replay.provedStanding replay? code.declarations code.unplaced
 
 /-- The standing of a node's Lean code, the code its heading's mark is about; `none` for a node
 without Lean code. -/
@@ -102,11 +105,22 @@ replay did not accept the build: then no node is covered and the site says so as
 def Index.uncovered (index : Index) : Array Name :=
   if (index.replay?.map (·.outcome)) != some .accepted then #[] else
     (index.standings.toArray.filterMap fun (label, standing) =>
-      if standing.isAccepted then none else some label).qsort (·.toString < ·.toString)
+      match standing with
+      | .notReplayed _ => some label
+      | _ => none).qsort (·.toString < ·.toString)
+
+/-- The nodes whose Lean code an accepted replay covers and has no `sorry`, but under which the
+replay found an axiom outside Lean's standard three, sorted: checked by a kernel, and proved only
+from that axiom. -/
+def Index.resting (index : Index) : Array Name :=
+  (index.standings.toArray.filterMap fun (label, standing) =>
+    match standing with
+    | .assumed axioms => if axioms.contains Data.sorryAxiom then none else some label
+    | _ => none).qsort (·.toString < ·.toString)
 
 /-- What the site as a whole may show in the success colour. -/
 def Index.siteState (index : Index) : Replay.SiteState :=
-  Replay.siteState index.replay? index.uncovered
+  Replay.siteState index.replay? index.uncovered index.resting
 
 /-- What the replay establishes for node `label` of a dependency graph. -/
 def Index.nodeReplay (index : Index) (label : Name) : Graph.NodeReplay :=

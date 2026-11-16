@@ -447,6 +447,15 @@ def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
       if ← lib.isDir then path := path ++ [lib]
   return path
 
+/-- How the kernel replay of the project at `root` is run (`Stats.ReplayConfig.fromEnv`), with
+the search path of `libraryPathOf`: the generator is not run by the project's Lake, so the
+project's compiled modules are looked for in its own folders. -/
+def replayConfigOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
+    IO Stats.ReplayConfig := do
+  let config ← Stats.ReplayConfig.fromEnv root layout.libraryDirs
+  let searchPath ← Stats.dedupDirs (← libraryPathOf root layout).toArray
+  return { config with searchPath }
+
 /-- The headline of the project's Comparator challenge, compared as a Blueprint site compares it
 (`Stats.Headline.compute`): the solution module and the challenge's imports are imported from the
 project's build for the comparison alone (only when the project has a challenge), and each judged

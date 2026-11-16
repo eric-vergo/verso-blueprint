@@ -69,18 +69,36 @@ def RenderModel.install (model : RenderModel) (state : TraverseState) : Traverse
   let state := TraversalIndex.RenderOverviews.saveData state `summary model.summary
   TraversalIndex.RenderOverviews.saveData state `stats model.stats
 
+/-- The Lean declarations of the model's nodes that a kernel replay is asked to check, each
+once: every present declaration a node refers to and every declaration of its code blocks, with
+the module the node's data places it in. A declaration whose module is not known is not asked
+for; nothing covers it (`BlockCodeData.unplaced`). -/
+def RenderModel.replayTargets (model : RenderModel) : Array Stats.ReplayTarget := Id.run do
+  let mut seen : NameSet := {}
+  let mut out := #[]
+  for node in model.nodes do
+    let code : BlockCodeData := {
+      literateDeclarations := node.literateDeclarations
+      externalDecls := node.externalRefs ++ node.proofExternalRefs }
+    for (name, module) in code.placedDeclarations do
+      unless seen.contains name do
+        seen := seen.insert name
+        out := out.push { name, module? := some module }
+  return out
+
 /--
 Read the project's files again for the statistics (`Stats.ProjectStats.refreshWorkspace`): the
 model is captured when the generator is compiled, and Lake does not rebuild it when only files
 no Lean module imports change, such as the README or a module the Blueprint does not use.
-With `kernelReplay` the project's compiled modules are also replayed in a kernel
+With `kernelReplay` the Lean declarations of the nodes and the theorems the headline judges are
+also checked again in Lean's kernel, with everything they depend on
 (`Stats.ProjectStats.withKernelReplay`); statistics that carry no replay make the pages say
 what the compiled files report, and no more.
 -/
 def RenderModel.refreshStats (model : RenderModel) (kernelReplay : Bool := false) :
     IO RenderModel := do
   let stats ← model.stats.refreshWorkspace
-  let stats ← if kernelReplay then stats.withKernelReplay else pure stats
+  let stats ← if kernelReplay then stats.withKernelReplay model.replayTargets else pure stats
   return { model with stats }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/
