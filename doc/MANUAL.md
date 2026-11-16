@@ -1460,7 +1460,7 @@ layout on:
   definition complete" for a definition, and names the checker); ◇ no `sorry`
   as the compiled files report, with no accepted replay behind it (the tooltip
   says why: no replay was run, no checker was found, it did not finish, or the
-  module is outside the project); ⊘ the kernel checker rejected the build; ◐ a
+  node is not part of a replayed module); ⊘ the kernel checker rejected the build; ◐ a
   `sorry` in the proof or in what it uses; ⚠ a `sorry` in the statement, an axiom beyond Lean's standard three
   (also when there is no `sorry`: the tooltip names the axiom, or the compiled
   code the proof rests on), or code that could not be inspected; ✗ a
@@ -2179,6 +2179,45 @@ its own.
   with the flag `--kernel-replay` or `(kernelReplay := true)` passed to
   `blueprintMain` or `blueprintMainWithPreviewData`. Without a replay every
   verdict and mark says what the compiled files report.
+
+##### Colour follows the replay
+
+Green is a statement too, so a success colour is drawn only where a kernel
+replay accepted the Lean code concerned. The rule is the check mark's:
+
+- **A node** (its fill and border in the dependency graph, its mark, the
+  status chips of its Lean code) is green only when its Lean code has no
+  `sorry` and the accepted replay covers the module of every Lean declaration
+  of the node. A declaration whose module is not known, or is not among the
+  replayed modules (a code block in a file that is run as a script and never
+  compiled, say), is covered by nothing: the node keeps the neutral mark ◇,
+  with the reason "not part of a replayed module". The graph's darker fill,
+  "dependencies too", needs the replay to cover every node the node depends on
+  as well; otherwise the node is drawn as complete on its own.
+- **Counts, bars and legends** (the progress bars and their legend on the
+  Project Stats page, the cards of the Blueprint Summary, the legend of the
+  dependency graph) are about every node at once. They are green only when the
+  replay accepted the build and leaves no node with Lean code uncovered.
+  Otherwise they are grey, and each says what it rests on: "as the compiled
+  files report, not replayed by a kernel", with the reason once per page. The
+  Project Stats page lists the nodes a replay did not cover.
+- **After a rejected replay** nothing on the site is green: the headline and
+  the sentence beside the counts are in the error colour, and fills, bars and
+  cards are grey. This holds for every node, also those of modules the checker
+  did not complain about: `leanchecker` stops at its first problem, so no
+  module is recorded as accepted, and which declarations rest on the rejected
+  one is not known.
+
+In the stylesheets a success colour is a custom property with two values
+(`Informal.StatusColors.successColors`): `--bp-color-status-formalized`, for
+example, carries the neutral value, `--bp-color-status-formalized-accepted`
+the green one. An element behind which an accepted replay stands has the class
+`bp_replay_accepted` (or the attribute `data-bp-replay-scope="accepted"`), and
+inside it the properties take their green values; `bp_replay_none` and
+`bp_replay_rejected` switch them back. A page or a custom stylesheet that
+carries none of these classes shows no green. In the graph data a node's
+field `replay` (`none`, `accepted`, `acceptedWithDependencies`) says the same,
+and its `visual` colours follow it.
 
 To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
 `blueprintMainWithPreviewData`, or run the generator with the flag
