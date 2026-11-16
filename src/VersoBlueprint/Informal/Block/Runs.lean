@@ -20,7 +20,7 @@ namespace Informal.SideBySideRuns
 
 In the side-by-side layout, consecutive Blueprint blocks form a *run*: one element
 (`div.bp_sbs_run`) that holds the nodes and their proofs, so the stylesheet can space a run as a
-unit and draw one column divider through it. Anything else between two blocks that shows
+unit (each node draws its own column divider). Anything else between two blocks that shows
 something on the page (prose, a code block, a heading) ends the run; a block that renders
 nothing (group metadata, hidden external markup) neither joins nor ends one.
 

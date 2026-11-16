@@ -1434,9 +1434,10 @@ layout on:
 - Nodes have no card. Consecutive Blueprint blocks form a *run*
   (`div.bp_sbs_run`); prose, a code block or a heading between two blocks ends
   it, while a block that renders nothing (group metadata, hidden external
-  markup) does not. One hairline divider in the middle of the column gap runs
-  through the whole run; a statement without Lean declarations takes the full
-  width and interrupts it. The node a link lands on (its statement, its proof or
+  markup) does not. Each node has its own hairline divider in the middle of the
+  column gap, as tall as the node (its proof included, while it opens or
+  closes), with a gap between the dividers of consecutive nodes; a statement without
+  Lean declarations takes the full width and has no divider. The node a link lands on (its statement, its proof or
   one of its declarations) is tinted on screen, not in print. Other styles and
   print stack the columns and keep the nodes of a run apart.
 - With the page script, "Proof [show]" on the prose side opens and closes the
@@ -1449,7 +1450,7 @@ layout on:
 - The look is set by CSS custom properties a project stylesheet can override
   on `:root`: `--bp-sbs-column-gap` (2.25rem), `--bp-sbs-divider-width` (1px),
   `--bp-sbs-divider-color` (the soft border colour), `--bp-sbs-node-gap`
-  (space between the nodes of a run, 2rem), `--bp-sbs-run-margin` (around a
+  (space between the nodes of a run, and so between their dividers, 3.25rem), `--bp-sbs-run-margin` (around a
   run, 1.5rem), `--bp-sbs-target-surface` and `--bp-sbs-target-bleed` (the
   tint of a linked node), `--bp-sbs-proof-duration` (200ms, the length of every
   opening and closing, long proofs included) and `--bp-sbs-proof-easing`.
