@@ -111,6 +111,15 @@ info: [some "/Users/a/Library/Caches/verso-blueprint/kernel-replay.json",
    recordFileIn (some "/home/a") none none (macOS := false) (windows := true)].map
     (·.map (·.toString))
 
+-- The worker an environment names: its program, what comes before the generator's own
+-- arguments, then the worker's flag.
+/-- info: (none, some ("/app/launcher", #["/tc/lib/lean", "/app/libgen.dylib", "--kernel-replay-worker"]), some ("/bin/vbp", #["--kernel-replay-worker"])) -/
+#guard_msgs (whitespace := lax) in
+#eval
+  let shown (w : Option (System.FilePath × Array String)) := w.map fun (p, args) => (p.toString, args)
+  (shown (workerOfLines " \n"), shown (workerOfLines "/app/launcher\n/tc/lib/lean\n/app/libgen.dylib\n"),
+   shown (workerOfLines "/bin/vbp"))
+
 /-! ## What a replay establishes -/
 
 private def result (outcome : Replay.Outcome) : Replay.Result :=

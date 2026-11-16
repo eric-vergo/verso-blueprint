@@ -2193,8 +2193,11 @@ kernel replay of what the declaration concerned depends on:
   read into memory instead of being mapped from the disk. So the modules are
   loaded and the export is written by a worker process: `vbp`, which
   `vbp build` names to the generator (`--kernel-replay-with <program>`), or a
-  compiled generator itself. A generator run by `lean --run` without that flag
-  has no worker, and its replay gives no verdict and says why.
+  compiled generator itself. A generator that another program starts as a
+  library is named by `VERSO_BLUEPRINT_KERNEL_REPLAY_WORKER`: the program, then
+  each argument that comes before the generator's own, one per line. A
+  generator run by `lean --run` without a worker has no replay: it gives no
+  verdict and says why.
 - **Limits**: the worker and the checker run at a lower priority, one after
   the other, with a time limit for the whole replay (900 seconds;
   `VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS` sets another), a memory limit for
