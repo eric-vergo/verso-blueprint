@@ -645,3 +645,15 @@ html[data-lean-links] .bp_stats_meaning_more {
   font-size: 0.85rem;
   color: var(--bp-color-text-subtle);
 }
+
+/* What stands behind the counts when it is not an accepted replay of every node. The bars and
+   the legend take their colours from the success tokens, which are neutral outside
+   `bp_replay_accepted`. */
+.bp_stats_replay_counts {
+  color: var(--bp-color-text-subtle);
+}
+
+.bp_stats_replay_counts_rejected {
+  color: var(--bp-color-accent-danger);
+  font-weight: 600;
+}

@@ -114,20 +114,100 @@ def standing (r? : Option Result) (needed : Array Name) : Standing :=
       if missing.isEmpty then .accepted
       else
         let be := if missing.size == 1 then "is" else "are"
-        .notReplayed s!"{nameList missing} {be} not among the project's modules that were replayed"
+        .notReplayed s!"not part of a replayed module: {nameList missing} {be} not among the \
+          project's modules that were replayed"
     | _ => .notReplayed r.whyNot
 
 /-- `standing` for a node: `unplaced` is a declaration of it whose module is not known, which no
 accepted replay is known to cover. -/
 def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Name) : Standing :=
   match standing r? needed, unplaced with
-  | .accepted, some d => .notReplayed s!"the module of {d} is not known, so it was not replayed"
+  | .accepted, some d =>
+    .notReplayed s!"not part of a replayed module: the module of {d} is not known"
   | s, _ => s
 
 /-- Whether the standing is an accepted replay. -/
 def Standing.isAccepted : Standing → Bool
   | .accepted => true
   | _ => false
+
+/-- The standing as a token for markup: `accepted`, `rejected` or `none`. -/
+def Standing.token : Standing → String
+  | .accepted => "accepted"
+  | .rejected _ => "rejected"
+  | .notReplayed _ => "none"
+
+/-- The class that tells the stylesheets what stands behind an element (`Standing.token`).
+Success colours are drawn only inside `bp_replay_accepted`; a colour is a statement too. -/
+def Standing.scopeClass (s : Standing) : String := s!"bp_replay_{s.token}"
+
+/-- What a site as a whole may show in the success colour: the standing behind its counts,
+bars and legends, which are about every node at once. -/
+inductive SiteState where
+  /-- The replay accepted the build and covers the Lean code of every node. -/
+  | accepted
+  /-- The checker rejected the build. -/
+  | rejected
+  /-- No verdict of a replay stands behind every node. `why` completes "not replayed by a
+  kernel: …". -/
+  | none (why : String)
+deriving Repr, Inhabited, DecidableEq
+
+/-- The state of a site: `uncovered` are the nodes with Lean code that an accepted replay does
+not cover (`standingOf` is not accepted for them). One such node keeps the counts neutral: a
+count in the success colour would include it. -/
+def siteState (r? : Option Result) (uncovered : Array Name := #[]) : SiteState :=
+  match r? with
+  | Option.none => .none noReplayText
+  | some r =>
+    match r.outcome with
+    | .rejected => .rejected
+    | .accepted =>
+      if uncovered.isEmpty then .accepted
+      else
+        let nodes := if uncovered.size == 1 then "1 node with Lean code is"
+          else s!"{uncovered.size} nodes with Lean code are"
+        .none s!"{nodes} not part of a replayed module"
+    | _ => .none r.whyNot
+
+/-- The state as a token for markup: `accepted`, `rejected` or `none`. -/
+def SiteState.token : SiteState → String
+  | .accepted => "accepted"
+  | .rejected => "rejected"
+  | .none _ => "none"
+
+/-- The class that tells the stylesheets what stands behind a page section (`SiteState.token`). -/
+def SiteState.scopeClass (s : SiteState) : String := s!"bp_replay_{s.token}"
+
+/-- The words beside a count or a legend entry that an accepted replay would show in the success
+colour, when none stands behind it. -/
+def reportedNote : String := "as the compiled files report, not replayed by a kernel"
+
+/-- The words beside such a count when the checker rejected the build. -/
+def rejectedNote : String := "this build was rejected by the kernel checker"
+
+/-- The qualification of a count or a legend entry about `sorry`-free Lean code: nothing under
+an accepted replay, else what the count rests on. -/
+def SiteState.note? : SiteState → Option String
+  | .accepted => Option.none
+  | .rejected => some rejectedNote
+  | .none _ => some reportedNote
+
+/-- A sentence after a count's description that says what the count rests on; nothing under an
+accepted replay. -/
+def SiteState.countSentence? : SiteState → Option String
+  | .accepted => Option.none
+  | .rejected => some "The kernel checker rejected this build."
+  | .none _ => some "Counted as the compiled files report, not replayed by a kernel."
+
+/-- One sentence for a page that shows counts: what stands behind them. Empty under an accepted
+replay. -/
+def SiteState.sentence : SiteState → String
+  | .accepted => ""
+  | .rejected =>
+    "This build was rejected by the kernel checker: the counts say what the compiled files \
+      report, and nothing here counts as checked by a kernel."
+  | .none why => s!"The counts are as the compiled files report, not replayed by a kernel: {why}."
 
 /-- One sentence on what the replay did, for the Project Stats page. -/
 def Result.summary (r : Result) : String :=

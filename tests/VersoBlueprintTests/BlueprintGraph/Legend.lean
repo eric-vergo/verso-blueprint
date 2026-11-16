@@ -16,8 +16,11 @@ def legendGroupByKey (groups : Array LegendGroup) (key : String) : Option Legend
 def legendItemByLabel (group : LegendGroup) (label : String) : Option LegendItem :=
   group.items.find? (·.label == label)
 
-def defaultLegend : Array LegendGroup := graphLegendGroups false
-def legendWithMathlib : Array LegendGroup := graphLegendGroups true
+-- The legend of a site whose kernel replay accepted the build and covers every node.
+def defaultLegend : Array LegendGroup := graphLegendGroups false .accepted
+def legendWithMathlib : Array LegendGroup := graphLegendGroups true .accepted
+-- The legend when nothing is said about a replay: no replay stands behind the site.
+def unreplayedLegend : Array LegendGroup := graphLegendGroups false
 def groupLegend : Array LegendGroup := groupGraphLegendGroups
 
 /-- info: true -/
@@ -44,6 +47,22 @@ def groupLegend : Array LegendGroup := groupGraphLegendGroups
 #guard_msgs in
 #eval
   legendWithMathlib.any fun group => (group.items.any (·.label == "In Mathlib"))
+
+-- Without an accepted replay every entry about `sorry`-free Lean code says what it rests on, and
+-- no entry keeps the bare label; after a rejected replay it says that.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let labels (legend : Array LegendGroup) : Array String := legend.flatMap (·.items.map (·.label))
+  let reported := "(as the compiled files report, not replayed by a kernel)"
+  let rejected := "(this build was rejected by the kernel checker)"
+  let bare := #["In Lean, no sorry", "Lean code without sorry",
+    "Lean code without sorry, dependencies too", "In Mathlib"]
+  bare.all (fun label => (labels (graphLegendGroups true)).contains s!"{label} {reported}" &&
+    !(labels (graphLegendGroups true)).contains label) &&
+  bare.all (fun label => (labels (graphLegendGroups true .rejected)).contains s!"{label} {rejected}") &&
+  bare.all (labels legendWithMathlib).contains &&
+  (labels unreplayedLegend).contains proofStatusIncompleteText
 
 /-- info: true -/
 #guard_msgs in

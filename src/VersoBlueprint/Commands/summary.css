@@ -312,3 +312,15 @@ html[data-bp-style="bold"] .bp_summary_subsection {
 .bp_summary_grid > .bp_summary_card.bp_summary_card_status {
   border-left: 0.3rem solid var(--bp-summary-status);
 }
+
+/* What stands behind the counts when it is not an accepted kernel replay of every node. */
+.bp_summary_replay_note {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  color: var(--bp-color-text-subtle);
+}
+
+.bp_summary_replay_note_rejected {
+  color: var(--bp-color-accent-danger);
+  font-weight: 600;
+}

@@ -332,6 +332,8 @@ structure LiterateDef where
   /-- The axioms the declaration depends on, sorted by name. -/
   axioms : Array Name := #[]
   typeSorryRefs : Array Syntax := #[]
+  /-- The module the code block was elaborated in, which is where the declaration lives. -/
+  module : Option Name := none
 deriving Repr, Inhabited
 
 structure LiterateThm extends LiterateDef where

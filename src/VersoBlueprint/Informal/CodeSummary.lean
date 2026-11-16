@@ -405,17 +405,11 @@ private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Nam
     else
       { completionStatusMark kind extraAxioms health with modules, unplaced }
 
-/-- A present declaration of `source` whose provenance names no module. -/
-def unplacedOf (source : BlockCodeData) : Option Name :=
-  (source.externalDecls.find? fun d => d.present && d.provenance.moduleName?.isNone).map
-    (·.canonical)
+/-- A Lean declaration of `source` whose module is not known (`BlockCodeData.unplaced`). -/
+def unplacedOf (source : BlockCodeData) : Option Name := source.unplaced
 
-/-- The modules of the present declarations of `source`, where their provenance names one, each
-once, sorted. -/
-def modulesOf (source : BlockCodeData) : Array Name :=
-  let all := (source.externalDecls.filter (·.present)).filterMap (·.provenance.moduleName?)
-  (all.foldl (init := #[]) fun acc m => if acc.contains m then acc else acc.push m).qsort
-    (·.toString < ·.toString)
+/-- The modules of the Lean declarations of `source` (`BlockCodeData.modules`). -/
+def modulesOf (source : BlockCodeData) : Array Name := source.modules
 
 /-- The axioms the present declarations of `source` depend on other than `sorryAx` and Lean's
 standard three, each once, in display order. -/

@@ -25,6 +25,27 @@ def load(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+CODE_LIST_SELECTORS = ("bp_code_hover_list", "bp_external_decl_list", "bp_external_decl_item")
+
+
+def code_list_rules_declaring(page: str, declarations: tuple[str, ...]) -> list[str]:
+    """Selectors of the page's style rules for the code hover and declaration lists that carry one
+    of `declarations`. Other rules of the page may use the same values for their own lists."""
+    found = []
+    for rule in re.finditer(r"\{([^{}]*)\}", page):
+        if not any(d in rule.group(1) for d in declarations):
+            continue
+        # the selector: what stands between the rule, comment or opening `<style>` tag before
+        # and this rule's brace (a `>` inside it is a child combinator)
+        style = page.rfind("<style", 0, rule.start())
+        start = max(page.rfind("}", 0, rule.start()) + 1, page.rfind("*/", 0, rule.start()) + 2,
+                    page.find(">", style) + 1 if style >= 0 else 0)
+        selector = " ".join(page[start:rule.start()].split())
+        if any(name in selector for name in CODE_LIST_SELECTORS):
+            found.append(selector)
+    return found
+
+
 def github_repo_pattern() -> str:
     """Regex for the `<owner>/<repo>` part of the generated GitHub source links.
 
@@ -185,7 +206,7 @@ def main() -> int:
         fail("stale expand hint markup still present")
     if "bp_external_decl_render_error" in code_panels or "Render failed:" in code_panels:
         fail("unexpected external declaration render failure remains in showcase")
-    if "padding-left: 1.1rem" in code_panels or "margin: 0.12rem 0 0" in code_panels:
+    if code_list_rules_declaring(code_panels, ("padding-left: 1.1rem", "margin: 0.12rem 0 0")):
         fail("shared code hover list spacing should not indent rendered declarations")
     if ".bp_external_decl_list > .bp_external_decl_item_rendered + .bp_external_decl_item_rendered" in code_panels:
         fail("rendered external declaration separator CSS should be gone")

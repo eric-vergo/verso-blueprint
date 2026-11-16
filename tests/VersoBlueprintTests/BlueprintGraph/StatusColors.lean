@@ -93,7 +93,11 @@ private def hasHexColor (s : String) : Bool :=
   hasSubstr css
     (".bp_graph_canvas svg g.node.bp_graph_statement_mathlib :is(ellipse, polygon, path) " ++
       "{ stroke: var(--bp-color-status-mathlib-border); }") &&
-  StatusColors.all.all fun token => hasSubstr css token.cssVar
+  -- the rules use the properties stylesheets share, never a success colour's value of its own
+  (StatusColors.all.filter fun token =>
+    !(token.name.endsWith "-accepted" || token.name.endsWith "-reported")).all
+      (fun token => hasSubstr css token.cssVar) &&
+  !hasSubstr css "-accepted" && !hasSubstr css "-reported"
 
 -- Legend swatches use the tokens (with the light value as fallback), never a bare colour.
 /-- info: true -/

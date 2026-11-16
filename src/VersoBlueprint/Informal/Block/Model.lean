@@ -94,6 +94,9 @@ structure CodeDeclData where
   axioms : Array Name := #[]
   sourceLocation : Data.SourceLocationResult :=
     Data.SourceLocationResult.unavailable "inline Lean declaration source location unavailable"
+  /-- The module the declaration lives in: the one its code block was elaborated in. Without it
+  no kernel replay is known to cover the declaration. -/
+  module : Option Name := none
 deriving Repr, Inhabited, FromJson, ToJson, Quote
 
 def CodeDeclData.ofLiterateDef (d : Data.LiterateDef)
@@ -107,6 +110,7 @@ def CodeDeclData.ofLiterateDef (d : Data.LiterateDef)
     provedStatus := d.provedStatus
     axioms := d.axioms
     sourceLocation
+    module := d.module
   }
 
 def CodeDeclData.ofLiterateThm (d : Data.LiterateThm)
@@ -120,6 +124,7 @@ def CodeDeclData.ofLiterateThm (d : Data.LiterateThm)
     provedStatus := d.provedStatus
     axioms := d.axioms
     sourceLocation
+    module := d.module
   }
 
 /-- Declaration facts independent of whether the document includes their code panels. -/
@@ -175,6 +180,23 @@ deriving Repr, Inhabited, FromJson, ToJson, Quote
 
 def BlockCodeData.isEmpty (code : BlockCodeData) : Bool :=
   code.literateDeclarations.isEmpty && code.externalDecls.isEmpty
+
+/-- A Lean declaration of `code` whose module is not known: a present external declaration
+whose provenance names none, or a declaration of a code block that recorded none. No kernel
+replay is known to cover it. -/
+def BlockCodeData.unplaced (code : BlockCodeData) : Option Name :=
+  ((code.externalDecls.find? fun d => d.present && d.provenance.moduleName?.isNone).map
+      (·.canonical)) <|>
+    ((code.literateDeclarations.declarations.find? (·.module.isNone)).map (·.name))
+
+/-- The modules the Lean declarations of `code` live in, where they are known, each once,
+sorted: those of the present external declarations and those of its code blocks. A kernel replay
+must cover them all before the code counts as replayed. -/
+def BlockCodeData.modules (code : BlockCodeData) : Array Name :=
+  let all := (code.externalDecls.filter (·.present)).filterMap (·.provenance.moduleName?) ++
+    code.literateDeclarations.declarations.filterMap (·.module)
+  (all.foldl (init := #[]) fun acc m => if acc.contains m then acc else acc.push m).qsort
+    (·.toString < ·.toString)
 
 /-- A panel's own declaration facts, for panel-local status and tooltips. -/
 def BlockCodeData.ofInlineBlocks (blocks : InlineCodeBlocks) : BlockCodeData :=

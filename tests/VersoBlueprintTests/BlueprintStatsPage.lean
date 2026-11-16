@@ -123,6 +123,8 @@ private def view (stats : ProjectStats) : StatsPageView := {
   workQueueSize := 1
   summaryHref := some "/Blueprint-Summary/#blueprint-summary"
   workQueueHref := some "/Ready-to-Prove/#ready-to-prove"
+  -- a site whose kernel replay accepted the build and covers every node
+  site := .accepted
 }
 
 -- Identity, headline, progress, size and build bands of a project with a proved challenge.
@@ -130,7 +132,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
 #guard_msgs in
 #eval
   let html := (statsPageHtml (view rokickiLike)).asString
-  hasSubstr html "class=\"bp_project_stats\"" &&
+  hasSubstr html "class=\"bp_project_stats bp_replay_accepted\"" &&
     hasSubstr html "Rokicki's constant is irrational</p>" && hasSubstr html "class=\"bp_stats_name\"" &&
     hasSubstr html "License: Apache-2.0" && hasSubstr html "Lean v4.35.0" &&
     -- direct dependencies only, with the revision asked for and the locked commit
@@ -266,7 +268,7 @@ A theorem.
     let out ← renderManualDocHtmlString extension_impls% statsDoc (model := model)
     let total := model.stats.progress.total
     pure (
-      hasSubstr out "class=\"bp_project_stats\"" &&
+      hasSubstr out "class=\"bp_project_stats bp_replay_none\"" &&
       hasSubstr out s!"{countOf total "node"}: 1 theorem, 1 definition</p>" &&
       -- both nodes have a written statement, and neither has Lean code
       hasSubstr out "Lean complete (no sorry in a node's Lean code or in what that code uses): \
@@ -340,7 +342,7 @@ A theorem.
     let html ← if ← page.pathExists then IO.FS.readFile page else pure ""
     let index ← IO.FS.readFile (root / "on" / "html-multi" / "index.html")
     pure (c1 == 0 && c2 == 0 && c3 == 0 &&
-      hasSubstr html "class=\"bp_project_stats\"" &&
+      hasSubstr html "class=\"bp_project_stats bp_replay_none\"" &&
       hasSubstr html "data-bp-chapter=\"Sums\"" &&
       hasSubstr html "<a href=\"https://example.org/repo\">Repository</a>" &&
       hasSubstr index "Project-Stats" &&

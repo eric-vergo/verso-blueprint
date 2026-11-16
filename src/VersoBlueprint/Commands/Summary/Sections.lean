@@ -12,6 +12,7 @@ import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Lib.HoverRender
 import VersoBlueprint.Lib.PreviewSource
 import VersoBlueprint.Resolve
+import VersoBlueprint.ReplayView
 import VersoBlueprint.TeX
 import VersoBlueprint.TraversalIndex
 
@@ -30,11 +31,30 @@ open Verso.Multi (AllRemotes)
 private def actionableEntryDescription : String :=
   "Entries with an actionable next formalization step."
 
-private def summaryOverviewSection (data : Summary) (rows : SummaryRows) : Output.Html :=
+/-- A card's description with what its count rests on, when no accepted kernel replay of every
+node stands behind it. -/
+private def withReplayNote (site : Replay.SiteState) (text : String) : String :=
+  match site.countSentence? with
+  | some sentence => s!"{text} {sentence}"
+  | Option.none => text
+
+/-- The sentence above the cards that says what stands behind the counts; nothing under an
+accepted replay. -/
+private def summaryReplayNote (site : Replay.SiteState) : Output.Html :=
+  if site.sentence.isEmpty then .empty
+  else {{
+    <p class={{s!"bp_summary_replay_note bp_summary_replay_note_{site.token}"}}>
+      {{.text true site.sentence}}
+    </p>
+  }}
+
+private def summaryOverviewSection (data : Summary) (rows : SummaryRows)
+    (site : Replay.SiteState) : Output.Html :=
   let showBlockers := !rows.blockerRows.isEmpty
   let showPendingInformal := !rows.pendingInformalRows.isEmpty
   let showQuickWins := !rows.quickWinRows.isEmpty
   summarySection "Overview" {{
+      {{summaryReplayNote site}}
       <div class="bp_summary_grid">
         {{summaryCard "Total entries" (toString data.totalEntries) (Option.some (statusCountsText data.totalStatus))}}
         {{summaryCard
@@ -45,7 +65,8 @@ private def summaryOverviewSection (data : Summary) (rows : SummaryRows) : Outpu
         {{summaryCard
             "Fully closed"
             (toString data.coverageSplit.fullyClosed)
-            (Option.some "The node's Lean code has no sorry, and neither has any node it depends on.")
+            (Option.some (withReplayNote site
+              "The node's Lean code has no sorry, and neither has any node it depends on."))
             (accent? := StatusColors.formalizedWithAncestors)}}
         {{summaryCard
             "Actionable priorities"
@@ -306,7 +327,8 @@ private def summaryDiagnosticsSection (data : Summary) (rows : SummaryRows) : Ou
             "bp_summary_subsection bp_summary_subsection_warn"}}
       }}
 
-private def summaryStructureSection (data : Summary) (rows : SummaryRows) : Output.Html :=
+private def summaryStructureSection (data : Summary) (rows : SummaryRows)
+    (site : Replay.SiteState) : Output.Html :=
   let showHeaviestPrerequisites := !rows.heaviestPrerequisiteRows.isEmpty
   let showNoPrerequisites := !rows.noPrerequisiteRows.isEmpty
   let showNoDependents := !rows.noDependentRows.isEmpty
@@ -338,13 +360,15 @@ private def summaryStructureSection (data : Summary) (rows : SummaryRows) : Outp
               (data.coverageSplit.formalizedWithoutAncestors > 0)
               "Lean complete, dependencies open"
               (toString data.coverageSplit.formalizedWithoutAncestors)
-              (Option.some "The node's Lean code has no sorry; a node it depends on is not complete.")
+              (Option.some (withReplayNote site
+                "The node's Lean code has no sorry; a node it depends on is not complete."))
               (accent? := StatusColors.formalizedBorder)}}
           {{summaryOptionalCard
               (data.coverageSplit.fullyClosed > 0)
               "Fully closed"
               (toString data.coverageSplit.fullyClosed)
-              (Option.some "The node's Lean code has no sorry, and neither has any node it depends on.")
+              (Option.some (withReplayNote site
+                "The node's Lean code has no sorry, and neither has any node it depends on."))
               (accent? := StatusColors.formalizedWithAncestors)}}
           {{summaryOptionalWarnCard
               (data.coverageSplit.blockedOrIncomplete > 0)
@@ -415,8 +439,10 @@ private def summaryBlockToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT
       previewLookupKey? := fun label => previewLookupKeys.get? label
     }
     let previewPanel := Informal.HoverRender.summaryPreviewPanel
+    -- the cards' success colours follow the kernel replay made while the site is generated
+    let site := Informal.ReplayView.siteState s
     let summaryAttrs :=
-      #[("class", "bp_summary")] ++
+      #[("class", s!"bp_summary {site.scopeClass}"), ("data-bp-replay-state", site.token)] ++
         Informal.HoverRender.templatePreviewDescriptorAttrs
           ".bp_summary_preview_panel"
           "template.bp_summary_preview_tpl[data-bp-preview-label]"
@@ -429,12 +455,12 @@ private def summaryBlockToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT
     pure {{
       <div {{summaryAttrs}}>
         {{previewPanel}}
-        {{summaryOverviewSection data rows}}
+        {{summaryOverviewSection data rows site}}
         {{summaryEntryIndexSection data rows}}
         {{summaryDependencyInsightsSection rows}}
         {{summaryMetadataSection data rows}}
         {{summaryDiagnosticsSection data rows}}
-        {{summaryStructureSection data rows}}
+        {{summaryStructureSection data rows site}}
       </div>
     }}
 

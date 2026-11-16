@@ -15,6 +15,7 @@ import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Meaning
+import VersoBlueprint.ReplayView
 import VersoBlueprint.Stats.Claims
 import VersoBlueprint.Stats.Data
 import VersoBlueprint.StatusColors
@@ -108,6 +109,11 @@ structure StatsPageView where
   workQueueSize : Nat := 0
   summaryHref : Option String := none
   workQueueHref : Option String := none
+  /-- What the site as a whole may show in the success colour (`Replay.siteState`): without an
+  accepted replay that covers every node, counts, bars and legends are neutral and say why. -/
+  site : Replay.SiteState := .none Replay.noReplayText
+  /-- The nodes with Lean code that an accepted replay does not cover, sorted. -/
+  notReplayed : Array Name := #[]
 deriving Inhabited
 
 /-- The title of the page in the table of contents. -/
@@ -179,11 +185,15 @@ def leanCompleteLabel : String := "Lean complete"
 
 /-- The progress counts as buckets, most complete first. The tokens are the status tokens of
 the stylesheet; the labels say what was looked at: the node's Lean code and the nodes it depends
-on. -/
-def progressBuckets (c : ProgressCounts) : Array ProgressBucket := #[
-  { token := "fully-proved", label := "Lean complete, dependencies too",
+on. The two buckets of `sorry`-free code are drawn in a success colour only under an accepted
+kernel replay; in any other `site` state their labels say what the count rests on. -/
+def progressBuckets (c : ProgressCounts)
+    (site : Replay.SiteState := .none Replay.noReplayText) : Array ProgressBucket :=
+  let note := (site.note?.map (s!" ({·})")).getD ""
+  #[
+  { token := "fully-proved", label := s!"Lean complete, dependencies too{note}",
     count := c.formalizedWithAncestors },
-  { token := "open-ancestors", label := "Lean complete, a dependency is not",
+  { token := "open-ancestors", label := s!"Lean complete, a dependency is not{note}",
     count := c.formalized },
   { token := "incomplete", label := "Lean code incomplete", count := c.incomplete },
   { token := "ready", label := "ready to formalize", count := c.ready },
@@ -421,7 +431,8 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
     if !t.conditionsMet then .empty
     else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
       (txt (replayNoteText replay? h.solutionModules (some standing))) #[("data-bp-replay", token)]
-  el "div" "bp_stats_theorem" (.seq #[
+  -- the card's success colours follow the replay behind this verdict
+  el "div" s!"bp_stats_theorem {standing.scopeClass}" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
       el "code" "bp_stats_theorem_name" (txt t.name.toString),
       el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
@@ -523,11 +534,21 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           "Modules of the site with no compiled module in the project: not replayed"
           r.notCompiled]
     | Option.none => .empty
+  -- the sentence that the replay accepted the build is itself a positive statement
+  let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}" else ""
+  let uncovered : Output.Html :=
+    if view.notReplayed.isEmpty then .empty
+    else el "details" "bp_stats_more bp_stats_replay_uncovered" (.seq #[
+      .tag "summary" #[] (txt s!"Nodes with Lean code that is not part of a replayed module \
+        ({formatCount view.notReplayed.size})"),
+      el "ul" "bp_stats_files" (.seq (view.notReplayed.map fun label =>
+        .tag "li" #[] (nodeLink view label)))])
   band "bp_stats_replay" "Kernel replay" #[
-    el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}" (txt summary)
+    el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
       #[("data-bp-replay", token)],
     message,
     modules,
+    uncovered,
     el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)]
 
 /-! ## Author's claims -/
@@ -552,8 +573,8 @@ private def claimsHtml (view : StatsPageView) : Output.Html :=
 
 /-! ## Progress -/
 
-private def progressBar (c : ProgressCounts) : Output.Html :=
-  let buckets := (progressBuckets c).filter (·.count > 0)
+private def progressBar (c : ProgressCounts) (site : Replay.SiteState) : Output.Html :=
+  let buckets := (progressBuckets c site).filter (·.count > 0)
   let description := ", ".intercalate (buckets.toList.map fun b => s!"{formatCount b.count} {b.label}")
   el "div" "bp_stats_bar" (.seq <| buckets.map fun b =>
     el "span" s!"bp_stats_seg bp_stats_status_{b.token}" .empty
@@ -561,14 +582,14 @@ private def progressBar (c : ProgressCounts) : Output.Html :=
         ("title", s!"{b.label}: {formatCount b.count}")])
     #[("role", "img"), ("aria-label", s!"{countOf c.total "node"}: {description}")]
 
-private def progressLegend (c : ProgressCounts) : Output.Html :=
-  el "ul" "bp_stats_legend" (.seq <| (progressBuckets c).map fun b =>
+private def progressLegend (c : ProgressCounts) (site : Replay.SiteState) : Output.Html :=
+  el "ul" "bp_stats_legend" (.seq <| (progressBuckets c site).map fun b =>
     el "li" (if b.count == 0 then "bp_stats_legend_item bp_stats_legend_zero" else "bp_stats_legend_item")
       (.seq #[el "span" s!"bp_stats_swatch bp_stats_status_{b.token}" .empty #[("aria-hidden", "true")],
         txt s!"{b.label} ", el "strong" "bp_stats_legend_count" (txt (formatCount b.count))])
       #[("data-bp-status", b.token)])
 
-private def chapterTable (rows : Array StatsChapterRow) : Output.Html :=
+private def chapterTable (rows : Array StatsChapterRow) (site : Replay.SiteState) : Output.Html :=
   if rows.isEmpty then .empty else
   let body := rows.map fun row =>
     let total := row.progress.total
@@ -580,7 +601,7 @@ private def chapterTable (rows : Array StatsChapterRow) : Output.Html :=
         | Option.none => .empty,
         link row.href (txt row.title)]),
       el "td" "bp_stats_num" (txt (formatCount total)),
-      el "td" "bp_stats_chapter_bar" (progressBar row.progress),
+      el "td" "bp_stats_chapter_bar" (progressBar row.progress site),
       el "td" "bp_stats_num" (txt s!"{formatCount done}/{formatCount total}")])
   el "table" "bp_stats_chapters" (.seq #[
     .tag "thead" #[] (.tag "tr" #[] (.seq #[
@@ -626,6 +647,11 @@ private def progressHtml (view : StatsPageView) : Output.Html :=
     | some href => el "p" "bp_stats_links_line" (.seq #[
         .tag "a" #[("href", href)] (txt s!"{workQueuePageTitle} ({formatCount view.workQueueSize})")])
     | Option.none => .empty
+  -- what stands behind the counts, when it is not an accepted replay of every node
+  let replayCounts : Output.Html :=
+    if view.site.sentence.isEmpty then .empty
+    else el "p" s!"bp_stats_progress_line bp_stats_replay_counts bp_stats_replay_counts_{view.site.token}"
+      (txt view.site.sentence) #[("data-bp-progress", "replay")]
   band "bp_stats_progress" "How far along" #[
     el "p" "bp_stats_lead" (txt lead),
     el "p" "bp_stats_progress_line" (txt (leanCompleteText p)) #[("data-bp-progress", "lean")],
@@ -633,10 +659,11 @@ private def progressHtml (view : StatsPageView) : Output.Html :=
     else el "p" "bp_stats_progress_line"
       (.seq #[txt informal, if p.informal == 0 then .empty else meaningLink view])
       #[("data-bp-progress", "informal")],
-    progressBar c,
-    progressLegend c,
+    replayCounts,
+    progressBar c view.site,
+    progressLegend c view.site,
     queue,
-    chapterTable view.chapters]
+    chapterTable view.chapters view.site]
 where
   joinKinds (p : LeanProgress) : String :=
     ", ".intercalate <|
@@ -775,6 +802,11 @@ def meaningItems : Array (String × String) := #[
     "the node's Lean declarations, and everything they use, contain no sorry. The generator reads \
       this from the compiled modules, which is not a check by a kernel. Code that rests on an \
       axiom beyond Lean's standard three gets the warning mark, with the axiom named."),
+  ("Green",
+    "a success colour is drawn only where a kernel replay accepted the Lean code concerned: on a \
+      node whose module the replay accepted, and on counts, bars and legends only when the \
+      replay accepted the build and covers every node with Lean code. Everywhere else the same \
+      statuses are drawn in grey, and after a rejected replay nothing is green."),
   ("Kernel replay, and the check mark on a node",
     "the toolchain's leanchecker checked every constant of the project's compiled modules again \
       in Lean's kernel while this site was generated. A node has the check mark only when its \
@@ -820,7 +852,7 @@ def statsPageHtml (view : StatsPageView) : Output.Html :=
     | some href => el "p" "bp_stats_summary_link" (.seq #[txt "Detailed breakdown: ",
         .tag "a" #[("href", href)] (txt summaryPageTitle)])
     | Option.none => .empty
-  el "div" "bp_project_stats" (.seq #[
+  el "div" s!"bp_project_stats {view.site.scopeClass}" (.seq #[
     identityHtml view,
     headlineHtml view,
     replayHtml view,
@@ -831,7 +863,8 @@ def statsPageHtml (view : StatsPageView) : Output.Html :=
     trustHtml view,
     meaningHtml,
     summary])
-    #[("data-bp-schema-version", toString view.stats.schemaVersion)]
+    #[("data-bp-schema-version", toString view.stats.schemaVersion),
+      ("data-bp-replay-state", view.site.token)]
 
 /-! ## Reading the traversal -/
 
@@ -915,8 +948,12 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
     | Option.none => { title := c.chapter, progress := c.progress }
   let stats := stats.withChapters graphNodes
   let chapters := sortChapterRows chapters
+  -- the replay of the statistics the page reports on
+  let replays := Informal.ReplayView.Index.buildWith state stats.replay
   {
     stats, page, chapters, nodes
+    site := replays.siteState
+    notReplayed := replays.uncovered
     workQueueSize := (workQueue graph).size
     summaryHref := (pageSection? sections summaryPageTitle).map (·.link.relativeLink)
     workQueueHref := (pageSection? sections workQueuePageTitle).map (·.link.relativeLink)

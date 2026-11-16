@@ -1,0 +1,804 @@
+{
+ "format": "verso-blueprint-code-1",
+ "hovers": [
+  {
+   "doc": "Twice a natural number. ",
+   "name": "Cmp.double",
+   "signature": "Cmp.double (n : Nat) : Nat"
+  },
+  {
+   "doc": "Doubling gives an even number. ",
+   "name": "Cmp.double_even",
+   "signature": "Cmp.double_even (n : Nat) : Cmp.double n % 2 = 0"
+  },
+  {
+   "doc": "The natural numbers, starting at zero.\n\nThis type is special-cased by both the kernel and the compiler, and overridden with an efficient\nimplementation. Both use a fast arbitrary-precision arithmetic library (usually\n[GMP](https://gmplib.org/)); at runtime, `Nat` values that are sufficiently small are unboxed.\n",
+   "name": "Nat",
+   "signature": "Nat : Type"
+  },
+  {
+   "doc": "Twice a natural number. ",
+   "name": "Demo.double",
+   "signature": "Demo.double (n : Nat) : Nat"
+  },
+  {
+   "doc": null,
+   "name": "Demo.double_add",
+   "signature": "Demo.double_add (a b : Nat) : Demo.double (a + b) = Demo.double a + Demo.double b"
+  },
+  {
+   "doc": "Doubling is adding a number to itself: $2n = n + n$. ",
+   "name": "Demo.double_eq",
+   "signature": "Demo.double_eq (n : Nat) : Demo.double n = n + n"
+  }
+ ],
+ "modules": [
+  {
+   "declarations": [
+    {
+     "attrs": [],
+     "axioms": [],
+     "display": "Cmp.double",
+     "doc": "Twice a natural number. ",
+     "external": [
+      "HMul.hMul",
+      "Nat",
+      "OfNat.ofNat",
+      "instHMul",
+      "instMulNat",
+      "instOfNatNat"
+     ],
+     "isPrivate": false,
+     "kind": "def",
+     "name": "Cmp.double",
+     "occurrences": [
+      {
+       "isDef": true,
+       "name": "Cmp.double",
+       "range": {
+        "end": {
+         "character": 10,
+         "line": 5
+        },
+        "start": {
+         "character": 4,
+         "line": 5
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 19,
+         "line": 5
+        },
+        "start": {
+         "character": 16,
+         "line": 5
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 26,
+         "line": 5
+        },
+        "start": {
+         "character": 23,
+         "line": 5
+        }
+       }
+      }
+     ],
+     "range": {
+      "end": {
+       "character": 35,
+       "line": 5
+      },
+      "start": {
+       "character": 0,
+       "line": 4
+      }
+     },
+     "selection": {
+      "end": {
+       "character": 10,
+       "line": 5
+      },
+      "start": {
+       "character": 4,
+       "line": 5
+      }
+     },
+     "signature": "Cmp.double (n : Nat) : Nat",
+     "status": "proved",
+     "uses": []
+    },
+    {
+     "attrs": [],
+     "axioms": [
+      "Quot.sound",
+      "propext"
+     ],
+     "display": "Cmp.double_even",
+     "doc": "Doubling gives an even number. ",
+     "external": [
+      "Bool",
+      "Bool.true",
+      "Decidable.byContradiction",
+      "Decidable.decide",
+      "Eq",
+      "Eq.refl",
+      "Eq.symm",
+      "Eq.trans",
+      "False",
+      "GT.gt",
+      "HAdd.hAdd",
+      "HDiv.hDiv",
+      "HMod.hMod",
+      "HMul.hMul",
+      "HSub.hSub",
+      "Int",
+      "Int.add_one_le_of_lt",
+      "Int.decLt",
+      "Int.emod_def",
+      "Int.instAdd",
+      "Int.instDecidableEq",
+      "Int.instDiv",
+      "Int.instLEInt",
+      "Int.instLTInt",
+      "Int.instMod",
+      "Int.instMul",
+      "Int.instNegInt",
+      "Int.instSub",
+      "Int.lt_mul_ediv_self_add",
+      "Int.mul_ediv_self_le",
+      "Int.natCast_emod",
+      "Int.natCast_mul",
+      "Int.sub_nonneg_of_le",
+      "LT.lt",
+      "Lean.Omega.Coeffs.isZero",
+      "Lean.Omega.Coeffs.ofList",
+      "Lean.Omega.Constraint.addInequality_sat",
+      "Lean.Omega.Constraint.combine_sat'",
+      "Lean.Omega.Constraint.isImpossible",
+      "Lean.Omega.Constraint.mk",
+      "Lean.Omega.Constraint.not_sat'_of_isImpossible",
+      "Lean.Omega.Int.add_congr",
+      "Lean.Omega.Int.mul_congr",
+      "Lean.Omega.Int.ofNat_lt_of_lt",
+      "Lean.Omega.Int.sub_congr",
+      "Lean.Omega.LinearCombo",
+      "Lean.Omega.LinearCombo.add_eval",
+      "Lean.Omega.LinearCombo.coordinate",
+      "Lean.Omega.LinearCombo.coordinate_eval_0",
+      "Lean.Omega.LinearCombo.coordinate_eval_1",
+      "Lean.Omega.LinearCombo.eval",
+      "Lean.Omega.LinearCombo.instAdd",
+      "Lean.Omega.LinearCombo.instSub",
+      "Lean.Omega.LinearCombo.mk",
+      "Lean.Omega.LinearCombo.mul",
+      "Lean.Omega.LinearCombo.mul_eval",
+      "Lean.Omega.LinearCombo.sub_eval",
+      "Lean.Omega.tidy_sat",
+      "List.cons",
+      "List.decidableBAll",
+      "List.nil",
+      "Nat",
+      "Nat.cast",
+      "Nat.instMod",
+      "Nat.lt_or_gt_of_ne",
+      "Ne",
+      "Neg.neg",
+      "Not",
+      "OfNat.ofNat",
+      "Option.none",
+      "Option.some",
+      "Or",
+      "Or.elim",
+      "id",
+      "instDecidableEqBool",
+      "instDecidableEqNat",
+      "instDecidableNot",
+      "instDecidableOr",
+      "instHAdd",
+      "instHDiv",
+      "instHMod",
+      "instHMul",
+      "instHSub",
+      "instLTNat",
+      "instMulNat",
+      "instNatCastInt",
+      "instOfNat",
+      "instOfNatNat",
+      "le_of_le_of_eq",
+      "of_decide_eq_true"
+     ],
+     "isPrivate": false,
+     "kind": "theorem",
+     "name": "Cmp.double_even",
+     "occurrences": [
+      {
+       "isDef": true,
+       "name": "Cmp.double_even",
+       "range": {
+        "end": {
+         "character": 19,
+         "line": 8
+        },
+        "start": {
+         "character": 8,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 28,
+         "line": 8
+        },
+        "start": {
+         "character": 25,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Cmp.double",
+       "range": {
+        "end": {
+         "character": 38,
+         "line": 8
+        },
+        "start": {
+         "character": 32,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Cmp.double",
+       "range": {
+        "end": {
+         "character": 15,
+         "line": 9
+        },
+        "start": {
+         "character": 9,
+         "line": 9
+        }
+       }
+      }
+     ],
+     "range": {
+      "end": {
+       "character": 22,
+       "line": 9
+      },
+      "start": {
+       "character": 0,
+       "line": 7
+      }
+     },
+     "selection": {
+      "end": {
+       "character": 19,
+       "line": 8
+      },
+      "start": {
+       "character": 8,
+       "line": 8
+      }
+     },
+     "signature": "Cmp.double_even (n : Nat) : Cmp.double n % 2 = 0",
+     "status": "proved",
+     "uses": [
+      {
+       "kind": "statement",
+       "name": "Cmp.double"
+      }
+     ]
+    }
+   ],
+   "module": "Comparator.Solution",
+   "source": "Comparator/Solution.lean"
+  },
+  {
+   "declarations": [],
+   "module": "Demo",
+   "source": "Demo.lean"
+  },
+  {
+   "declarations": [
+    {
+     "attrs": [],
+     "axioms": [],
+     "display": "Demo.double",
+     "doc": "Twice a natural number. ",
+     "external": [
+      "HMul.hMul",
+      "Nat",
+      "OfNat.ofNat",
+      "instHMul",
+      "instMulNat",
+      "instOfNatNat"
+     ],
+     "isPrivate": false,
+     "kind": "def",
+     "name": "Demo.double",
+     "occurrences": [
+      {
+       "isDef": true,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 10,
+         "line": 5
+        },
+        "start": {
+         "character": 4,
+         "line": 5
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 19,
+         "line": 5
+        },
+        "start": {
+         "character": 16,
+         "line": 5
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 26,
+         "line": 5
+        },
+        "start": {
+         "character": 23,
+         "line": 5
+        }
+       }
+      }
+     ],
+     "range": {
+      "end": {
+       "character": 35,
+       "line": 5
+      },
+      "start": {
+       "character": 0,
+       "line": 4
+      }
+     },
+     "selection": {
+      "end": {
+       "character": 10,
+       "line": 5
+      },
+      "start": {
+       "character": 4,
+       "line": 5
+      }
+     },
+     "signature": "Demo.double (n : Nat) : Nat",
+     "status": "proved",
+     "uses": []
+    },
+    {
+     "attrs": [],
+     "axioms": [
+      "Quot.sound",
+      "propext"
+     ],
+     "display": "Demo.double_eq",
+     "doc": "Doubling is adding a number to itself: $2n = n + n$. ",
+     "external": [
+      "Bool",
+      "Bool.true",
+      "Decidable.byContradiction",
+      "Decidable.decide",
+      "Eq",
+      "Eq.refl",
+      "Eq.symm",
+      "Eq.trans",
+      "False",
+      "GT.gt",
+      "HAdd.hAdd",
+      "HMul.hMul",
+      "HSub.hSub",
+      "Int",
+      "Int.add_one_le_of_lt",
+      "Int.instAdd",
+      "Int.instDecidableEq",
+      "Int.instLEInt",
+      "Int.instMul",
+      "Int.instNegInt",
+      "Int.instSub",
+      "Int.natCast_add",
+      "Int.natCast_mul",
+      "Int.sub_nonneg_of_le",
+      "LT.lt",
+      "Lean.Omega.Coeffs.isZero",
+      "Lean.Omega.Coeffs.ofList",
+      "Lean.Omega.Constraint.addInequality_sat",
+      "Lean.Omega.Constraint.isImpossible",
+      "Lean.Omega.Constraint.mk",
+      "Lean.Omega.Constraint.not_sat'_of_isImpossible",
+      "Lean.Omega.Int.add_congr",
+      "Lean.Omega.Int.mul_congr",
+      "Lean.Omega.Int.ofNat_lt_of_lt",
+      "Lean.Omega.Int.sub_congr",
+      "Lean.Omega.LinearCombo",
+      "Lean.Omega.LinearCombo.add_eval",
+      "Lean.Omega.LinearCombo.coordinate",
+      "Lean.Omega.LinearCombo.coordinate_eval_0",
+      "Lean.Omega.LinearCombo.eval",
+      "Lean.Omega.LinearCombo.instAdd",
+      "Lean.Omega.LinearCombo.instSub",
+      "Lean.Omega.LinearCombo.mk",
+      "Lean.Omega.LinearCombo.mul",
+      "Lean.Omega.LinearCombo.mul_eval",
+      "Lean.Omega.LinearCombo.sub_eval",
+      "Lean.Omega.tidy_sat",
+      "List.cons",
+      "List.decidableBAll",
+      "List.nil",
+      "Nat",
+      "Nat.cast",
+      "Nat.lt_or_gt_of_ne",
+      "Neg.neg",
+      "Not",
+      "OfNat.ofNat",
+      "Option.none",
+      "Option.some",
+      "Or",
+      "Or.elim",
+      "id",
+      "instAddNat",
+      "instDecidableEqBool",
+      "instDecidableEqNat",
+      "instDecidableOr",
+      "instHAdd",
+      "instHMul",
+      "instHSub",
+      "instLTNat",
+      "instMulNat",
+      "instNatCastInt",
+      "instOfNat",
+      "instOfNatNat",
+      "le_of_le_of_eq",
+      "of_decide_eq_true"
+     ],
+     "isPrivate": false,
+     "kind": "theorem",
+     "name": "Demo.double_eq",
+     "occurrences": [
+      {
+       "isDef": true,
+       "name": "Demo.double_eq",
+       "range": {
+        "end": {
+         "character": 17,
+         "line": 8
+        },
+        "start": {
+         "character": 8,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 26,
+         "line": 8
+        },
+        "start": {
+         "character": 23,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 36,
+         "line": 8
+        },
+        "start": {
+         "character": 30,
+         "line": 8
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 15,
+         "line": 9
+        },
+        "start": {
+         "character": 9,
+         "line": 9
+        }
+       }
+      }
+     ],
+     "range": {
+      "end": {
+       "character": 22,
+       "line": 9
+      },
+      "start": {
+       "character": 0,
+       "line": 7
+      }
+     },
+     "selection": {
+      "end": {
+       "character": 17,
+       "line": 8
+      },
+      "start": {
+       "character": 8,
+       "line": 8
+      }
+     },
+     "signature": "Demo.double_eq (n : Nat) : Demo.double n = n + n",
+     "statement": {
+      "source": "docstring",
+      "text": "Doubling is adding a number to itself: $2n = n + n$. "
+     },
+     "status": "proved",
+     "uses": [
+      {
+       "kind": "statement",
+       "name": "Demo.double"
+      }
+     ]
+    },
+    {
+     "attrs": [],
+     "axioms": [
+      "Quot.sound",
+      "propext"
+     ],
+     "display": "Demo.double_add",
+     "doc": null,
+     "external": [
+      "Bool",
+      "Bool.true",
+      "Decidable.byContradiction",
+      "Decidable.decide",
+      "Eq",
+      "Eq.refl",
+      "Eq.symm",
+      "Eq.trans",
+      "False",
+      "GT.gt",
+      "HAdd.hAdd",
+      "HMul.hMul",
+      "HSub.hSub",
+      "Int",
+      "Int.add_one_le_of_lt",
+      "Int.instAdd",
+      "Int.instDecidableEq",
+      "Int.instLEInt",
+      "Int.instMul",
+      "Int.instNegInt",
+      "Int.instSub",
+      "Int.natCast_add",
+      "Int.natCast_mul",
+      "Int.sub_nonneg_of_le",
+      "LT.lt",
+      "Lean.Omega.Coeffs.isZero",
+      "Lean.Omega.Coeffs.ofList",
+      "Lean.Omega.Constraint.addInequality_sat",
+      "Lean.Omega.Constraint.isImpossible",
+      "Lean.Omega.Constraint.mk",
+      "Lean.Omega.Constraint.not_sat'_of_isImpossible",
+      "Lean.Omega.Int.add_congr",
+      "Lean.Omega.Int.mul_congr",
+      "Lean.Omega.Int.ofNat_lt_of_lt",
+      "Lean.Omega.Int.sub_congr",
+      "Lean.Omega.LinearCombo",
+      "Lean.Omega.LinearCombo.add_eval",
+      "Lean.Omega.LinearCombo.coordinate",
+      "Lean.Omega.LinearCombo.coordinate_eval_0",
+      "Lean.Omega.LinearCombo.coordinate_eval_1",
+      "Lean.Omega.LinearCombo.eval",
+      "Lean.Omega.LinearCombo.instAdd",
+      "Lean.Omega.LinearCombo.instSub",
+      "Lean.Omega.LinearCombo.mk",
+      "Lean.Omega.LinearCombo.mul",
+      "Lean.Omega.LinearCombo.mul_eval",
+      "Lean.Omega.LinearCombo.sub_eval",
+      "Lean.Omega.tidy_sat",
+      "List.cons",
+      "List.decidableBAll",
+      "List.nil",
+      "Nat",
+      "Nat.cast",
+      "Nat.lt_or_gt_of_ne",
+      "Neg.neg",
+      "Not",
+      "OfNat.ofNat",
+      "Option.none",
+      "Option.some",
+      "Or",
+      "Or.elim",
+      "id",
+      "instAddNat",
+      "instDecidableEqBool",
+      "instDecidableEqNat",
+      "instDecidableOr",
+      "instHAdd",
+      "instHMul",
+      "instHSub",
+      "instLTNat",
+      "instMulNat",
+      "instNatCastInt",
+      "instOfNat",
+      "instOfNatNat",
+      "le_of_le_of_eq",
+      "of_decide_eq_true"
+     ],
+     "isPrivate": false,
+     "kind": "theorem",
+     "name": "Demo.double_add",
+     "occurrences": [
+      {
+       "isDef": true,
+       "name": "Demo.double_add",
+       "range": {
+        "end": {
+         "character": 18,
+         "line": 11
+        },
+        "start": {
+         "character": 8,
+         "line": 11
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Nat",
+       "range": {
+        "end": {
+         "character": 29,
+         "line": 11
+        },
+        "start": {
+         "character": 26,
+         "line": 11
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 39,
+         "line": 11
+        },
+        "start": {
+         "character": 33,
+         "line": 11
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 56,
+         "line": 11
+        },
+        "start": {
+         "character": 50,
+         "line": 11
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 67,
+         "line": 11
+        },
+        "start": {
+         "character": 61,
+         "line": 11
+        }
+       }
+      },
+      {
+       "isDef": false,
+       "name": "Demo.double",
+       "range": {
+        "end": {
+         "character": 15,
+         "line": 12
+        },
+        "start": {
+         "character": 9,
+         "line": 12
+        }
+       }
+      }
+     ],
+     "range": {
+      "end": {
+       "character": 22,
+       "line": 12
+      },
+      "start": {
+       "character": 0,
+       "line": 11
+      }
+     },
+     "selection": {
+      "end": {
+       "character": 18,
+       "line": 11
+      },
+      "start": {
+       "character": 8,
+       "line": 11
+      }
+     },
+     "signature": "Demo.double_add (a b : Nat) : Demo.double (a + b) = Demo.double a + Demo.double b",
+     "status": "proved",
+     "uses": [
+      {
+       "kind": "statement",
+       "name": "Demo.double"
+      }
+     ]
+    }
+   ],
+   "module": "Demo.Basic",
+   "source": "Demo/Basic.lean"
+  }
+ ],
+ "skipped": [
+  {
+   "module": "Comparator.Challenge",
+   "reason": "the Comparator challenge, sorry by design: declares Cmp.double as Comparator.Solution does"
+  }
+ ],
+ "texPrelude": "",
+ "toolchain": "leanprover/lean4:v4.35.0",
+ "unbuilt": []
+}
