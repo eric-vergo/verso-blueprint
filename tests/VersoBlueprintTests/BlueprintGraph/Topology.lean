@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import VersoBlueprint.GraphLayout
 import VersoBlueprintTests.BlueprintGraph.Shared
 
 namespace Verso.VersoBlueprintTests.BlueprintGraph.Topology
@@ -12,6 +13,22 @@ open Lean
 open Informal
 open Informal.Data
 open Informal.Graph
+
+/-- The layout graph, node data and edge data of a finished graph's variant. -/
+private def layoutOfVariant (data : GraphData) (key : String) :
+    Option (PILean.Graph × Array PILean.Graph.WebNode × Array PILean.Graph.WebEdge) :=
+  (data.variantGraphs.find? (·.key == key)).map fun v =>
+    Informal.GraphLayout.toLayoutGraph
+      { graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters }
+
+/-- Whether the layout graph of a variant has an edge between two nodes (by label). -/
+private def layoutHasEdge (data : GraphData) (key : String) (source target : Name) : Bool :=
+  match data.variantGraphs.find? (·.key == key), layoutOfVariant data key with
+  | some v, some (g, _, _) =>
+    match v.graph.findIdx? (·.label == source), v.graph.findIdx? (·.label == target) with
+    | some i, some j => g.edges.any fun e => e.src == i && e.dst == j
+    | _, _ => false
+  | _, _ => false
 
 private def topologyUse (label : Name) (origin : UseOrigin := UseOrigin.manual) : UseRef := {
   label
@@ -181,15 +198,22 @@ private def nestedGroupModel : GraphModel := {
 #guard_msgs in
 #eval
   let finalized := nestedGroupModel.finish "nested" {}
-  let dot := finalized.variants.find? (·.key == "full") |>.map (·.dot) |>.getD ""
+  let clusters : Array PILean.Graph.Cluster := match layoutOfVariant finalized "full" with
+    | some (g, _, _) => g.clusters
+    | none => #[]
   match
       finalized.groups.find? (·.label == `outer_group),
       finalized.groups.find? (·.label == `inner_group) with
   | some outer, some inner =>
       outer.children == #[`inner_group, `outer_peer] &&
         inner.children == #[`inner_leaf_a, `inner_leaf_b] &&
-        dot.contains "Outer group title" &&
-        dot.contains "Inner group title"
+        clusters.any (·.name == "Outer group title") &&
+        clusters.any (·.name == "Inner group title") &&
+        -- the inner group is drawn inside the outer one
+        (match clusters.findIdx? (fun (c : PILean.Graph.Cluster) => c.name == "Outer group title"),
+            clusters.find? (fun (c : PILean.Graph.Cluster) => c.name == "Inner group title") with
+          | some o, some c => c.parent == some o
+          | _, _ => false)
   | _, _ => false
 
 /- Topology changes happen on GraphModel and finishing regenerates every variant. -/
@@ -213,38 +237,31 @@ private def nestedGroupModel : GraphModel := {
           node
   }
   let regenerated := changed.finish "variants" {}
-  rendered.variants.any (fun variant =>
-      variant.key == "full" &&
-        variant.dot.contains "\"old_source\" -> \"variant_target\"") &&
-    regenerated.variants.any (fun variant =>
-      variant.key == "full" &&
-        variant.dot.contains "\"new_source\" -> \"variant_target\"" &&
-        !variant.dot.contains "\"old_source\" -> \"variant_target\"")
+  layoutHasEdge rendered "full" `old_source `variant_target &&
+    layoutHasEdge regenerated "full" `new_source `variant_target &&
+    !layoutHasEdge regenerated "full" `old_source `variant_target
 
-/- A stale serialized variant cannot cross the public GraphData decode boundary. -/
+/- A stale serialized variant cannot cross the public GraphData decode boundary: the views a
+page offers follow the groups of the finalized nodes. -/
 /-- info: true -/
 #guard_msgs in
 #eval
-  let original : GraphModel := {
+  let grouped := fun (group : Name) => ({
     nodes := #[
-      topologyNode `old_source,
-      topologyNode `new_source,
-      topologyNode `variant_target #[topologyUse `old_source]
+      topologyNode `member_a (parent := some group),
+      topologyNode `member_b #[topologyUse `member_a] (parent := some group)
     ]
-  }
-  let changed : GraphModel := {
-    nodes := #[
-      topologyNode `old_source,
-      topologyNode `new_source,
-      topologyNode `variant_target #[topologyUse `new_source]
-    ]
-  }
-  let oldFinished := original.finish "variants" {}
-  let changedFinished := changed.finish "variants" {}
+  } : GraphModel)
+  let oldFinished := (grouped `old_group).finish "variants" {}
+  let changedFinished := (grouped `new_group).finish "variants" {}
   let stale := (toJson changedFinished).setObjVal! "variants" (toJson oldFinished.variants)
-  match fromJson? (α := GraphData) stale with
-  | .error _ => true
-  | .ok _ => false
+  oldFinished.variants.size == 3 && oldFinished.variants != changedFinished.variants &&
+  match fromJson? (α := GraphData) (toJson changedFinished) with
+  | .error _ => false
+  | .ok _ =>
+    match fromJson? (α := GraphData) stale with
+    | .error _ => true
+    | .ok _ => false
 
 /- Preview filtering cannot reopen or rewrite finalized topology. -/
 /-- info: true -/
@@ -282,12 +299,16 @@ private def nestedGroupModel : GraphModel := {
     (filtered.variants.zip finalized.variants).all fun (after, before) =>
       after.key == before.key &&
         after.label == before.label &&
-        after.dot == before.dot &&
         after.options == before.options &&
         after.selectOnNodeId == before.selectOnNodeId &&
         after.hoverOnNodeId == before.hoverOnNodeId
+  let drawn := fun (data : GraphData) =>
+    data.variantGraphs.map fun v =>
+      (Informal.GraphLayout.drawing v.key
+        { graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters } .TB true).svg
   filtered.nodes.size == finalized.nodes.size &&
     filtered.variants.size == finalized.variants.size &&
+    drawn filtered == drawn finalized &&
     nodeTopologyUnchanged &&
     filtered.edges == finalized.edges &&
     filtered.groups == finalized.groups &&

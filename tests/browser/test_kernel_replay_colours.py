@@ -162,7 +162,7 @@ def computed(page: Page, selector: str, prop: str, pseudo: str | None = None) ->
 def graph_nodes(page: Page) -> list[dict]:
     return page.evaluate(
         """() => Array.from(document.querySelectorAll(".bp_graph_canvas svg g.node")).map((g) => {
-            const shape = g.querySelector("ellipse, polygon, path");
+            const shape = g.querySelector(":scope > ellipse, :scope > path");
             return { cls: g.getAttribute("class"), fill: getComputedStyle(shape).fill,
                      stroke: getComputedStyle(shape).stroke };
         })"""

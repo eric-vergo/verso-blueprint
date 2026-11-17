@@ -35,8 +35,8 @@ register_option verso.blueprint.graph.defaultDirection : String := {
 }
 
 register_option verso.blueprint.graph.defaultPack : Bool := {
-  defValue := false
-  descr := "Default Graphviz component packing for `blueprint_graph` when `(pack := ...)` is omitted"
+  defValue := true
+  descr := "Default component packing for `blueprint_graph` when `(pack := ...)` is omitted"
 }
 
 register_option verso.blueprint.graph.defaultPreviewMode : String := {
@@ -56,9 +56,6 @@ structure GraphBlockData where
   previewPlacement : Informal.HoverRender.PreviewPlacement := .docked
   /-- The view shown first (a variant key such as `group`), when it is not the full graph. -/
   initialView : Option String := none
-  /-- Lay every view out while the site is built, with this Graphviz `dot` program
-  (`Informal.GraphLayout`); `none` leaves the layout to the page. -/
-  layoutProgram : Option String := none
 deriving Inhabited, FromJson, ToJson
 
 /-- Custom graphs supply a model; project graphs use the initialized rendering registry. -/
@@ -114,41 +111,42 @@ private def graphToHtml
           Verso.reportError message
           pure none
       let some publicGraphData := publicGraphData? | pure .empty
-      -- Views laid out while the site is built travel as raw text beside the graph data, one
-      -- element per view, so a page reads only the view it shows (`Informal.GraphLayout`).
-      let layouts : Array (String × String) ← match graphData.layoutProgram with
-        | none => pure #[]
-        | some program => do
-          if !(← Informal.GraphLayout.available program) then
-            Verso.reportWarning s!"Blueprint graph: no Graphviz `{program}`; the page lays the graph out"
-            pure #[]
-          else
-            let (layouts, skipped) ←
-              Informal.GraphLayout.layoutVariants { program } publicGraphData.variants
-            for why in skipped do
-              Verso.reportWarning s!"Blueprint graph: left to the page's layout: {why}"
-            pure layouts
-      -- The view shown first is also drawn as SVG, which the page shows until its scripts have
-      -- drawn the interactive graph.
+      -- Every view is drawn here, while the site is built (`Informal.GraphLayout`). The drawings
+      -- travel as raw text beside the graph data, one element per view, direction and packing, so
+      -- a page parses only the drawing it shows; the first one is also in the page as SVG, which
+      -- a reader sees before any script has run.
       let firstKey := match graphData.initialView with
         | some k => if publicGraphData.variants.any (·.key == k) then k else "full"
         | none => "full"
-      let prerendered : Output.Html ← match layouts.find? (·.1 == firstKey) with
-        | none => pure .empty
-        | some (_, layout) => do
-          match ← Informal.GraphLayout.prerender { program := graphData.layoutProgram.getD "dot" }
-              layout with
-          | .ok svg =>
-            -- the drawing is marked so the page script can tell it from its own
-            let key := (firstKey.replace "&" "&amp;").replace "\"" "&quot;" |>.replace "<" "&lt;"
-            pure (.text false (s!"<svg class=\"bp_graph_prerendered\" data-variant=\"{key}\"" ++
-              (svg.drop 4).toString))
-          | .error why =>
-            Verso.reportWarning s!"Blueprint graph: no drawing of the first view: {why}"
-            pure .empty
-      let layoutHtml : Array Output.Html := layouts.map fun (key, dot) => {{
-        <script type="text/vnd.graphviz" class="bp-graph-layout" "data-variant"={{key}}>
-          {{.text false dot}}
+      let viewOf := fun (v : Informal.Graph.VariantGraph) =>
+        ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters } :
+          Informal.GraphLayout.View)
+      -- A generator that writes the site's data folder puts every drawing there
+      -- (`Informal.GraphLayout.writeDrawings`), and only the first is drawn here.
+      let drawings : Array Informal.GraphLayout.Drawing :=
+        if preparedGraphs?.isSome then
+          (publicGraphData.variantGraphs.filter (·.key == firstKey)).map fun v =>
+            Informal.GraphLayout.drawing v.key (viewOf v) graphData.options.direction
+              graphData.options.pack
+        else
+          publicGraphData.variantGraphs.flatMap fun v =>
+            Informal.GraphLayout.drawings v.key (viewOf v)
+      let packValue := Informal.GraphLayout.packToken
+      let isFirst := fun (d : Informal.GraphLayout.Drawing) =>
+        d.variant == firstKey && d.direction == graphData.options.direction &&
+          d.pack.all (· == graphData.options.pack)
+      let prerendered : Output.Html := match drawings.find? isFirst with
+        | some d => {{
+            <div class="bp_graph_first_drawing" "data-variant"={{d.variant}}
+                "data-direction"={{d.direction.rankdir}} "data-pack"={{packValue d.pack}}>
+              {{.text false d.svg}}
+            </div>
+          }}
+        | none => .empty
+      let layoutHtml : Array Output.Html := (drawings.filter (!isFirst ·)).map fun d => {{
+        <script type="image/svg+xml" class="bp-graph-drawing" "data-variant"={{d.variant}}
+            "data-direction"={{d.direction.rankdir}} "data-pack"={{packValue d.pack}}>
+          {{.text false d.svg}}
         </script>
       }}
       let publicGraphDataJson : String := Lean.Json.compress (toJson publicGraphData)
@@ -367,6 +365,7 @@ private def graphToHtml
             "data-bp-graph-direction"={{graphData.options.direction.rankdir}}
             "data-bp-graph-pack"={{graphPackDefault}}
             "data-bp-graph-initial-view"={{graphData.initialView.getD ""}}
+            "data-bp-graph-drawings"={{Informal.GraphLayout.drawingsFolder publicGraphData.key}}
           >
             {{prerendered}}
             <script type="application/json" class="bp-graph-data">

@@ -29,7 +29,12 @@ def facetBlueprint : BlueprintDocument := .capture
       | throw <| IO.userError "Could not restore selected facet state"
     for state in #[state, restored] do
       let page ← renderManualBlocksHtmlWithState blocks extension_impls% state
-      let ids := (page.asString.splitOn " id=\"").drop 1 |>.map fun rest =>
+      -- the graph's other drawings are raw text in `script` elements, not elements of the page
+      let markup : String := match page.asString.splitOn "<script type=\"image/svg+xml\"" with
+        | [] => ""
+        | first :: scripts => first ++ String.join (scripts.map fun (script : String) =>
+            String.intercalate "</script>" ((script.splitOn "</script>").drop 1))
+      let ids : List String := (markup.splitOn " id=\"").drop 1 |>.map fun rest =>
         (rest.splitOn "\"").head!
       unless ids.length == ids.eraseDups.length do
         throw <| IO.userError s!"Repeated occurrences emitted duplicate HTML IDs in order {order}"

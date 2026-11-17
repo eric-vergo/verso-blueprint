@@ -352,14 +352,14 @@
  * Visual metadata for renderers that reuse Blueprint's graph styling.
  *
  * @typedef {Object} BlueprintGraphNodeVisual
- * @property {string} shape Graphviz node shape.
- * @property {string} style Graphviz node style.
+ * @property {string} shape Node outline: `box`, `ellipse` or `tab`.
+ * @property {string} style Comma-separated node style tokens, such as `filled` and `dashed`.
  * @property {string} fillcolor Fill color.
  * @property {string} color Border color.
  * @property {string} penwidth Border width.
  * @property {string} fontcolor Font color.
  * @property {number} peripheries Number of node outlines.
- * @property {string | null} gradientangle Graphviz gradient angle, when present.
+ * @property {string | null} gradientangle Gradient angle, when present; the bundled renderer does not draw gradients.
  * @property {string | null} tooltip Tooltip text, when present.
  */
 
@@ -434,7 +434,7 @@
  * @property {BlueprintGraphNode[]} nodes Graph node payloads.
  * @property {BlueprintGraphEdge[]} edges Derived, deduplicated graph edge payloads with dangling sources omitted.
  * @property {BlueprintGraphGroup[]} groups Group metadata with membership derived from node parents.
- * @property {BlueprintGraphVariant[]} variants Precomputed DOT variants for the bundled graph renderer. The first variant is `full`; keys are unique, and select/hover mappings target keys in this array.
+ * @property {BlueprintGraphVariant[]} variants Render variants of the bundled graph renderer: the views a page offers; each view's drawings are made while the site is built. The first variant is `full`; keys are unique, and select/hover mappings target keys in this array.
  */
 
 /**
@@ -443,19 +443,10 @@
  * @typedef {Object} BlueprintGraphVariant
  * @property {string} key Variant key.
  * @property {string} label Human-readable variant label.
- * @property {string} dot DOT source.
  * @property {BlueprintGraphLayoutOptions} options Rendering options emitted with the variant.
  * @property {BlueprintGraphNodeIdPair[]} selectOnNodeId Two-item `[svgNodeId, variantKey]` pairs selected when the variant is active.
  * @property {BlueprintGraphNodeIdPair[]} hoverOnNodeId Two-item `[svgNodeId, variantKey]` pairs highlighted on hover.
  * @property {BlueprintGraphNodeIdPair[]} previewKeyByNodeId Two-item `[svgNodeId, previewKey]` pairs; manifest records omit nodes without artifact-backed previews.
- */
-
-/**
- * Runtime dependency URLs accepted by graph rendering helpers.
- *
- * @typedef {Object} BlueprintGraphRuntimeLibraries
- * @property {string} [d3] URL for D3 when the page has not loaded it already (default: the copy the site ships under `-verso-data/vendor/`).
- * @property {string} [graphviz] URL for d3-graphviz when the page has not loaded it already (default: the site's copy, as for `d3`).
  */
 
 /**
@@ -469,15 +460,14 @@
  * @property {"docked" | "anchored" | string} [previewPlacement] Initial graph node preview placement for graph data rendered from manifest records.
  * @property {boolean} [replace] In `renderGraphData`, replace host children by default; set to `false` to append.
  * @property {boolean} [refresh] Re-render immediately after initialization.
- * @property {BlueprintGraphRuntimeLibraries} [libraries] Runtime dependency URL overrides.
  */
 
 /**
  * Layout options accepted by graph controllers.
  *
  * @typedef {Object} BlueprintGraphLayoutOptions
- * @property {string} [direction] Graphviz rank direction.
- * @property {boolean} [pack] Enable or disable Graphviz packing.
+ * @property {string} [direction] Layout direction: `TB`, `BT`, `LR` or `RL`.
+ * @property {boolean} [pack] Lay each connected component out on its own and pack the drawings (default `true`).
  */
 
 /**
@@ -488,8 +478,8 @@
  * @property {function(): void} scheduleRender Schedule a debounced render.
  * @property {function(string): void} setView Select a graph variant by key.
  * @property {function(BlueprintGraphLayoutOptions): void} setOptions Update graph layout options.
- * @property {function(string): void} setDirection Update the Graphviz rank direction.
- * @property {function(boolean): void} setPack Enable or disable Graphviz packing.
+ * @property {function(string): void} setDirection Update the layout direction.
+ * @property {function(boolean): void} setPack Enable or disable component packing.
  * @property {function(string, string=): void} setPreviewBehavior Update graph preview behavior.
  */
 

@@ -1525,7 +1525,7 @@ dark value each (`Informal.StatusColors`): the proof-status fills
 (`fill-text`, `formalized-with-ancestors-text`, `unresolved-text`) and the
 statement-status borders (`blocked-border`, `ready-border`,
 `formalized-border`, `mathlib-border`, `unresolved-border`). The dependency
-graph paints its nodes from them: Graphviz receives the light values, each node
+graph paints its nodes from them: the drawings carry the light values, each node
 carries its status classes (`bp_graph_status_<status>`,
 `bp_graph_statement_<status>`) in the SVG, and the graph stylesheet repaints the
 node from the tokens in the active theme. The graph legend and the summary's
@@ -1591,9 +1591,11 @@ or with explicit graph layout options:
 Supported directions are `LR`, `RL`, `TB`, and `BT`. When `(direction := ...)`
 is omitted, the command falls back to the
 `verso.blueprint.graph.defaultDirection` option.
-The `(pack := true | false)` option controls Graphviz component packing for
-disconnected graph components. It defaults to
-`verso.blueprint.graph.defaultPack`, which is `false`.
+The `(pack := true | false)` option controls component packing: with `true`
+each connected component is laid out on its own and the drawings are packed
+into rows; with `false` the whole graph is laid out in one set of layers. It
+defaults to `verso.blueprint.graph.defaultPack`, which is `true`. A view with
+one connected component has a single drawing for both settings.
 The `(preview := pinned | hover)` option chooses the initial graph-node preview
 behavior. The default is `pinned`: clicking a node opens a persistent preview
 panel that stays open until closed. `hover` opens a transient preview that
@@ -1610,6 +1612,14 @@ The rendered graph page is interactive:
 - a `Legend` button opens the current graph legend in a popover
 - a `Graph options` button exposes runtime graph options such as direction and
   component packing, plus the graph-node preview behavior and placement
+- the drawing pans and zooms: the wheel zooms about the pointer, a drag pans (a
+  press that moves less than a few pixels stays a click on the node under it),
+  two fingers pinch, a double click zooms in, and with the drawing focused the
+  keys `+` and `-` zoom in and out, `0` goes back to the first view (and, pressed
+  there, shows the whole drawing), and the arrow
+  keys pan; nothing is animated
+- a graph too large to fit at a readable size starts at the smallest readable
+  size with its first layer in view
 - when grouped metadata produces multiple children for the same parent, the
   selector includes a synthetic group overview plus one subgraph view per group
 
@@ -1629,26 +1639,95 @@ change dependency edges.
 On a large graph a reader can look at one node's surroundings instead of the
 whole graph: the *ego view* of a node shows the node, the nodes it uses and the
 nodes that use it, up to a number of hops (1 to 3) chosen beside the view
-selector. It is cut from the full view's DOT and laid out in the page, so it
-keeps every node's and edge's styling; the centre node is outlined. The page
+selector. It is a drawing of its own made while the site is built, so it keeps
+every node's and edge's styling; the centre node is outlined. The page
 URL names it (`#ego=<label>&k=<hops>`, the label percent-encoded), so a link or
 a reload opens it again; a node view's *Neighbourhood* link opens its node's ego
 view, and so do the declaration cards of a site generated from compiled code.
 
-#### Layout at build time
+#### Drawings made at build time
 
-A graph block may name a Graphviz `dot` program (`GraphBlockData.layoutProgram`;
-`vbp code-site` uses `dot` when one is on the `PATH`). Every view is then laid
-out once while the site is built (`dot -Tdot`, `Informal.GraphLayout`), and the
-layouts travel beside the graph data as raw text, one element per view
-(`<script type="text/vnd.graphviz" class="bp-graph-layout" data-variant="<key>">`);
-the page draws a laid-out view with Graphviz's `nop2` engine, without a layout
-pass, and reads only the view it shows. The view shown first is also drawn as
-SVG at build time (`svg.bp_graph_prerendered`), so it is on screen as soon as
-the page is parsed; it is replaced by the interactive graph once that is drawn.
-Views with more than 6,000 nodes, layouts that do not finish within two
-minutes, other directions or packing chosen by the reader, and ego views are
-laid out in the page as before.
+Every view of the graph is laid out and drawn while the site is built, in Lean
+(`Informal.GraphLayout`, using the PILean library), as inert SVG: no script,
+link or event handler, and no layout program or graph library in the page. The
+drawing of a view is deterministic: the same graph gives the same bytes. A view
+is drawn for each of the four directions and, when it has more than one
+connected component, with its components packed and unpacked.
+
+The graph block writes the view shown first into the page, in
+`div.bp_graph_first_drawing` inside `.bp_graph_canvas`, so a reader sees it as
+soon as the page is parsed; the page's script replaces it with the same drawing
+under pan and zoom. The attributes `data-variant`, `data-direction` and
+`data-pack` (`true`, `false` or `any`) say which drawing it is.
+
+The other drawings depend on how the site is generated:
+
+- A generator that writes the site's data folder (`-verso-data/`, as `vbp build`
+  and `vbp code-site` do) writes `-verso-data/blueprint-graph/<key>/`, where
+  `<key>` is the graph's key with every character that is not a letter or digit
+  replaced by `-`. The folder holds `v<i>-<TB|BT|LR|RL>-<true|false|any>.svg`
+  for each view `i`, direction and packing, `e<set>-<TB|LR>.svg` for each
+  distinct set of nodes that a neighbourhood view shows, and `index.json`. The
+  page reads `index.json` and fetches a drawing when it is first shown.
+- A page rendered without that folder carries every other drawing as
+  `script[type="image/svg+xml"].bp-graph-drawing` beside the graph data, with
+  the same three attributes; the page parses only the one it shows.
+
+`index.json` has `variants` (for each view key, its file stem and packings),
+`nodes` (for each node, the neighbourhood sets of one, two and three hops),
+`sizes` (the number of nodes of each set), `drawn` (for each set, the
+directions drawn, as a bit mask: `TB` is 1, `LR` is 4), `omitted` (how many
+neighbourhood drawings were left out), `limit` (the byte limit on the
+neighbourhood drawings) and `nodeLimit` (the most nodes of a neighbourhood that
+is drawn, 150).
+
+Neighbourhoods are drawn with the layers from the top down and from left to
+right only; the page mirrors them for the opposite directions and keeps every
+label upright. The neighbourhood drawings of one graph stop at 192 MiB in all,
+smallest sets first, and a neighbourhood of more than 150 nodes is not drawn.
+When a neighbourhood's drawing was left out, the page shows a notice under the
+controls and, where the other axis was drawn, shows that drawing instead.
+
+#### How the graph is laid out
+
+The layout is a layered drawing in the tradition of Sugiyama, Tagawa and Toda.
+Cycles are removed by reversing a small set of edges (Eades, Lin and Smyth).
+Nodes are assigned to layers by network simplex (Gansner, Koutsofios, North and
+Vo, 1993). Crossings are reduced by weighted-median sweeps with transposition
+and sifting (Matuszewski, Schönfeld and Molitor, 1999), run from several
+deterministic starts. Coordinates within layers follow Brandes and Köpf (2001),
+improved by network simplex. Groups are drawn as boxes around their members and
+may be nested, after Sander's layout of compound graphs (1996). With packing on,
+each connected component is laid out alone and the drawings are placed on
+shelves, tallest first, each filling a row before the next begins (next-fit
+decreasing height; Coffman, Garey, Johnson and Tarjan, 1980). An edge is drawn
+as a cubic curve through the layers, and a long sideways step of an edge runs on
+a track of its own.
+
+Measured against Graphviz `dot` (16.1.0) on dependency graphs of real projects, both given
+the same node sizes and gaps. The numbers are this layout's value over `dot`'s (below 1 is
+better): pairs of edges that cross, total and longest edge length, the area of the drawing; then
+each drawing's width over its height.
+
+| Graph | Nodes, edges | Crossings | Edge length | Longest edge | Area | Width : height (this, `dot`) |
+|---|---|---|---|---|---|---|
+| a blueprint of 58 nodes | 58, 146 | 1.01 | 0.85 | 0.84 | 0.61 | 2.9, 4.1 |
+| a blueprint of 69 nodes | 69, 111 | 1.07 | 1.16 | 0.74 | 0.72 | 3.3, 4.1 |
+| a code site's group view | 85, 159 | 1.13 | 1.02 | 1.17 | 0.72 | 4.3, 5.7 |
+| a neighbourhood of 34 nodes | 34, 93 | 0.92 | 0.96 | 0.83 | 0.89 | 2.1, 3.1 |
+| a neighbourhood of 46 nodes | 46, 119 | 1.09 | 0.88 | 0.74 | 0.85 | 2.6, 3.4 |
+| another of 46 nodes | 46, 72 | 0.95 | 1.19 | 1.32 | 1.18 | 3.3, 3.5 |
+| a neighbourhood of 50 nodes | 50, 152 | 0.96 | 0.89 | 0.85 | 0.79 | 1.5, 2.1 |
+| a neighbourhood of 150 nodes | 150, 468 | 0.77 | 0.69 | 0.69 | 0.70 | 3.3, 7.4 |
+| a neighbourhood of 290 nodes | 290, 793 | 0.86 | 0.82 | 0.61 | 1.19 | 10.2, 26.2 |
+| a code site's full view, 85 groups | 2866, 5516 | 1.26 | 3.35 | 8.01 | 1.64 | 50, 82 |
+
+On graphs of up to a few hundred nodes the drawings have about as many crossings as `dot`'s
+(0.77 to 1.13 times) and are more compact. The full view of a large project with its groups as
+boxes is where this layout is clearly behind: its edges are more than three times as long in
+all, because an edge between two groups runs around the boxes of the groups between them. A
+layout takes longer than `dot`'s: about 0.05 to 0.3 s for a graph of 50 to 100 nodes and about
+1 s for the 2,866-node view, against 0.02 to 0.06 s and 1.7 s.
 
 #### Node views
 
@@ -2743,7 +2822,7 @@ record of accepted exports is kept outside the project, see "Kernel replay".)
 
 ```
 lake exe vbp code-site --data code.json --root <project> [--output <dir>]
-    [--title <text>] [--graphviz <program> | --no-graph-layout]
+    [--title <text>]
     [--no-comparator | --challenge-not-built <reason>]
     [--no-kernel-replay] [--no-stats-page] [--reproducible] [--verbose]
 ```
@@ -2796,8 +2875,8 @@ The site is an ordinary Blueprint site:
 - the search box finds declarations by name (as Lean constant documentation),
   modules by name and docstring text, and the text of the statements
   (`Block.declSearch`);
-- the dependency graph, with one group per module, laid out at build time when
-  Graphviz is available; above 300 declarations it opens on the group view
+- the dependency graph, with one group per module, drawn at build time; above
+  300 declarations it opens on the group view
   (`GraphBlockData.initialView`);
 - the summary page and the Project Stats page (the files, identity and
   Comparator challenge of `--root`). When the project has a challenge, its
@@ -2900,8 +2979,8 @@ prefixes with document-order block counts.
   - sets the fallback graph direction for `blueprint_graph` when
     `(direction := ...)` is omitted
 - `verso.blueprint.graph.defaultPack`
-  - default: `false`
-  - sets the fallback Graphviz component packing behavior for
+  - default: `true`
+  - sets the fallback component packing behavior for
     `blueprint_graph` when `(pack := ...)` is omitted
 - `verso.blueprint.graph.defaultPreviewMode`
   - default: `pinned`

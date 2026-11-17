@@ -4,13 +4,16 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Emilio J. Gallego Arias
 -/
 
+import VersoBlueprint.GraphLayout
 import VersoBlueprintTests.BlueprintGraph.Shared
+import VersoBlueprintTests.Blueprint.Support
 
 namespace Verso.VersoBlueprintTests.BlueprintGraph.Groups
 
 open Lean
 open Informal.Graph
 open Verso.VersoBlueprintTests.BlueprintGraph.Shared
+open Verso.VersoBlueprintTests.Blueprint.Support
 
 def groupedGraphInput : Informal.Graph.Graph String := #[
   {
@@ -102,31 +105,43 @@ def groupedVariants : Array Informal.Graph.GraphRenderVariant :=
     n.proofDeps.contains `group_beta &&
     n.tooltip?.getD "" == "Group View: Readable Alpha Group Title (2 nodes)")
 
+-- The overview's node for a group is drawn with the group's title, under the node's id, and
+-- selects the group's own view.
 /-- info: true -/
 #guard_msgs in
 #eval
   graphNodeSvgId `group_alpha == "bp-node-group-005Falpha" &&
-  match groupedVariants.find? (·.key == Informal.Graph.groupVariantKey) with
-  | none => false
-  | some variant =>
+  match groupedVariants.find? (·.key == Informal.Graph.groupVariantKey),
+      groupedGraphData.variantGraphs.find? (·.key == Informal.Graph.groupVariantKey) with
+  | some variant, some view =>
     let expectedId := graphNodeSvgId `group_alpha
-    let expectedLabel := escapeDotString "Readable Alpha Group Title"
+    let expectedLabel := "Readable Alpha Group Title"
     let expectedVariantKey := s!"parent:{`group_alpha}"
+    let (graph, nodes, _) := Informal.GraphLayout.toLayoutGraph
+      { graph := view.graph, groupTitle := view.groupTitle, clusters := view.clusters }
+    let svg := (Informal.GraphLayout.drawing view.key
+      { graph := view.graph, groupTitle := view.groupTitle, clusters := view.clusters }
+      .TB true).svg
     variant.selectOnNodeId.contains (expectedId, expectedVariantKey) &&
     variant.hoverOnNodeId.contains (expectedId, expectedVariantKey) &&
-    variant.dot.contains s!"id=\"{expectedId}\"" &&
-    variant.dot.contains s!"label=\"{expectedLabel}\"" &&
-    !variant.dot.contains "label=\"group_alpha\""
+    nodes.any (fun n => n.id == expectedId && n.lines == #[expectedLabel]) &&
+    graph.nodes.any (·.label == expectedLabel) &&
+    !graph.nodes.any (·.label == "group_alpha") &&
+    hasSubstr svg s!"id=\"{expectedId}\"" &&
+    hasSubstr svg expectedLabel
+  | _, _ => false
 
+-- Graph options pack components unless told otherwise.
 /-- info: true -/
 #guard_msgs in
 #eval
-  Informal.Graph.graphDotHeader |>.contains "pack=false;"
+  ({} : GraphOptions).pack && !({ pack := false } : GraphOptions).pack
 
+-- Every view the graph offers has a graph to draw, in the order of the variants.
 /-- info: true -/
 #guard_msgs in
 #eval
-  Informal.Graph.graphDotHeader { direction := .TB, pack := true } |>.contains "pack=true;"
+  groupedGraphData.variantGraphs.map (·.key) == groupedGraphData.variants.map (·.key)
 
 /-- info: true -/
 #guard_msgs in

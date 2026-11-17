@@ -12,84 +12,140 @@ const {
   graphLayoutMode,
   readPreviewBehaviorDefaults,
   layoutGraphCanvas,
-  load,
   graphNodeLabel,
   graphNodeId,
   ensureGraphBlockState,
   rememberGraphLayoutMeasurements,
   resizeRenderedGraphToCanvas,
-  resetGraphvizForVariant,
-  applyReadableGraphZoom,
+  createPanZoom,
+  drawingSize,
+  fitDrawingLabels,
   makeGroupPanelPositioner
 } = graphRuntimeCoreModule;
 
-function dotWithGraphAttribute(dot, name, value) {
-  const source = String(dot || "");
-  if (!source) return "";
-  const attrPattern = new RegExp("(^\\s*" + name + "\\s*=\\s*)([^;]+)(\\s*;)", "mi");
-  if (attrPattern.test(source)) {
-    return source.replace(attrPattern, "$1" + value + "$3");
+// Drawings. Every view is laid out and drawn while the site is built
+// (`Informal.GraphLayout`): an inert `svg` element per view, direction and packing. The first
+// one is in the page (`.bp_graph_first_drawing`), where a reader sees it before any script has
+// run. The others are files of the site's data folder (the canvas's `data-bp-graph-drawings`
+// names the folder; `index.json` there lists them), fetched when first shown, or, in a page
+// made without that folder, raw text beside the graph data (`script.bp-graph-drawing`).
+
+const svgNamespace = "http://www.w3.org/2000/svg";
+
+// The `svg` element of a drawing's text, or null. The text is parsed as an XML document of its
+// own and the element imported: nothing in it is run.
+export function parseDrawing(text) {
+  const source = String(text || "").trim();
+  if (!source || typeof DOMParser !== "function") return null;
+  let root = null;
+  try {
+    root = new DOMParser().parseFromString(source, "image/svg+xml").documentElement;
+  } catch (_err) {
+    return null;
   }
-  const openBrace = source.indexOf("{");
-  if (openBrace < 0) return source;
-  return source.slice(0, openBrace + 1) + "\n    " + name + "=" + value + ";" + source.slice(openBrace + 1);
+  if (!root || root.localName !== "svg" || root.namespaceURI !== svgNamespace) return null;
+  if (!drawingIsPlain(root)) return null;
+  return document.importNode(root, true);
 }
 
-function dotWithGraphOptions(dot, options) {
-  const source = String(dot || "").trim();
-  if (!source) return "";
-  const normalized = normalizeGraphOptions(options);
-  let updated = dotWithGraphAttribute(source, "rankdir", normalized.direction);
-  updated = dotWithGraphAttribute(updated, "pack", graphPackAttr(normalized.pack));
-  return updated;
+const drawingElements = new Set(["svg", "g", "path", "ellipse", "text", "title", "desc"]);
+
+// Whether a parsed drawing holds only what a drawing is written with: its seven kinds of
+// element, and no attribute that is an event handler, a link or a style. Anything else is not a
+// drawing of this site and is refused whole.
+function drawingIsPlain(root) {
+  const all = [root].concat(Array.from(root.querySelectorAll("*")));
+  return all.every(function (el) {
+    if (el.namespaceURI !== svgNamespace || !drawingElements.has(el.localName)) return false;
+    return Array.from(el.attributes).every(function (attr) {
+      const name = attr.name.toLowerCase();
+      return !name.startsWith("on") && name !== "style" && name !== "href" && !name.endsWith(":href");
+    });
+  });
 }
 
-function dotForVariantOptions(variant, options) {
-  if (!variant || typeof variant !== "object") return "";
-  return dotWithGraphOptions(variant.dot, options);
+function drawingMatches(el, key, options) {
+  if (el.getAttribute("data-variant") !== key) return false;
+  if (el.getAttribute("data-direction") !== options.direction) return false;
+  const pack = el.getAttribute("data-pack");
+  return pack === "any" || pack === graphPackAttr(options.pack);
 }
 
-// A view laid out while the site was built has its positions beside the graph data
-// (`script.bp-graph-layout[data-variant]`, for the variant's own options): Graphviz's `nop2`
-// engine draws them without a layout pass. Other options are laid out in the page from the
-// variant's DOT.
-function variantLayout(graphBlock, variant) {
-  if (!(graphBlock instanceof Element) || !variant) return "";
-  const scripts = graphBlock.querySelectorAll("script.bp-graph-layout");
-  for (const script of scripts) {
-    if (script.getAttribute("data-variant") === variant.key) return script.textContent || "";
+// The drawing of a view that the page itself holds, or null.
+function pageDrawing(graphBlock, key, options) {
+  const state = ensureGraphBlockState(graphBlock);
+  if (!state.firstDrawings) {
+    // the first drawing leaves the canvas once, and is kept for when its view is shown again
+    state.firstDrawings = [];
+    graphBlock.querySelectorAll(".bp_graph_canvas > .bp_graph_first_drawing").forEach(function (holder) {
+      const svg = holder.querySelector("svg");
+      if (svg) {
+        state.firstDrawings.push({ holder: holder, svg: svg });
+      }
+    });
   }
-  return "";
-}
-
-// The first view drawn while the site was built (`svg.bp_graph_prerendered` in the canvas) is
-// shown from the moment the page is parsed. Before the renderer draws the interactive graph into
-// the canvas, the drawing moves to an overlay over the canvas (the renderer would otherwise take
-// it for its own); the overlay is removed once the interactive graph is drawn.
-function liftPrerenderedGraph(graphRoot) {
-  if (!(graphRoot instanceof Element)) return null;
-  const drawing = graphRoot.querySelector(":scope > svg.bp_graph_prerendered");
-  if (!drawing || !graphRoot.parentNode) return null;
-  const overlay = document.createElement("div");
-  overlay.className = "bp_graph_prerender_overlay";
-  overlay.setAttribute("aria-hidden", "true");
-  overlay.style.left = graphRoot.offsetLeft + "px";
-  overlay.style.top = graphRoot.offsetTop + "px";
-  overlay.style.width = graphRoot.offsetWidth + "px";
-  overlay.style.height = graphRoot.offsetHeight + "px";
-  graphRoot.parentNode.insertBefore(overlay, graphRoot.nextSibling);
-  overlay.appendChild(drawing);
-  setTimeout(function () { overlay.remove(); }, 10000);
-  return overlay;
-}
-
-function renderSourceForVariant(graphBlock, variant, options) {
-  if (!variant || typeof variant !== "object") return { engine: "dot", dot: "" };
-  if (graphOptionsKey(normalizeGraphOptions(options)) === graphOptionsKey(normalizeGraphOptions(variant.options))) {
-    const layout = variantLayout(graphBlock, variant).trim();
-    if (layout.length > 0) return { engine: "nop2", dot: layout };
+  for (const first of state.firstDrawings) {
+    if (drawingMatches(first.holder, key, options)) return first.svg.cloneNode(true);
   }
-  return { engine: "dot", dot: dotForVariantOptions(variant, options) };
+  for (const script of graphBlock.querySelectorAll("script.bp-graph-drawing")) {
+    if (drawingMatches(script, key, options)) return parseDrawing(script.textContent);
+  }
+  return null;
+}
+
+function drawingsFolderUrl(previewUtils, graphBlock) {
+  const canvas = graphBlock.querySelector(".bp_graph_canvas");
+  const folder = canvas ? (canvas.getAttribute("data-bp-graph-drawings") || "") : "";
+  if (!folder || !previewUtils || typeof previewUtils.dataUrl !== "function") return "";
+  const url = previewUtils.dataUrl(folder + "/index.json");
+  return url ? String(url).replace(/index\.json$/, "") : "";
+}
+
+async function fetchText(url) {
+  if (!url || typeof fetch !== "function") return "";
+  try {
+    const resp = await fetch(url);
+    return resp.ok ? await resp.text() : "";
+  } catch (_err) {
+    return "";
+  }
+}
+
+// The index of the site's drawings of this graph (`index.json`), or null without one.
+function loadDrawingIndex(previewUtils, graphBlock) {
+  const state = ensureGraphBlockState(graphBlock);
+  if (!state.drawingIndex) {
+    const base = drawingsFolderUrl(previewUtils, graphBlock);
+    state.drawingIndex = fetchText(base ? base + "index.json" : "").then(function (text) {
+      if (!text) return null;
+      try {
+        const index = JSON.parse(text);
+        return index && typeof index === "object" ? Object.assign(index, { base: base }) : null;
+      } catch (_err) {
+        return null;
+      }
+    });
+  }
+  return state.drawingIndex;
+}
+
+// The drawing of a view (a render variant) for the options: `{ svg, note }`. `svg` is null
+// when the site has no such drawing, and `note` then says why.
+async function loadDrawing(previewUtils, graphBlock, variant, options) {
+  if (!variant || typeof variant !== "object") return { svg: null, note: "" };
+  if (variant.key === egoVariantKey) return loadEgoDrawing(previewUtils, graphBlock, variant, options);
+  const held = pageDrawing(graphBlock, variant.key, options);
+  if (held) return { svg: held, note: "" };
+  const index = await loadDrawingIndex(previewUtils, graphBlock);
+  const entry = index && index.variants ? index.variants[variant.key] : null;
+  if (!entry || typeof entry.file !== "string") {
+    return { svg: null, note: "This view is not drawn on this site." };
+  }
+  const packs = Array.isArray(entry.packs) ? entry.packs : [];
+  const pack = packs.indexOf("any") >= 0 ? "any" : graphPackAttr(options.pack);
+  const text = await fetchText(index.base + entry.file + "-" + options.direction + "-" + pack + ".svg");
+  const svg = parseDrawing(text);
+  return { svg: svg, note: svg ? "" : "The drawing of this view could not be loaded." };
 }
 
 // Runtime graph-data rendering consumes Lean-computed variants from public GraphData,
@@ -292,7 +348,9 @@ export function createGraphBlock(graphData, options) {
   const canvas = createEl(doc, "div", {
     class: "bp_graph_canvas",
     "data-bp-graph-direction": graphOptions.direction,
-    "data-bp-graph-pack": graphPackAttr(graphOptions.pack)
+    "data-bp-graph-pack": graphPackAttr(graphOptions.pack),
+    // the folder `Informal.GraphLayout.drawingsFolder` names for this graph
+    "data-bp-graph-drawings": "blueprint-graph/" + String(data.key || "graph").replace(/[^A-Za-z0-9]/g, "-")
   });
   appendJsonScript(doc, canvas, "bp-graph-data", Object.assign({}, data, { variants: variants }));
   block.appendChild(canvas);
@@ -510,7 +568,7 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
   const graphState = ensureGraphBlockState(graphBlock);
   const previewKeys =
     previewKeyByNodeId instanceof Map ? previewKeyByNodeId : new Map();
-  const svg = graphContainer.select("svg").node();
+  const svg = graphContainer.querySelector(":scope > svg");
   if (!svg || !(svg instanceof SVGElement)) {
     previewController.hide();
     return;
@@ -649,17 +707,15 @@ function bindNodeViewNavigation(graphBlock, previewController) {
 
 // Ego views: the neighbourhood of one node, the nodes it uses and the nodes that use it up to
 // `k` hops (1 to 3). On a large graph this is how a reader sees a node's surroundings without
-// the whole graph. The view is cut from the full view's DOT, whose statements `Graph.toDot`
-// writes one per line (`"<label>" [<attributes>];` for a node, `"<a>" -> "<b>" ...;` for an
-// edge), and laid out in the page; it keeps every node's and edge's styling. The page URL names
-// it (`#ego=<label>&k=<k>`), so a link (the node view's "Neighbourhood", a chapter entry) or a
-// reload opens it.
+// the whole graph. The neighbourhoods are drawn with the site, one drawing per distinct set of
+// nodes (`index.json` of the graph's drawings names the set of every node and hop count), and
+// fetched when shown. The page URL names the view (`#ego=<label>&k=<k>`), so a link (the node
+// view's "Neighbourhood", a chapter entry) or a reload opens it.
 
 const egoFragmentPrefix = "ego=";
 const egoMaxHops = 3;
 const egoVariantKey = "ego";
-const dotNodeLine = /^\s*"((?:[^"\\]|\\.)*)" \[(.*)\];\s*$/;
-const dotEdgeLine = /^\s*"((?:[^"\\]|\\.)*)" -> "((?:[^"\\]|\\.)*)"(.*);\s*$/;
+const egoDirectionBits = { TB: 1, BT: 2, LR: 4, RL: 8 };
 
 export function egoFromLocation(hash) {
   const raw = String(hash === undefined ? window.location.hash || "" : hash);
@@ -687,44 +743,6 @@ export function egoFragment(label, k) {
   return "#" + egoFragmentPrefix + encodeURIComponent(label) + "&k=" + String(k);
 }
 
-function parseDotStatements(dot) {
-  const header = [];
-  const nodes = new Map();
-  const edges = [];
-  let inBody = false;
-  String(dot || "").split("\n").forEach(function (line) {
-    const node = line.match(dotNodeLine);
-    if (node) {
-      inBody = true;
-      nodes.set(node[1].replace(/\\(.)/g, "$1"), line.trim());
-      return;
-    }
-    const edge = line.match(dotEdgeLine);
-    if (edge) {
-      inBody = true;
-      edges.push({
-        source: edge[1].replace(/\\(.)/g, "$1"),
-        target: edge[2].replace(/\\(.)/g, "$1"),
-        line: line.trim()
-      });
-      return;
-    }
-    if (/^\s*subgraph /.test(line)) inBody = true;
-    if (!inBody && line.trim() !== "") header.push(line);
-  });
-  return { header: header, nodes: nodes, edges: edges };
-}
-
-function markEgoCenter(line) {
-  let out = line.replace(/penwidth="[^"]*"/, 'penwidth="3.4"');
-  if (/class="[^"]*"/.test(out)) {
-    out = out.replace(/class="([^"]*)"/, 'class="$1 bp_graph_ego_center"');
-  } else {
-    out = out.replace(/\];$/, ', class="bp_graph_ego_center"];');
-  }
-  return out;
-}
-
 // The nodes within `k` hops of `label` along edges in either direction, with their distance.
 export function egoNeighbourhood(edges, label, k) {
   const out = new Map([[label, 0]]);
@@ -746,47 +764,103 @@ export function egoNeighbourhood(edges, label, k) {
   return out;
 }
 
-// The ego view of `label` as a render variant, or null when the full view does not have it.
+// The ego view of `label` as a render variant, or null when the graph does not have the node.
 export function egoVariant(fullVariant, graphData, label, k) {
-  if (!fullVariant || typeof fullVariant.dot !== "string") return null;
-  const parsed = parseDotStatements(fullVariant.dot);
-  if (!parsed.nodes.has(label)) return null;
-  const near = egoNeighbourhood(parsed.edges, label, k);
-  const lines = parsed.header.slice();
-  near.forEach(function (_distance, name) {
-    const line = parsed.nodes.get(name);
-    if (line) lines.push("  " + (name === label ? markEgoCenter(line) : line));
-  });
-  parsed.edges.forEach(function (edge) {
-    if (near.has(edge.source) && near.has(edge.target)) lines.push("  " + edge.line);
-  });
-  lines.push("}");
-  const previewKeys = fullVariant.previewKeyByNodeId instanceof Map
-    ? fullVariant.previewKeyByNodeId
-    : new Map(fullVariant.previewKeyByNodeId || []);
-  const keptIds = new Set();
-  near.forEach(function (_distance, name) {
-    const id = (parsed.nodes.get(name) || "").match(/\bid="([^"]*)"/);
-    if (id) keptIds.add(id[1]);
-  });
   const graphNodes = graphData && Array.isArray(graphData.nodes) ? graphData.nodes : [];
   const centre = graphNodes.find(function (node) { return node && node.label === label; });
-  const shown = centre && centre.displayLabel ? centre.displayLabel : label;
-  const previewKeyByNodeId = new Map();
-  previewKeys.forEach(function (key, nodeId) {
-    if (keptIds.has(nodeId)) previewKeyByNodeId.set(nodeId, key);
-  });
+  if (!fullVariant || !centre) return null;
+  const edges = graphData && Array.isArray(graphData.edges) ? graphData.edges : [];
+  const near = egoNeighbourhood(edges, label, k);
+  const shown = centre.displayLabel ? centre.displayLabel : label;
   return {
     key: egoVariantKey,
     label: "Neighbourhood of " + shown + " (" + k + (k === 1 ? " hop)" : " hops)"),
-    dot: lines.join("\n"),
     options: fullVariant.options,
     selectOnNodeId: [],
     hoverOnNodeId: [],
-    previewKeyByNodeId: previewKeyByNodeId,
+    // every node of the full view may be in the drawing; nodes that are not are never asked for
+    previewKeyByNodeId: fullVariant.previewKeyByNodeId instanceof Map
+      ? fullVariant.previewKeyByNodeId
+      : new Map(fullVariant.previewKeyByNodeId || []),
     egoLabel: label,
     egoHops: k,
     egoSize: near.size
+  };
+}
+
+// A drawing mirrored: upside down (`vertical`) or left to right. The neighbourhood views are
+// drawn with their layers from the top down and from left to right; the two opposite directions
+// are these drawings mirrored, with every label turned back.
+export function mirrorDrawing(svg, vertical) {
+  const graph = svg.querySelector("g.graph");
+  if (!graph) return svg;
+  const size = drawingSize(svg);
+  const fontSize = parseFloat(graph.getAttribute("font-size") || "") || 10;
+  const mirror = document.createElementNS(svgNamespace, "g");
+  mirror.setAttribute("class", "bp_graph_mirror");
+  mirror.setAttribute(
+    "transform",
+    vertical ? "matrix(1 0 0 -1 0 " + size.height + ")" : "matrix(-1 0 0 1 " + size.width + " 0)"
+  );
+  while (graph.firstChild) mirror.appendChild(graph.firstChild);
+  graph.appendChild(mirror);
+  mirror.querySelectorAll("text").forEach(function (text) {
+    const x = parseFloat(text.getAttribute("x") || "0") || 0;
+    const y = parseFloat(text.getAttribute("y") || "0") || 0;
+    // a line of text is turned about its own middle, which lies above its baseline
+    const middle = y - 0.36 * fontSize;
+    text.setAttribute(
+      "transform",
+      vertical ? "matrix(1 0 0 -1 0 " + (2 * middle).toFixed(2) + ")" : "matrix(-1 0 0 1 " + (2 * x).toFixed(2) + " 0)"
+    );
+  });
+  return svg;
+}
+
+const egoMirrorOf = { BT: "TB", RL: "LR" };
+
+// The drawing of an ego view: the neighbourhood's node set in the wanted direction (mirrored
+// from the opposite one for bottom-up and right-to-left), or across it when the site left that
+// one out (the note says so), with the centre marked.
+async function loadEgoDrawing(previewUtils, graphBlock, variant, options) {
+  const index = await loadDrawingIndex(previewUtils, graphBlock);
+  const sets = index && index.nodes ? index.nodes[variant.egoLabel] : null;
+  const set = Array.isArray(sets) ? sets[variant.egoHops - 1] : undefined;
+  if (!index || typeof set !== "number") {
+    return { svg: null, note: "Neighbourhood views are not drawn on this site." };
+  }
+  const drawn = Array.isArray(index.drawn) ? (index.drawn[set] || 0) : 0;
+  const wanted = options.direction;
+  const across = { TB: "LR", BT: "RL", LR: "TB", RL: "BT" };
+  const has = function (direction) {
+    return (drawn & egoDirectionBits[egoMirrorOf[direction] || direction]) !== 0;
+  };
+  const direction = has(wanted) ? wanted : has(across[wanted]) ? across[wanted] : "";
+  const size = Array.isArray(index.sizes) ? index.sizes[set] : variant.egoSize;
+  if (!direction) {
+    const most = typeof index.nodeLimit === "number" ? index.nodeLimit : 0;
+    return {
+      svg: null,
+      note: "This neighbourhood has " + size + " nodes and is not drawn" +
+        (most > 0 && size > most ? ": the site draws neighbourhoods of up to " + most + " nodes." : ": the site's neighbourhood drawings stop at a size limit.") +
+        (variant.egoHops > 1 ? " Try fewer hops." : "")
+    };
+  }
+  const base = egoMirrorOf[direction] || direction;
+  const svg = parseDrawing(await fetchText(index.base + "e" + set + "-" + base + ".svg"));
+  if (!svg) return { svg: null, note: "The drawing of this neighbourhood could not be loaded." };
+  if (base !== direction) mirrorDrawing(svg, direction === "BT");
+  const centreId = prefixedHtmlId("bp-node", variant.egoLabel);
+  svg.querySelectorAll("g.node").forEach(function (node) {
+    if (node.getAttribute("id") === centreId) node.classList.add("bp_graph_ego_center");
+  });
+  return {
+    svg: svg,
+    direction: direction,
+    geometry: base,
+    note: direction === wanted
+      ? ""
+      : "This neighbourhood is drawn " + direction + " only: the site's neighbourhood drawings stop at a size limit."
   };
 }
 
@@ -806,7 +880,7 @@ function attachVariantSelectors(graphContainer, variantsByKey, activeVariant, on
   };
   const selectVariantByNodeId = mapNodeTargets(activeVariant.selectOnNodeId);
   const hoverVariantByNodeId = mapNodeTargets(activeVariant.hoverOnNodeId);
-  const svg = graphContainer.select("svg").node();
+  const svg = graphContainer.querySelector(":scope > svg");
   if (!svg) return;
   const readVariantState = function () {
     const state = svg.__bpVariantState;
@@ -957,8 +1031,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         graphBlock.setAttribute("data-bp-graph-layout", layoutMode);
         graphRoot.setAttribute("data-bp-graph-layout", layoutMode);
       }
-      const graphContainer = d3.select(graphRoot);
-      if (graphContainer.empty()) return;
+      const graphContainer = graphRoot;
       const graphState = ensureGraphBlockState(graphBlock);
       const existingController =
         graphState.controller && graphState.controller.__bpGraphController
@@ -1048,7 +1121,6 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         return {
           key: variant.key,
           label: variant.label,
-          dot: variant.dot,
           options: normalizeGraphOptions(variant.options),
           selectOnNodeId: variant.selectOnNodeId,
           hoverOnNodeId: variant.hoverOnNodeId,
@@ -1071,7 +1143,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
 
       // A generator may name the view shown first (`initialView`, such as the group view
       // of a graph too large to read at once); the full graph otherwise.
-      const initialView = graphContainer.attr("data-bp-graph-initial-view") || "";
+      const initialView = graphRoot.getAttribute("data-bp-graph-initial-view") || "";
       let activeKey = variantsByKey.has("full") ? "full" : variants[0].key;
       if (selector && variantsByKey.has(selector.value)) {
         activeKey = selector.value;
@@ -1105,14 +1177,26 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       if (fromLocation && installEgo(fromLocation.label, fromLocation.k)) {
         activeKey = egoVariantKey;
       }
+      // A node view the URL names (`#node=<label>`) is opened in a view that has the node: the
+      // view the page starts on if it does, else the node's own group's view, else the full graph.
+      const nodeFromLocation = activeKey === egoVariantKey ? "" : nodeViewLabelFromLocation();
+      if (nodeFromLocation) {
+        const wantedId = prefixedHtmlId("bp-node", nodeFromLocation);
+        const has = function (variant) { return !!variant && variant.previewKeyByNodeId.has(wantedId); };
+        if (!has(variantsByKey.get(activeKey))) {
+          const home = variants.find(function (variant) { return variant.key.startsWith("parent:") && has(variant); }) ||
+            (has(variantsByKey.get("full")) ? variantsByKey.get("full") : null);
+          if (home) activeKey = home.key;
+        }
+      }
       if (selector) selector.value = activeKey;
       let activeOptions = normalizeGraphOptions({
         direction: directionSelector
           ? directionSelector.getAttribute("data-bp-graph-default-direction")
-          : graphContainer.attr("data-bp-graph-direction"),
+          : graphRoot.getAttribute("data-bp-graph-direction"),
         pack: packInput
           ? packInput.getAttribute("data-bp-graph-default-pack")
-          : graphContainer.attr("data-bp-graph-pack")
+          : graphRoot.getAttribute("data-bp-graph-pack")
       });
       if (directionSelector) directionSelector.value = activeOptions.direction;
       if (packInput) packInput.checked = activeOptions.pack;
@@ -1130,7 +1214,6 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       };
 
       const groupHoverPanel = graphBlock.querySelector(".bp_group_hover_preview");
-      let groupHoverGraphviz = null;
       const groupHoverBehavior = readPreviewBehaviorDefaults(groupHoverPanel, "pinned", "docked");
       let groupHoverController = null;
       groupHoverController = previewUtils.createPreviewSurface({
@@ -1143,18 +1226,18 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           placement: groupHoverBehavior.placement
         },
         renderBody: function (body, variant) {
-          const width = Math.max(320, body.clientWidth || 0);
-          const height = Math.max(220, body.clientHeight || 0);
-          const container = d3.select(body);
-          if (!groupHoverGraphviz) {
-            groupHoverGraphviz = container.graphviz().fit(true);
-          }
-          const source = renderSourceForVariant(graphBlock, variant, getActiveOptions());
-          groupHoverGraphviz
-            .engine(source.engine)
-            .width(width)
-            .height(height)
-            .renderDot(source.dot);
+          // the group's view, fitted into the panel
+          const token = (graphState.groupHoverToken = (graphState.groupHoverToken || 0) + 1);
+          body.replaceChildren();
+          loadDrawing(previewUtils, graphBlock, variant, getActiveOptions()).then(function (drawing) {
+            if (graphState.groupHoverToken !== token || !drawing.svg) return;
+            const size = drawingSize(drawing.svg);
+            drawing.svg.setAttribute("viewBox", "0 0 " + size.width + " " + size.height);
+            drawing.svg.setAttribute("width", "100%");
+            drawing.svg.setAttribute("height", "100%");
+            drawing.svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+            body.replaceChildren(drawing.svg);
+          });
         },
         positionPanel: makeGroupPanelPositioner(graphBlock, function () {
           return groupHoverController ? groupHoverController.behavior : groupHoverBehavior;
@@ -1255,7 +1338,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           return;
         }
         const variant = variantsByKey.get(nextKey);
-        if (!variant || !variant.dot || !nodeId) {
+        if (!variant || !nodeId) {
           groupHoverController.hide();
           return;
         }
@@ -1357,13 +1440,22 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         renderGraph();
       }, 180);
 
+      // The line under the controls that says what a view could not show.
+      const notice = document.createElement("p");
+      notice.className = "bp_graph_notice";
+      notice.setAttribute("role", "status");
+      notice.hidden = true;
+      graphBlock.insertBefore(notice, graphRoot);
+      const setNotice = function (text) {
+        notice.textContent = text || "";
+        notice.hidden = !text;
+      };
+
       function renderGraph() {
         const activeVariant = getActiveVariant();
         const options = getActiveOptions();
         const optionsKey = graphOptionsKey(options);
-        const source = renderSourceForVariant(graphBlock, activeVariant, options);
-        const dot = source.dot;
-        if (!activeVariant || !dot) return;
+        if (!activeVariant) return;
         graphState.renderToken += 1;
         const renderToken = graphState.renderToken;
         syncLegend(graphBlock, activeVariant.key);
@@ -1373,12 +1465,54 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         graphState.rerendering = false;
         if (groupHoverController) groupHoverController.hide();
         layoutGraphCanvas(graphRoot, graphState, opts);
-        const width = graphRoot.clientWidth;
-        const height = graphRoot.clientHeight;
         rememberGraphLayoutMeasurements(graphBlock, graphRoot, graphState);
-        const finalizeRender = function () {
+        const variantRenderKey = activeVariant.key === egoVariantKey
+          ? egoFragment(activeVariant.egoLabel, activeVariant.egoHops)
+          : activeVariant.key;
+        const shown = graphRoot.querySelector(":scope > svg");
+        if (
+          shown &&
+          graphState.panZoom &&
+          graphState.renderedVariantKey === variantRenderKey &&
+          graphState.renderedOptionsKey === optionsKey
+        ) {
+          // the same drawing in a canvas of another size
+          graphState.panZoom.resize();
+          return;
+        }
+        graphRoot.setAttribute("data-bp-graph-rendering", "1");
+        loadDrawing(previewUtils, graphBlock, activeVariant, options).then(function (drawing) {
           if (graphState.renderToken !== renderToken) return;
-          if (graphState.renderFinalizedToken === renderToken) return;
+          if (graphState.panZoom) graphState.panZoom.destroy();
+          graphState.panZoom = null;
+          graphRoot.querySelectorAll(":scope > svg, :scope > .bp_graph_first_drawing").forEach(function (old) {
+            old.remove();
+          });
+          setNotice(drawing.note);
+          graphState.renderedVariantKey = variantRenderKey;
+          graphState.renderedOptionsKey = optionsKey;
+          graphRoot.setAttribute("data-bp-active-view", activeVariant.key);
+          graphRoot.setAttribute("data-bp-active-direction", drawing.direction || options.direction);
+          graphRoot.setAttribute("data-bp-active-pack", graphPackAttr(options.pack));
+          graphRoot.removeAttribute("data-bp-graph-rendering");
+          const svg = drawing.svg;
+          if (!svg) return;
+          svg.setAttribute("role", "img");
+          svg.setAttribute("aria-label", activeVariant.label || "Dependency graph");
+          // a node's name is kept for the page's scripts; its tooltip, when it has one, is what
+          // a pointer resting on it shows
+          svg.querySelectorAll("g.node").forEach(function (node) {
+            const title = node.querySelector(":scope > title");
+            const desc = node.querySelector(":scope > desc");
+            if (title) node.setAttribute("data-bp-node-name", title.textContent || "");
+            if (title && desc && (desc.textContent || "").trim()) title.textContent = desc.textContent;
+          });
+          graphRoot.insertBefore(svg, graphRoot.firstChild);
+          fitDrawingLabels(svg);
+          graphState.panZoom = createPanZoom(graphRoot, svg, {
+            direction: drawing.direction || options.direction,
+            geometry: drawing.geometry || drawing.direction || options.direction
+          });
           graphState.renderFinalizedToken = renderToken;
           attachPreviewHandlers(
             previewUtils,
@@ -1397,44 +1531,8 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
               ? function () { groupHoverLifetime.scheduleHide(); }
               : null
           );
-        };
-
-        const variantRenderKey = activeVariant.key === egoVariantKey
-          ? egoFragment(activeVariant.egoLabel, activeVariant.egoHops)
-          : activeVariant.key;
-        if (
-          (graphState.renderedVariantKey &&
-            graphState.renderedVariantKey !== variantRenderKey) ||
-          (graphState.renderedOptionsKey &&
-            graphState.renderedOptionsKey !== optionsKey)
-        ) {
-          resetGraphvizForVariant(graphRoot, graphState);
-        }
-        const gv = graphState.graphviz || graphContainer.graphviz();
-        graphState.graphviz = gv;
-        graphState.renderedVariantKey = variantRenderKey;
-        graphState.renderedOptionsKey = optionsKey;
-        graphRoot.setAttribute("data-bp-active-direction", options.direction);
-        graphRoot.setAttribute("data-bp-active-pack", graphPackAttr(options.pack));
-        graphRoot.setAttribute("data-bp-graph-layout-source", source.engine === "nop2" ? "build" : "page");
-        const prerendered = liftPrerenderedGraph(graphRoot);
-        gv
-          .engine(source.engine)
-          .zoom(true)
-          .width(width)
-          .height(height)
-          .fit(true)
-          .on("end", function () {
-            if (prerendered) prerendered.remove();
-            finalizeRender();
-            if (graphState.renderToken === renderToken) {
-              applyReadableGraphZoom(graphRoot, gv, options.direction);
-            }
-          });
-        gv.renderDot(dot);
-        setTimeout(function () {
-          finalizeRender();
-        }, 120);
+          graphRoot.dispatchEvent(new CustomEvent("bp-graph-rendered", { bubbles: true, detail: { view: activeVariant.key } }));
+        });
       }
 
       if (selector) {
@@ -1562,62 +1660,6 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       return controller;
     }
 
-// The copies the site ships under `-verso-data/vendor/` (see `static-web/vendor/README.md`),
-// resolved against this module's URL so that pages draw the graph without the network.
-const defaultGraphRuntimeLibraryUrls = {
-  d3: new URL("../vendor/d3/d3.min.js", import.meta.url).href,
-  graphviz: new URL("../vendor/d3-graphviz/d3-graphviz.min.js", import.meta.url).href
-};
-
-let graphRuntimeLibrariesPromise = null;
-
-function readGraphRuntimeLibraryUrls(options) {
-  const opts = options && typeof options === "object" ? options : {};
-  const libs = opts.libraries && typeof opts.libraries === "object" ? opts.libraries : {};
-  return {
-    d3: typeof libs.d3 === "string" && libs.d3.length > 0 ? libs.d3 : defaultGraphRuntimeLibraryUrls.d3,
-    graphviz:
-      typeof libs.graphviz === "string" && libs.graphviz.length > 0
-        ? libs.graphviz
-        : defaultGraphRuntimeLibraryUrls.graphviz
-  };
-}
-
-function hasD3Library() {
-  return !!(window.d3 && typeof window.d3.select === "function");
-}
-
-function hasGraphvizLibrary() {
-  if (!hasD3Library()) return false;
-  try {
-    const probe = document.createElement("div");
-    return typeof window.d3.select(probe).graphviz === "function";
-  } catch (_err) {
-    return false;
-  }
-}
-
-export function ensureGraphRuntimeLibraries(options) {
-  const urls = readGraphRuntimeLibraryUrls(options);
-  if (hasGraphvizLibrary()) return Promise.resolve();
-  if (!graphRuntimeLibrariesPromise) {
-    graphRuntimeLibrariesPromise = Promise.resolve()
-      .then(function () {
-        if (hasD3Library()) return null;
-        return load(urls.d3);
-      })
-      .then(function () {
-        if (hasGraphvizLibrary()) return null;
-        return load(urls.graphviz);
-      })
-      .catch(function (err) {
-        graphRuntimeLibrariesPromise = null;
-        throw err;
-      });
-  }
-  return graphRuntimeLibrariesPromise;
-}
-
 export function getGraphRenderApi(options) {
   const opts = options && typeof options === "object" ? options : {};
   if (opts.previewUtils && typeof opts.previewUtils === "object") {
@@ -1668,7 +1710,6 @@ function normalizeGraphRenderArgs(root, options) {
 export async function renderGraphBlock(graphBlock, options) {
   const opts = options && typeof options === "object" ? options : {};
   const previewUtils = await getGraphRenderApi(opts);
-  await ensureGraphRuntimeLibraries(opts);
   const controller = initGraphBlock(previewUtils, graphBlock, opts);
   if (opts.refresh && controller && typeof controller.render === "function") {
     controller.render();
@@ -1681,7 +1722,6 @@ export async function renderGraphs(root, options) {
   const blocks = graphBlocksIn(args.root);
   if (blocks.length === 0) return [];
   const previewUtils = await getGraphRenderApi(args.options);
-  await ensureGraphRuntimeLibraries(args.options);
   return blocks
     .map(function (block) {
       const controller = initGraphBlock(previewUtils, block, args.options);
@@ -1709,7 +1749,6 @@ export async function renderGraphData(host, graphData, options) {
 export function installGraphRenderApi(previewUtils, options) {
   if (!previewUtils || typeof previewUtils !== "object") return {};
   const installed = {
-    ensureGraphRuntimeLibraries: ensureGraphRuntimeLibraries,
     createGraphBlock: function (graphData, nextOptions) {
       return createGraphBlock(
         graphData,
@@ -1757,14 +1796,13 @@ export function bindGraphs(previewUtils, options) {
     const root = isGraphSearchRoot(opts.root) ? opts.root : document;
     const graphBlocks = graphBlocksIn(root);
     if (graphBlocks.length === 0) return Promise.resolve([]);
-    return ensureGraphRuntimeLibraries(opts)
-      .then(function () {
-        return graphBlocks
-          .map(function (graphBlock) {
-            return initGraphBlock(previewUtils, graphBlock, opts) || null;
-          })
-          .filter(function (controller) { return !!controller; });
-      });
+    return Promise.resolve(
+      graphBlocks
+        .map(function (graphBlock) {
+          return initGraphBlock(previewUtils, graphBlock, opts) || null;
+        })
+        .filter(function (controller) { return !!controller; })
+    );
 }
 
 export function startGraphRuntime(previewUtils, options) {
@@ -1781,7 +1819,6 @@ export function startGraphRuntime(previewUtils, options) {
 }
 
 export const graphRuntime = {
-  ensureGraphRuntimeLibraries,
   getGraphRenderApi,
   createGraphBlock,
   initGraphBlock,

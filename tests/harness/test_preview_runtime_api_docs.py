@@ -89,13 +89,15 @@ GRAPH_RUNTIME_CORE_HELPERS = {
     "graphLayoutMode",
     "readPreviewBehaviorDefaults",
     "layoutGraphCanvas",
-    "load",
     "graphNodeLabel",
     "graphNodeId",
     "ensureGraphBlockState",
     "rememberGraphLayoutMeasurements",
     "resizeRenderedGraphToCanvas",
-    "resetGraphvizForVariant",
+    "drawingSize",
+    "initialTransform",
+    "createPanZoom",
+    "fitDrawingLabels",
     "makeGroupPanelPositioner",
 }
 
@@ -577,8 +579,9 @@ class PreviewRuntimeApiDocsTests(unittest.TestCase):
         self.assertNotIn("privateNamespace.graphRuntimeCore = existingCore", graph_lean)
         self.assertIn('from "./graph-runtime-core.mjs";', graph_runtime)
         for helper in GRAPH_RUNTIME_CORE_HELPERS:
-            self.assertIn(f"function {helper}", graph_core)
-            self.assertNotIn(f"function {helper}", graph_runtime)
+            definition = re.compile(rf"function {helper}\b")
+            self.assertRegex(graph_core, definition)
+            self.assertNotRegex(graph_runtime, definition)
         self.assertNotIn("VersoBlueprintGraphRuntimeCore", graph_runtime)
 
 

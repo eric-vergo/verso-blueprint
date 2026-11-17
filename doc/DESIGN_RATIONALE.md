@@ -71,8 +71,9 @@ Blueprint counters than the source theorem environment.
 Command modules are split by concern:
 
 - `VersoBlueprint/Graph.lean` owns the semantic and finalized graph types,
-  materialization, DOT rendering helpers, and graph-view variant construction
-  used by page graphs and compact widgets
+  materialization and graph-view variant construction used by page graphs and
+  compact widgets; `VersoBlueprint/GraphLayout.lean` lays out and draws each view
+  (see "Graph drawings" below)
 - `VersoBlueprint/GraphApi.lean` owns the traversal/cache-facing API for
   storing semantic graph data and finalizing it against completed traversal
   state
@@ -571,8 +572,8 @@ flowchart LR
 transition. It enriches the completed traversal model, then delegates to
 `GraphModel.finish`, the core materializer that canonicalizes dependencies,
 derives deduplicated edges while omitting dangling dependencies, derives group
-children while preserving title and declaration metadata, and generates DOT
-variants from the same topology.
+children while preserving title and declaration metadata, and generates the
+render variants (the views a page offers) from the same topology.
 The `GraphData` constructor is private, so its public edges, children, and
 variants form one immutable materialized snapshot rather than another graph
 model. JSON decoding validates the same invariant before constructing it.
@@ -581,7 +582,7 @@ Preview-reference resolution is deliberately downstream of topology
 finalization because the manifest/cache artifact index does not exist earlier.
 `GraphData.filterPreviewReferences` removes unavailable node preview keys and
 variant lookup entries together, without changing dependency fields, parents,
-edges, group children, or DOT. It accepts only a retention predicate, so this
+edges, group children, or a drawing. It accepts only a retention predicate, so this
 post-pass cannot rewrite preview identities. Thus topology still crosses one
 finalization boundary even though manifest emission later prunes preview
 candidates that did not produce both a manifest entry and a rendered cache
@@ -599,16 +600,16 @@ records/mappings, reference indexing and filtering take expected
 `O(m + c + r + n + v)` time under hash-set operations, plus the inspected body
 text when indexing serialized artifacts. Auxiliary indexes retain `O(m + c)`
 keys, and finalized arrays are linear in candidate output size. Graph topology
-and DOT are not rebuilt.
+and drawings are not rebuilt.
 
 Generated-data readers preserve the same boundary without charging every
 semantic query for projections it cannot consume. The general manifest reader
-strictly reconstructs graph topology and DOT variants from semantic nodes and
+strictly reconstructs graph topology and render variants from semantic nodes and
 rejects mismatches; `vbp check` and the graph-backed `work-queue` selector use
 that reader. Other `vbp query` selectors remove the top-level graph array before
 decoding because they do not consume graph projections. They still validate the
-manifest schema and decode all queryable semantic data, while avoiding graph and
-DOT rematerialization on graph-free planning-data paths. Query arguments are
+manifest schema and decode all queryable semantic data, while avoiding graph
+rematerialization on graph-free planning-data paths. Query arguments are
 validated before artifact I/O into a `QueryPlan`; each selector declaration owns
 its argument shape, graph-read requirement, help line, and execution function.
 The manifest/cache pair read by `vbp check` is represented as
@@ -1580,7 +1581,7 @@ collapsing all progress into one overloaded color.
 Both tracks' colours are theme tokens (`Informal.StatusColors`, the
 `--bp-color-status-*` custom properties) rather than literals in the graph
 code, so the graph, its legend, the summary and any other status view read one
-palette in the light and the dark theme. DOT needs concrete colours, so it
+palette in the light and the dark theme. A drawing needs concrete colours, so it
 carries the light values; status classes on the SVG nodes let the stylesheet
 substitute the active theme's values.
 
@@ -1595,6 +1596,27 @@ The current proof fill progression is:
 That third state is intentionally a fill state rather than a warning: it marks
 nodes where associated Lean code exists but is still incomplete, while keeping
 missing-reference and missing-declaration problems in the warning channel.
+
+### Graph Drawings
+
+Every view of a dependency graph is laid out and drawn while the site is built,
+in Lean (`Informal.GraphLayout`, over the PILean library), so the page holds
+inert SVG and a small script for pan, zoom and selection. This keeps three
+properties:
+
+- a drawing is a pure function of the finalized graph data: the same data gives
+  the same bytes, which suits reproducible builds and tests that compare text;
+- the page needs no layout program or graph library, so a generated site has no
+  runtime dependency to load, version or check, and the drawing can be shown
+  before any script runs;
+- the drawing is data a client may read: nodes carry their ids, names, tooltips
+  and status classes, so the stylesheet and the page's script act on the same
+  markup in either theme.
+
+`GraphData.variantGraphs` gives the graph of every render variant and
+`GraphData.renderGraph` the whole graph that neighbourhood views are cut from.
+A neighbourhood is drawn once per distinct node set, within a byte limit on the
+total; a drawing left out is reported by the index and by the page.
 
 ### Completion Policy
 

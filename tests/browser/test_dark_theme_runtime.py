@@ -8,7 +8,7 @@ ratio for normal text (4.5:1) against the background they are drawn on.
 
 from playwright.sync_api import Page
 
-from support import assert_no_runtime_errors, record_runtime_errors
+from support import assert_no_runtime_errors, record_runtime_errors, wait_for_graph_rendered
 
 MIN_CONTRAST = 4.5
 
@@ -144,14 +144,14 @@ GRAPH_NODE_REPORTS = """
     probe.style.color = 'var(' + name + ')';
     return parse(getComputedStyle(probe).color);
   };
-  const graphBg = document.querySelector('.bp_graph_canvas svg g.graph > polygon');
-  const bg = graphBg ? parse(getComputedStyle(graphBg).fill) : null;
+  const canvas = document.querySelector('.bp_graph_canvas');
+  const bg = canvas ? parse(getComputedStyle(canvas).backgroundColor) : null;
   const out = [];
   for (const node of document.querySelectorAll('.bp_graph_canvas svg g.node')) {
     const fillClass = [...node.classList].find((c) => c.startsWith('bp_graph_status_'));
     if (!fillClass) continue;
     const borderClass = [...node.classList].find((c) => c.startsWith('bp_graph_statement_'));
-    const shape = node.querySelector('ellipse, polygon, path');
+    const shape = node.querySelector(':scope > ellipse, :scope > path');
     const text = node.querySelector('text');
     if (!shape || !text) continue;
     const fill = parse(getComputedStyle(shape).fill);
@@ -208,6 +208,54 @@ class TestGraphStatusColours:
             assert same_rgb(r["stroke"], r["borderToken"]), r
             assert r["labelRatio"] >= MIN_CONTRAST, r
             assert r["borderRatio"] >= MIN_BORDER_CONTRAST, r
+
+
+class TestGraphStatusColoursOfAGeneratedCodeSite:
+    """The same checks on a site generated from compiled-code data, whose graph is drawn when the
+    site is built: the stylesheet repaints every node from the tokens of the active theme."""
+
+    def test_light(self, code_site_url: str, page: Page):
+        reports = graph_node_reports(page, code_site_url, "light")
+        assert len(reports) >= 4
+        assert reports[0]["bg"] and lum_of(reports[0]["bg"]) > 0.8, reports[0]
+        for r in reports:
+            assert same_rgb(r["fill"], r["fillToken"]), r
+            assert same_rgb(r["stroke"], r["borderToken"]), r
+            assert r["labelRatio"] >= MIN_CONTRAST, r
+
+    def test_dark(self, code_site_url: str, page: Page):
+        reports = graph_node_reports(page, code_site_url, "dark")
+        assert len(reports) >= 4
+        assert reports[0]["bg"] and lum_of(reports[0]["bg"]) < 0.05, reports[0]
+        for r in reports:
+            assert same_rgb(r["fill"], r["fillToken"]), r
+            assert same_rgb(r["stroke"], r["borderToken"]), r
+            assert r["labelRatio"] >= MIN_CONTRAST, r
+            assert r["borderRatio"] >= MIN_BORDER_CONTRAST, r
+
+    def test_theme_switch_repaints_a_drawn_graph(self, code_site_url: str, page: Page):
+        """A drawing on screen follows the scheme without being drawn again: the canvas and
+        the nodes' outlines and labels take the dark tokens."""
+        colours = """() => {
+            const canvas = document.querySelector(".bp_graph_canvas");
+            const node = document.querySelector(".bp_graph_canvas > svg g.node[class*='bp_graph_status_']");
+            const shape = node.querySelector(":scope > path, :scope > ellipse");
+            return [getComputedStyle(canvas).backgroundColor, getComputedStyle(shape).stroke,
+                    getComputedStyle(node.querySelector(":scope > text")).fill];
+        }"""
+        page.emulate_media(color_scheme="light")
+        page.goto(code_site_url + "/Dependency-Graph/", wait_until="domcontentloaded")
+        wait_for_graph_rendered(page)
+        light = page.evaluate(colours)
+        drawing = page.evaluate("document.querySelector('.bp_graph_canvas > svg').outerHTML.length")
+        page.emulate_media(color_scheme="dark")
+        for _ in range(50):
+            if page.evaluate(colours)[0] != light[0]:
+                break
+            page.wait_for_timeout(100)
+        dark = page.evaluate(colours)
+        assert dark[0] != light[0] and dark[1] != light[1], (light, dark)
+        assert page.evaluate("document.querySelector('.bp_graph_canvas > svg').outerHTML.length") == drawing
 
 
 def lum_of(c: dict) -> float:

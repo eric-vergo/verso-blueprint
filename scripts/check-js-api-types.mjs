@@ -189,7 +189,6 @@ const graphApiNames = [
   )
 ];
 const graphInternalApiNames = [
-  "ensureGraphRuntimeLibraries",
   "getGraphRenderApi",
   "graphCanvasFor",
   "decodeGraphData",

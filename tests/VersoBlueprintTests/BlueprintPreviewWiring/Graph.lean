@@ -101,14 +101,19 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "\"variants\":" &&
       !hasSubstr out "class=\"bp-graph-variants\"" &&
       !hasSubstr out "dot-source" &&
+      !hasSubstr out "text/vnd.graphviz" &&
+      !hasSubstr out "vendor/" &&
+      hasSubstr out "class=\"bp_graph_first_drawing\"" &&
+      hasSubstr out "data-bp-graph-drawings=\"blueprint-graph/" &&
+      hasSubstr out "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"bp_graph_drawing\"" &&
       hasSubstr out "class=\"bp_graph_controls_button bp_graph_options_button\"" &&
       hasSubstr out "class=\"bp_graph_options_popover\"" &&
       hasSubstr out "class=\"bp_graph_controls_select bp_graph_direction_select\"" &&
       hasSubstr out "class=\"bp_graph_pack_input\"" &&
       hasSubstr out "data-bp-graph-direction=\"TB\"" &&
-      hasSubstr out "data-bp-graph-pack=\"false\"" &&
-      hasSubstr out "data-bp-graph-default-pack=\"false\"" &&
-      hasSubstr out "\"options\":{\"direction\":\"TB\",\"pack\":false}" &&
+      hasSubstr out "data-bp-graph-pack=\"true\"" &&
+      hasSubstr out "data-bp-graph-default-pack=\"true\"" &&
+      hasSubstr out "\"options\":{\"direction\":\"TB\",\"pack\":true}" &&
       hasSubstr out "data-bp-tex-prelude-id" &&
       !hasSubstr out "data-bp-tex-prelude=\"" &&
       !hasSubstr out "bp_preview_tex_prelude" &&
@@ -173,8 +178,8 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-default-pack=\"false\"" &&
       (hasSubstr out "selected value=\"LR\"" || hasSubstr out "value=\"LR\" selected") &&
       hasSubstr out "\"options\":{\"direction\":\"LR\",\"pack\":false}" &&
-      hasSubstr out "rankdir=LR;" &&
-      hasSubstr out "pack=false;" &&
+      hasSubstr out "class=\"bp_graph_first_drawing\" data-variant=\"full\" data-direction=\"LR\"" &&
+      !hasSubstr out "rankdir=LR;" &&
       !hasSubstr out "dotByDirection"
     )
 

@@ -28,45 +28,76 @@
   overflow: hidden;
 }
 
-/* The first view as drawn while the site was built (`graph.mjs`), shown until the interactive
-   graph is drawn: fitted into the canvas, then in an overlay over it. */
-.bp_graph_canvas > svg.bp_graph_prerendered,
-.bp_graph_prerender_overlay > svg {
+/* The canvas holds one drawing (`graph.mjs`): the first view as written into the page, fitted,
+   until the page's script takes over, then the drawing with its pan and zoom. */
+.bp_graph_canvas {
+  background: var(--bp-color-graph-bg);
+}
+
+.bp_graph_canvas > .bp_graph_first_drawing {
+  width: 100%;
+  height: 100%;
+  min-height: 24rem;
+}
+
+.bp_graph_canvas > .bp_graph_first_drawing > svg {
   display: block;
   width: 100%;
   height: 100%;
   min-height: 24rem;
 }
 
-.bp_graph_prerender_overlay {
-  position: absolute;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
+.bp_graph_canvas > svg {
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
 }
 
-/* Graphviz bakes its default colours into the SVG; route them through theme tokens. */
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.graph > polygon {
-  fill: var(--bp-color-graph-bg);
+.bp_graph_canvas > svg[data-bp-graph-panning] {
+  cursor: grabbing;
 }
 
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge path {
+.bp_graph_canvas > svg:focus {
+  outline: none;
+}
+
+.bp_graph_canvas > svg:focus-visible {
+  outline: 2px solid var(--bp-color-accent, #0f766e);
+  outline-offset: -2px;
+}
+
+.bp_graph_canvas g.node:focus-visible > :is(path, ellipse) {
+  stroke-width: 3;
+}
+
+/* The drawings carry the light theme's colours; route them through theme tokens. */
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.edges {
   stroke: var(--bp-color-graph-edge);
 }
 
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge polygon {
-  stroke: var(--bp-color-graph-edge);
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.heads {
   fill: var(--bp-color-graph-edge);
 }
 
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster polygon,
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster path {
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.cluster path {
   stroke: var(--bp-color-graph-cluster);
 }
 
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.cluster text,
-:is(.bp_graph_canvas, .bp_graph_prerender_overlay) svg g.edge text {
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.cluster text {
   fill: var(--bp-color-graph-label);
+}
+
+/* What a view could not show (a neighbourhood the site did not draw). */
+.bp_graph_notice {
+  margin: 0.45rem 0 0.35rem;
+  font-size: 0.82rem;
+  color: var(--bp-color-text-muted);
+}
+
+.bp_graph_notice[hidden] {
+  display: none;
 }
 
 .bp_graph_fullwidth[data-bp-graph-layout="fill"] {
@@ -275,8 +306,10 @@
 }
 
 /* The node an ego view is centred on. */
-.bp_graph_canvas g.node.bp_graph_ego_center > :is(path, polygon, ellipse) {
+/* (the class twice: the status colours' rules are as specific and come later) */
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.node.bp_graph_ego_center.bp_graph_ego_center > :is(path, ellipse) {
   stroke: var(--bp-color-link, #1d4ed8);
+  stroke-width: 3;
 }
 
 .bp_graph_controls_select {

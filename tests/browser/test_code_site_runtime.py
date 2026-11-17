@@ -2,8 +2,8 @@
 
 The site is generated from `code_site_fixture/` (four modules, one with a long dotted name, a
 declaration chain a <- b <- c <- d with source occurrences and hover texts). The checks: the
-dependency graph's first view is drawn before the page scripts have run and is then laid out
-from build-time positions, the ego view around a declaration with its hop count, the node view's
+dependency graph's first view is in the page's HTML and drawn before any script has run, its
+other drawings are files of the site, the ego view around a declaration with its hop count, the node view's
 and the chapter entry's neighbourhood links, the highlighted source excerpt's hovers, the search
 box finding a declaration, long module names wrapping in the sidebar, and the informal statements
 the data gives (`Demo.c` with math, a title and a proof; `Demo.d` with raw HTML and a script link):
@@ -12,88 +12,72 @@ and copied from the page's templates (theme colours, keyboard, screen-reader tex
 screens), a node without one shows the Lean side alone, and a statement's HTML stays text.
 """
 
-import shutil
-import subprocess
-import sys
+import json
 from pathlib import Path
 
-import pytest
 from playwright.sync_api import Page
 
-from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
-from support import PACKAGE_ROOT, find_free_port, wait_for_server, assert_vendored_licenses
+from support import wait_for_graph_rendered
 
 FIXTURE = Path(__file__).parent / "code_site_fixture"
 
 
-def vbp_executable() -> Path:
-    exe = PACKAGE_ROOT / ".lake" / "build" / "bin" / "vbp"
-    if not exe.exists():
-        subprocess.run(["lake", "build", "vbp"], cwd=PACKAGE_ROOT, check=True)
-    return exe
-
-
-@pytest.fixture(scope="session")
-def code_site_dir() -> Path:
-    output_dir = canonical_test_blueprint_output_dir("code_site_fixture", Path(__file__))
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [str(vbp_executable()), "code-site", "--data", str(FIXTURE / "code-site.json"),
-         "--root", str(FIXTURE), "--output", str(output_dir), "--reproducible"],
-        cwd=FIXTURE,
-        check=True,
-    )
-    return output_dir / "html-multi"
-
-
-@pytest.fixture(scope="session")
-def code_site_url(code_site_dir: Path):
-    port = find_free_port()
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
-        cwd=code_site_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    url = f"http://127.0.0.1:{port}"
-    wait_for_server(url, proc)
-    yield url
-    proc.terminate()
-    proc.wait()
-
-
 def wait_for_interactive_graph(page: Page) -> None:
-    page.wait_for_function(
-        """() => {
-            const node = document.querySelector(".bp_graph_canvas svg g.node");
-            const block = document.querySelector(".bp_graph_fullwidth");
-            const state = block ? block.__bpGraphState : null;
-            return !!node && !!node.__data__ && !!state && state.renderFinalizedToken === state.renderToken;
-        }""",
-        timeout=60000,
-    )
+    wait_for_graph_rendered(page)
 
 
 def drawn_labels(page: Page) -> list[str]:
     return page.evaluate(
-        """() => Array.from(document.querySelectorAll(".bp_graph_canvas svg g.node text"))
+        """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node text"))
             .map((t) => t.textContent.trim()).sort()"""
     )
 
 
-def test_first_view_is_drawn_from_build_time_layout(page: Page, code_site_dir: Path, code_site_url: str):
-    if shutil.which("dot") is None:
-        pytest.skip("Graphviz `dot` is not installed: the generator leaves the layout to the page")
+def test_first_view_is_drawn_in_the_page_source(page: Page, code_site_dir: Path, code_site_url: str):
     html = (code_site_dir / "Dependency-Graph" / "index.html").read_text(encoding="utf-8")
-    assert '<svg class="bp_graph_prerendered" data-variant="full"' in html
-    assert 'class="bp-graph-layout" data-variant="full"' in html
+    assert '<div class="bp_graph_first_drawing" data-variant="full"' in html
+    assert 'class="bp_graph_drawing"' in html
+    assert "text/vnd.graphviz" not in html and "bp_graph_prerendered" not in html
+    # a generator that writes the data folder puts the other drawings there, not in the page
+    assert 'class="bp-graph-drawing"' not in html
+    folder = code_site_dir / "-verso-data" / "blueprint-graph"
+    keys = [path for path in folder.iterdir() if path.is_dir()]
+    assert len(keys) == 1
+    index = json.loads((keys[0] / "index.json").read_text(encoding="utf-8"))
+    assert 'data-bp-graph-drawings="blueprint-graph/%s"' % keys[0].name in html
+    assert set(index["variants"]) == {"full"}
+    stem = index["variants"]["full"]["file"]
+    for direction in ("TB", "BT", "LR", "RL"):
+        assert (keys[0] / f"{stem}-{direction}-any.svg").is_file()
     page.goto(code_site_url + "/Dependency-Graph/", wait_until="domcontentloaded")
     wait_for_interactive_graph(page)
-    assert page.locator(".bp_graph_canvas").get_attribute("data-bp-graph-layout-source") == "build"
-    assert page.locator(".bp_graph_prerender_overlay").count() == 0
+    canvas = page.locator(".bp_graph_canvas")
+    assert canvas.get_attribute("data-bp-active-view") == "full"
+    assert canvas.get_attribute("data-bp-active-direction") == "TB"
+    assert page.locator(".bp_graph_first_drawing").count() == 0
     assert drawn_labels(page) == ["Demo.b", "Demo.c", "Demo.d", "a"]
+
+
+def test_first_view_is_visible_before_any_script_runs(page: Page, code_site_url: str):
+    """With scripts switched off the page still shows the first view: its four nodes, with their
+    labels, inside the canvas."""
+    context = page.context.browser.new_context(java_script_enabled=False)
+    try:
+        bare = context.new_page()
+        bare.set_viewport_size({"width": 1200, "height": 800})
+        bare.goto(code_site_url + "/Dependency-Graph/", wait_until="load")
+        nodes = bare.locator(".bp_graph_canvas .bp_graph_first_drawing svg g.node")
+        assert nodes.count() == 4
+        canvas = bare.locator(".bp_graph_canvas").bounding_box()
+        for i in range(4):
+            box = nodes.nth(i).bounding_box()
+            assert box is not None and box["width"] > 20 and box["height"] > 10
+            assert box["x"] >= canvas["x"] - 1 and box["x"] + box["width"] <= canvas["x"] + canvas["width"] + 1
+        labels = bare.locator(".bp_graph_first_drawing svg g.node text").evaluate_all(
+            "(texts) => texts.map((t) => t.textContent.trim())")
+        assert sorted(labels) == ["Demo.b", "Demo.c", "Demo.d", "a"]
+    finally:
+        context.close()
 
 
 def test_ego_view_and_hops(page: Page, code_site_url: str):
@@ -101,11 +85,11 @@ def test_ego_view_and_hops(page: Page, code_site_url: str):
     wait_for_interactive_graph(page)
     assert page.locator(".bp_graph_view_select").input_value() == "ego"
     assert drawn_labels(page) == ["Demo.b", "Demo.c", "a"]
-    assert page.locator(".bp_graph_canvas svg g.node.bp_graph_ego_center").count() == 1
+    assert page.locator(".bp_graph_canvas > svg g.node.bp_graph_ego_center").count() == 1
     hops = page.locator(".bp_graph_ego_hops")
     assert hops.is_visible()
     hops.select_option("2")
-    page.wait_for_function("document.querySelectorAll('.bp_graph_canvas svg g.node').length === 4")
+    page.wait_for_function("document.querySelectorAll('.bp_graph_canvas > svg g.node').length === 4")
     wait_for_interactive_graph(page)
     assert page.evaluate("location.hash") == "#ego=Demo.b&k=2"
     page.locator(".bp_graph_view_select").select_option("full")
@@ -274,7 +258,7 @@ def test_node_view_statement_math_for_keyboard_and_screen_reader(page: Page, cod
     wait_for_interactive_graph(page)
     page.evaluate(
         """() => {
-            const node = Array.from(document.querySelectorAll(".bp_graph_canvas svg g.node"))
+            const node = Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node"))
                 .find((n) => (n.textContent || "").includes("Demo.c"));
             node.focus();
         }"""
@@ -419,5 +403,16 @@ def test_contents_backdrop_closes_the_panel(page: Page, code_site_url: str):
     assert not page.evaluate("document.getElementById('toggle-toc').checked")
 
 
-def test_code_site_ships_vendored_licences(code_site_dir: Path):
-    assert_vendored_licenses(code_site_dir)
+def test_code_site_ships_no_graph_libraries(page: Page, code_site_dir: Path, code_site_url: str):
+    """The graph is drawn when the site is built: the site's data folder holds no layout or
+    drawing library for it, and the page has none loaded."""
+    data = code_site_dir / "-verso-data"
+    assert not (data / "vendor").exists()
+    names = [path.name.lower() for path in data.rglob("*") if path.is_file()]
+    assert not [name for name in names if "d3" in name or "graphviz" in name or name.endswith(".wasm")]
+    page.goto(code_site_url + "/Dependency-Graph/", wait_until="domcontentloaded")
+    wait_for_interactive_graph(page)
+    assert page.evaluate(
+        """() => ["d3", "Graphviz", "graphviz", "hpccWasm", "Viz"].every(
+            (name) => typeof window[name] === "undefined")"""
+    )

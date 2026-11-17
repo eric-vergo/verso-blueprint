@@ -424,6 +424,8 @@ partial def pagesUnder (dir : System.FilePath) : IO (Array String) := do
     | .error _ => false) &&
   (parseOptions ["--challenge-not-built"] {} matches .error _) &&
   (parseOptions ["--bogus"] {} matches .error _) &&
+  (parseOptions ["--graphviz", "dot"] {} matches .error _) &&
+  (parseOptions ["--no-graph-layout"] {} matches .error _) &&
   (parseOptions ["--data"] {} matches .error _)
 
 end Verso.VersoBlueprintTests.BlueprintCodeSite

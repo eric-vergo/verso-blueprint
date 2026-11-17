@@ -5,6 +5,7 @@ Author: Eric Vergo
 -/
 
 import VersoBlueprint.Commands.Graph
+import VersoBlueprint.GraphLayout
 import VersoBlueprint.Commands.Summary.Html
 import VersoBlueprintTests.BlueprintGraph.NodeStatus
 import VersoBlueprintTests.Blueprint.Support
@@ -52,7 +53,7 @@ private def hasHexColor (s : String) : Bool :=
   let names := StatusColors.all.map (·.name)
   names.eraseDups.length == names.length
 
--- The graph's status colours are the tokens' light values (what DOT carries).
+-- The graph's status colours are the tokens' light values (what the drawings carry).
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -61,7 +62,7 @@ private def hasHexColor (s : String) : Bool :=
   proofStatusFontColor .formalizedWithAncestors == StatusColors.formalizedWithAncestorsText.light &&
   unresolvedFillColor == StatusColors.unresolved.light
 
--- Styled nodes carry their status classes, and so does the DOT made from finished graph data.
+-- Styled nodes carry their status classes, and so do the drawings made from finished graph data.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -71,11 +72,13 @@ private def hasHexColor (s : String) : Bool :=
     n.svgClass ==
       "bp_graph_status_formalized_with_ancestors bp_graph_statement_formalized") &&
   hasNodeWith graphStatus `missing_dep (fun n => n.svgClass == "bp_graph_status_unresolved") &&
-  match graphDataStatus.variants[0]? with
+  match graphDataStatus.variantGraphs[0]? with
   | none => false
   | some full =>
-    hasSubstr full.dot "class=\"bp_graph_status_ready bp_graph_statement_ready\"" &&
-    hasSubstr full.dot "class=\"bp_graph_status_unresolved\""
+    let svg := (Informal.GraphLayout.drawing full.key
+      { graph := full.graph, groupTitle := full.groupTitle, clusters := full.clusters } .TB true).svg
+    hasSubstr svg "class=\"node bp_graph_status_ready bp_graph_statement_ready\"" &&
+    hasSubstr svg "class=\"node bp_graph_status_unresolved\""
 
 -- The graph stylesheet paints every status class from a token and names no colour itself.
 /-- info: true -/
@@ -85,13 +88,16 @@ private def hasHexColor (s : String) : Bool :=
   !hasHexColor css &&
   hasSubstr Informal.Commands.graphCss css &&
   hasSubstr css
-    (".bp_graph_canvas svg g.node.bp_graph_status_ready :is(ellipse, polygon, path) " ++
+    (":is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.node.bp_graph_status_ready " ++
+      ":is(ellipse, path) " ++
       "{ fill: var(--bp-color-status-ready); }") &&
   hasSubstr css
-    (".bp_graph_canvas svg g.node.bp_graph_status_formalized_with_ancestors text " ++
+    (":is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg " ++
+      "g.node.bp_graph_status_formalized_with_ancestors text " ++
       "{ fill: var(--bp-color-status-formalized-with-ancestors-text); }") &&
   hasSubstr css
-    (".bp_graph_canvas svg g.node.bp_graph_statement_mathlib :is(ellipse, polygon, path) " ++
+    (":is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg " ++
+      "g.node.bp_graph_statement_mathlib :is(ellipse, path) " ++
       "{ stroke: var(--bp-color-status-mathlib-border); }") &&
   -- the rules use the properties stylesheets share, never a success colour's value of its own
   (StatusColors.all.filter fun token =>
