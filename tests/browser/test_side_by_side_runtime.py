@@ -10,7 +10,7 @@ from playwright.sync_api import Page, expect
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from scripts.blueprint_harness_utils import lean_low_priority_command
-from support import PACKAGE_ROOT, assert_no_runtime_errors, assert_vendored_licenses, find_free_port, record_runtime_errors, wait_for_server
+from support import PACKAGE_ROOT, assert_no_runtime_errors, find_free_port, record_runtime_errors, wait_for_server
 
 
 @pytest.fixture(scope="session")
@@ -63,8 +63,10 @@ def side_by_side_server(side_by_side_site_dir: Path):
     proc.wait()
 
 
-def test_blueprint_site_ships_vendored_licences(side_by_side_site_dir: Path):
-    assert_vendored_licenses(side_by_side_site_dir)
+def test_blueprint_site_ships_no_graph_libraries(side_by_side_site_dir: Path):
+    """The dependency graph is drawn when the site is built, so the site has no graph library."""
+    assert not (side_by_side_site_dir / "-verso-data" / "vendor").exists()
+    assert (side_by_side_site_dir / "-verso-data" / "blueprint-graph").is_dir()
 
 
 def side_by_side_page_path(site_dir: Path) -> str:

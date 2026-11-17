@@ -8,7 +8,14 @@ from playwright.sync_api import Page, expect
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from scripts.blueprint_harness_utils import lean_low_priority_command
-from support import PACKAGE_ROOT, blueprint_render_api_script, find_free_port, wait_for_server
+from support import (
+    PACKAGE_ROOT,
+    blueprint_render_api_script,
+    find_free_port,
+    graph_scale,
+    wait_for_graph_rendered,
+    wait_for_server,
+)
 
 
 @pytest.fixture(scope="session")
@@ -58,13 +65,7 @@ def preview_runtime_showcase_root_server(preview_runtime_showcase_output_dir: Pa
 
 
 def wait_for_graph(page: Page):
-    page.wait_for_function(
-        """() => {
-            const canvas = document.querySelector(".bp_graph_canvas");
-            const svg = canvas ? canvas.querySelector("svg") : null;
-            return !!canvas && !!svg;
-        }"""
-    )
+    wait_for_graph_rendered(page)
 
 
 def goto_graph_page(page: Page, url: str):
@@ -77,7 +78,7 @@ def wait_for_rendered_variant(page: Page, variant: str):
             const block = document.querySelector(".bp_graph_fullwidth");
             const canvas = document.querySelector(".bp_graph_canvas");
             const select = document.querySelector(".bp_graph_view_select");
-            const svg = canvas ? canvas.querySelector("svg") : null;
+            const svg = canvas ? canvas.querySelector(":scope > svg") : null;
             const state = block ? block.__bpGraphState : null;
             return (
                 !!select &&
@@ -96,7 +97,7 @@ def graph_transform(page: Page):
     return page.evaluate(
         """() => {
             const canvas = document.querySelector(".bp_graph_canvas");
-            const svg = canvas ? canvas.querySelector("svg") : null;
+            const svg = canvas ? canvas.querySelector(":scope > svg") : null;
             const graph = svg ? (svg.querySelector("g.graph") || svg.querySelector("g")) : null;
             return graph ? graph.getAttribute("transform") : null;
         }"""
@@ -104,12 +105,16 @@ def graph_transform(page: Page):
 
 
 def assert_graph_has_zoom_handlers(page: Page):
-    assert page.evaluate(
-        """() => {
-            const svg = document.querySelector(".bp_graph_canvas svg");
-            if (!svg || !Array.isArray(svg.__on) || !svg.__zoom) return false;
-            return svg.__on.some((entry) => entry.type === "mousedown" && entry.name === "zoom");
-        }"""
+    """The drawing zooms: a wheel step about the canvas's middle changes its scale."""
+    canvas_box = page.locator(".bp_graph_canvas").first.bounding_box()
+    assert canvas_box is not None
+    before = graph_scale(page)
+    page.mouse.move(canvas_box["x"] + canvas_box["width"] / 2, canvas_box["y"] + canvas_box["height"] / 2)
+    page.mouse.wheel(0, 120 if before > 1 else -120)
+    page.wait_for_function(
+        "(k) => parseFloat(document.querySelector('.bp_graph_canvas > svg')"
+        ".getAttribute('data-bp-graph-scale')) !== k",
+        arg=before,
     )
 
 
@@ -127,7 +132,7 @@ def assert_graph_can_be_dragged(page: Page):
     page.wait_for_function(
         """(previousTransform) => {
             const canvas = document.querySelector(".bp_graph_canvas");
-            const svg = canvas ? canvas.querySelector("svg") : null;
+            const svg = canvas ? canvas.querySelector(":scope > svg") : null;
             const graph = svg ? (svg.querySelector("g.graph") || svg.querySelector("g")) : null;
             return !!graph && graph.getAttribute("transform") !== previousTransform;
         }""",
@@ -139,7 +144,7 @@ def graph_visibility_metrics(page: Page):
     return page.evaluate(
         """() => {
             const canvas = document.querySelector(".bp_graph_canvas");
-            const svg = canvas ? canvas.querySelector("svg") : null;
+            const svg = canvas ? canvas.querySelector(":scope > svg") : null;
             const graph = svg ? (svg.querySelector("g.graph") || svg.querySelector("g")) : null;
             if (!canvas || !svg || !graph) return null;
             const canvasRect = canvas.getBoundingClientRect();
@@ -158,7 +163,7 @@ def graph_dimensions(page: Page):
     return page.evaluate(
         """() => {
             const canvas = document.querySelector(".bp_graph_canvas");
-            const svg = canvas ? canvas.querySelector("svg") : null;
+            const svg = canvas ? canvas.querySelector(":scope > svg") : null;
             const graph = svg ? (svg.querySelector("g.graph") || svg.querySelector("g")) : null;
             if (!canvas || !svg || !graph) return null;
             const graphRect = graph.getBoundingClientRect();
@@ -193,10 +198,10 @@ def preview_node_by_label(page: Page, label: str):
 
 class TestGraphLayoutRuntime:
     def test_graph_draws_without_the_network(self, server: str, page: Page):
-        """The graph's libraries come with the site (`-verso-data/vendor/`): with every request
-        outside the site's server refused, the page still draws its nodes and never asks the
-        network for D3 or d3-graphviz. (Other remote assets of the page, such as the Markdown
-        renderer Verso's page template loads, are Verso's.)"""
+        """The graph is drawn when the site is built and its drawings are files of the site: with
+        every request outside the site's server refused, the page still draws its nodes, and it
+        asks the network for no layout or drawing library. (Other remote assets of the page, such
+        as the Markdown renderer Verso's page template loads, are Verso's.)"""
         outside: list[str] = []
 
         def refuse_outside(route):
@@ -213,7 +218,11 @@ class TestGraphLayoutRuntime:
             first_preview_node(page)
         finally:
             page.context.unroute("**/*", refuse_outside)
-        assert [url for url in outside if "d3" in url or "graphviz" in url] == []
+        assert [url for url in outside if "d3" in url or "graphviz" in url or "wasm" in url] == []
+        assert page.evaluate(
+            """() => ["d3", "Graphviz", "graphviz", "hpccWasm"].every(
+                (name) => typeof window[name] === "undefined")"""
+        )
 
     def test_public_graph_api_exposes_rendered_page_and_manifest_data(self, server: str, page: Page):
         page.set_viewport_size({"width": 1400, "height": 900})
@@ -244,7 +253,6 @@ class TestGraphLayoutRuntime:
                     variants: graph.variants.map((variant) => ({
                         key: variant.key,
                         label: variant.label,
-                        dot: variant.dot,
                         options: variant.options,
                         selectOnNodeId: variant.selectOnNodeId,
                         hoverOnNodeId: variant.hoverOnNodeId
@@ -273,6 +281,9 @@ class TestGraphLayoutRuntime:
                         ? topologySnapshot(pageGraph) === topologySnapshot(manifestGraph)
                         : false,
                     variantKeys: variants.map((variant) => variant.key),
+                    variantsCarryDrawingText: variants.some(
+                        (variant) => "dot" in variant || "svg" in variant
+                    ),
                     sampleTitle: sample ? sample.title : "",
                     sampleHref: sample ? sample.href : "",
                     manifestSampleTitle: manifestSample ? manifestSample.title : "",
@@ -300,6 +311,7 @@ class TestGraphLayoutRuntime:
         assert graph_data["topologyMatches"]
         assert graph_data["dataMatches"], "page and manifest graph data must agree, including preview availability"
         assert {"full", "group"}.issubset(set(graph_data["variantKeys"]))
+        assert graph_data["variantsCarryDrawingText"] is False
         assert graph_data["sampleTitle"].startswith("Definition")
         assert graph_data["sampleHref"] == "Preview-Relationships/#--informal-preview-used_target--statement"
         assert graph_data["manifestSampleTitle"] == graph_data["sampleTitle"]
@@ -317,7 +329,6 @@ class TestGraphLayoutRuntime:
                 const fullVariant = {
                     key: "full",
                     label: "Full Graph",
-                    dot: "strict digraph {}",
                     options: { direction: "TB", pack: false },
                     selectOnNodeId: [],
                     hoverOnNodeId: [],
@@ -339,8 +350,8 @@ class TestGraphLayoutRuntime:
                                 completeRecord(3, "graph:current", [fullVariant]),
                                 completeRecord(2, "graph:obsolete-schema", [fullVariant]),
                                 completeRecord(3, "graph:no-variants", []),
-                                completeRecord(3, "graph:blank-dot", [
-                                    { ...fullVariant, dot: " " }
+                                completeRecord(3, "graph:blank-label", [
+                                    { ...fullVariant, label: " " }
                                 ]),
                                 completeRecord(3, "graph:invalid-options", [
                                     { ...fullVariant, options: { direction: "sideways", pack: false } }
@@ -413,7 +424,7 @@ class TestGraphLayoutRuntime:
                     const startedAt = performance.now();
                     const check = () => {
                         const canvas = clone.querySelector(".bp_graph_canvas");
-                        const svg = canvas ? canvas.querySelector("svg") : null;
+                        const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                         const state = clone.__bpGraphState || null;
                         if (
                             canvas &&
@@ -433,7 +444,7 @@ class TestGraphLayoutRuntime:
                     check();
                 });
                 const canvas = clone.querySelector(".bp_graph_canvas");
-                const svg = canvas ? canvas.querySelector("svg") : null;
+                const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                 return {
                     ok: true,
                     moduleRenderGraphBlock: typeof graphModule.renderGraphBlock === "function",
@@ -502,7 +513,7 @@ class TestGraphLayoutRuntime:
                     const startedAt = performance.now();
                     const check = () => {
                         const canvas = block ? block.querySelector(".bp_graph_canvas") : null;
-                        const svg = canvas ? canvas.querySelector("svg") : null;
+                        const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                         const state = block ? block.__bpGraphState || null : null;
                         if (
                             canvas &&
@@ -522,7 +533,7 @@ class TestGraphLayoutRuntime:
                     check();
                 });
                 const canvas = block ? block.querySelector(".bp_graph_canvas") : null;
-                const svg = canvas ? canvas.querySelector("svg") : null;
+                const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                 const state = block ? block.__bpGraphState || null : null;
                 const select = block ? block.querySelector(".bp_graph_view_select") : null;
                 const directionSelect = block ? block.querySelector(".bp_graph_direction_select") : null;
@@ -583,7 +594,7 @@ class TestGraphLayoutRuntime:
             """() => {
                 const block = document.querySelector(".bp_graph_fullwidth");
                 const canvas = document.querySelector(".bp_graph_canvas");
-                const svg = canvas ? canvas.querySelector("svg") : null;
+                const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                 const state = block ? block.__bpGraphState : null;
                 if (!block || !canvas || !svg || !state) return null;
                 const canvasRect = canvas.getBoundingClientRect();
@@ -1079,7 +1090,7 @@ class TestGraphLayoutRuntime:
                 """(expectedValue) => {
                     const select = document.querySelector(".bp_graph_view_select");
                     const canvas = document.querySelector(".bp_graph_canvas");
-                    const svg = canvas ? canvas.querySelector("svg") : null;
+                    const svg = canvas ? canvas.querySelector(":scope > svg") : null;
                     return !!select && !!svg && select.value === expectedValue;
                 }""",
                 arg=variant,
@@ -1221,21 +1232,21 @@ class TestGraphLayoutRuntime:
         wait_for_rendered_variant(page, "full")
         page.wait_for_timeout(300)
         metrics = page.evaluate(
-            """() => {
-                const svg = document.querySelector(".bp_graph_canvas svg");
-                const graph = svg.querySelector("g.graph") || svg.querySelector("g");
-                const scale = svg.getScreenCTM().a * window.d3.zoomTransform(svg).k;
+            """async () => {
+                const core = await import(new URL("-verso-data/Commands/graph-runtime-core.mjs",
+                    document.baseURI).href);
+                const svg = document.querySelector(".bp_graph_canvas > svg");
+                const scale = parseFloat(svg.getAttribute("data-bp-graph-scale"));
                 const canvas = document.querySelector(".bp_graph_canvas").getBoundingClientRect();
-                const visible = [...graph.querySelectorAll("g.node")].filter((n) => {
+                const visible = [...svg.querySelectorAll("g.node")].filter((n) => {
                     const r = n.getBoundingClientRect();
                     return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom;
                 }).length;
-                const vb = svg.viewBox.baseVal;
-                const fit = Math.min(canvas.width / vb.width, canvas.height / vb.height);
-                return { scale, fit, visible, canvasHeight: canvas.height, viewport: window.innerHeight };
+                return { scale, minimum: core.minReadableGraphScale, visible,
+                         canvasHeight: canvas.height, viewport: window.innerHeight };
             }"""
         )
-        assert metrics["scale"] >= 0.5 - 0.01, metrics
+        assert metrics["scale"] >= metrics["minimum"] - 0.001, metrics
         assert metrics["visible"] > 0, metrics
         assert metrics["canvasHeight"] >= 0.6 * metrics["viewport"] - 2, metrics
         assert_graph_has_zoom_handlers(page)

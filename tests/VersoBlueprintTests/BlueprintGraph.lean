@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import VersoBlueprintTests.BlueprintGraph.Basics
 import VersoBlueprintTests.BlueprintGraph.Groups
+import VersoBlueprintTests.BlueprintGraph.Layout
 import VersoBlueprintTests.BlueprintGraph.Legend
 import VersoBlueprintTests.BlueprintGraph.NodeStatus
 import VersoBlueprintTests.BlueprintGraph.StatusColors

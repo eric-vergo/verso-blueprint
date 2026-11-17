@@ -11,7 +11,7 @@ import VersoBlueprint.CodeSite.Main
 The API entries of sites generated from compiled-code data: source highlighted from recorded
 constant positions (`Informal.CodeSite.Highlight`), declaration cards with hovers, Markdown
 docstrings and their link targets, module docstrings, the declarations' search entries,
-neighbourhood and source links, build-time graph layout and the Comparator headline.
+neighbourhood and source links, the dependency graph drawn at build time and the Comparator headline.
 -/
 
 namespace Verso.VersoBlueprintTests.BlueprintCodeSiteApi
@@ -193,7 +193,7 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
 #guard_msgs in
 #eval withProject fun root => do
   let code ← generate (root / "code.json") root none
-    ["--output", (root / "_out").toString, "--reproducible"] (graphviz := none)
+    ["--output", (root / "_out").toString, "--reproducible"]
   let html := root / "_out" / "html-multi"
   let xref ← IO.FS.readFile (html / "xref.json")
   let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
@@ -208,41 +208,40 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
 
 /-! ## Graph layout at build time -/
 
-/-- info: (2, false) -/
-#guard_msgs in
-#eval do
-  let dot := "digraph {\n  \"a\" [id=\"bp-node-a\", label=\"a\"];\n  \"b\" [id=\"bp-node-b\"];\n}"
-  return (GraphLayout.nodeCount dot, ← GraphLayout.available "/nonexistent/dot")
-
--- A missing program gives the page's layout (an error, no layout).
-/-- info: true -/
-#guard_msgs in
-#eval do
-  return (← GraphLayout.layoutDot { program := "/nonexistent/dot" } "digraph {}") matches .error _
-
--- With Graphviz present, a laid-out source carries positions and draws as SVG.
-/-- info: true -/
-#guard_msgs in
-#eval do
-  if !(← GraphLayout.available "dot") then return true
-  let dot := "digraph {\n  \"a\" [id=\"bp-node-a\"];\n  \"b\" [id=\"bp-node-b\"];\n  \"a\" -> \"b\";\n}"
-  match ← GraphLayout.layoutDot {} dot with
-  | .ok laid =>
-    match ← GraphLayout.prerender {} laid with
-    | .ok svg => return hasSubstr laid "pos=" && svg.startsWith "<svg" && hasSubstr svg "class=\"node\""
-    | .error _ => return false
-  | .error _ => return false
-
--- A generated site with layout: one raw-text layout per view and the first view drawn.
+-- A generated site draws the graph while it is built: the first view is in the page as SVG, and
+-- every view and neighbourhood is a file in the site's data folder, named by an index; the site
+-- carries no script or library for laying out a graph.
 /-- info: true -/
 #guard_msgs in
 #eval withProject fun root => do
-  if !(← GraphLayout.available "dot") then return true
   let code ← generate (root / "code.json") root none
     ["--output", (root / "_out").toString, "--reproducible"]
-  let page ← IO.FS.readFile (root / "_out" / "html-multi" / "Dependency-Graph" / "index.html")
-  return code == 0 && hasSubstr page "class=\"bp-graph-layout\" data-variant=\"full\"" &&
-    hasSubstr page "<svg class=\"bp_graph_prerendered\" data-variant=\"full\""
+  let html := root / "_out" / "html-multi"
+  let page ← IO.FS.readFile (html / "Dependency-Graph" / "index.html")
+  let some folder := (page.splitOn "data-bp-graph-drawings=\"")[1]?.map
+      (·.takeWhile (· != '"')) | return false
+  let dir := html / "-verso-data" / folder.toString
+  let some index := (Json.parse (← IO.FS.readFile (dir / "index.json"))).toOption | return false
+  let variants := (index.getObjVal? "variants").toOption.getD Json.null
+  let some full := (variants.getObjVal? "full").toOption | return false
+  let some file := (full.getObjValAs? String "file").toOption | return false
+  let some packs := (full.getObjValAs? (Array String) "packs").toOption | return false
+  let some pack := packs[0]? | return false
+  return code == 0 &&
+    hasSubstr page "class=\"bp_graph_first_drawing\" data-variant=\"full\"" &&
+    hasSubstr page "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"bp_graph_drawing\"" &&
+    !hasSubstr page "text/vnd.graphviz" &&
+    (← (dir / s!"{file}-TB-{pack}.svg").pathExists) &&
+    (← (dir / s!"{file}-RL-{pack}.svg").pathExists) &&
+    !(← (html / "-verso-data" / "vendor").pathExists)
+
+-- The options of `vbp code-site` name no layout program.
+/-- info: true -/
+#guard_msgs in
+#eval
+  (parseOptions ["--graphviz", "dot"] {} matches .error _) &&
+  (parseOptions ["--no-graph-layout"] {} matches .error _) &&
+  !hasSubstr usage "--graphviz"
 
 /-! ## The Comparator headline -/
 

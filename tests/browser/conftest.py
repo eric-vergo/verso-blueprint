@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-from support import PACKAGE_ROOT, find_free_port, wait_for_server
+from support import PACKAGE_ROOT, find_free_port, wait_for_server, write_large_code_site
 
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
@@ -179,3 +179,60 @@ def page(browser):
     page = browser.new_page()
     yield page
     page.close()
+
+
+CODE_SITE_FIXTURE = Path(__file__).parent / "code_site_fixture"
+
+
+def vbp_executable() -> Path:
+    exe = PACKAGE_ROOT / ".lake" / "build" / "bin" / "vbp"
+    if not exe.exists():
+        subprocess.run(["lake", "build", "vbp"], cwd=PACKAGE_ROOT, check=True)
+    return exe
+
+
+def generate_code_site(data: Path, root: Path, output_dir: Path, *flags: str) -> Path:
+    """Runs `vbp code-site` and returns the site's `html-multi` folder."""
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [str(vbp_executable()), "code-site", "--data", str(data), "--root", str(root),
+         "--output", str(output_dir), "--reproducible", *flags],
+        cwd=root,
+        check=True,
+    )
+    return output_dir / "html-multi"
+
+
+@pytest.fixture(scope="session")
+def code_site_dir(tmp_path_factory) -> Path:
+    """The site of `code_site_fixture/`, four declarations in a chain."""
+    return generate_code_site(
+        CODE_SITE_FIXTURE / "code-site.json",
+        CODE_SITE_FIXTURE,
+        tmp_path_factory.mktemp("code-site-fixture") / "_out",
+    )
+
+
+@pytest.fixture(scope="session")
+def code_site_url(code_site_dir: Path):
+    with serve_site(code_site_dir) as url:
+        yield url
+
+
+@pytest.fixture(scope="session")
+def large_site_dir(tmp_path_factory) -> Path:
+    """A generated site of a graph of 384 declarations in two connected components and eight
+    groups (one per module), so it opens on the group view."""
+    root = tmp_path_factory.mktemp("large-code-site")
+    data = write_large_code_site(root)
+    return generate_code_site(
+        data, root, root / "_out", "--no-kernel-replay", "--no-comparator", "--no-stats-page"
+    )
+
+
+@pytest.fixture(scope="session")
+def large_site_url(large_site_dir: Path):
+    with serve_site(large_site_dir) as url:
+        yield url
