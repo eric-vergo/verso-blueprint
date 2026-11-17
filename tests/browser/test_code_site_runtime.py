@@ -107,6 +107,44 @@ def test_node_view_links_to_its_neighbourhood(page: Page, code_site_url: str):
     assert drawn_labels(page) == ["Demo.b", "Demo.c", "Demo.d", "a"]
 
 
+def test_node_view_stays_open_when_the_canvas_narrows(page: Page, code_site_url: str):
+    """A node view opened by a click stays open when the canvas then changes width without a
+    new drawing: on a system with classic scroll bars, a node view that makes the page taller
+    than the window brings in the page's vertical scroll bar, and the canvas loses its width.
+    The page's right padding stands in for that scroll bar here, as the browsers under test
+    hide theirs."""
+    page.set_viewport_size({"width": 1200, "height": 800})
+    page.goto(code_site_url + "/Dependency-Graph/", wait_until="domcontentloaded")
+    wait_for_interactive_graph(page)
+    page.locator('.bp_graph_canvas > svg g.node[data-bp-node-name="Demo.c"]').click()
+    page.wait_for_selector(".bp_graph_preview .bp_node_view[data-bp-node-view='Demo.c']", timeout=10000)
+    assert page.evaluate("location.hash") == "#node=Demo.c"
+    state = "document.querySelector('.bp_graph_fullwidth').__bpGraphState"
+    token = page.evaluate(f"{state}.renderToken")
+    width = page.evaluate("document.querySelector('.bp_graph_canvas').clientWidth")
+    for padding in ("17px", "0px"):
+        # the scroll bar comes, then goes; the graph acts on each resize after a pause
+        page.evaluate(f"document.documentElement.style.paddingRight = '{padding}'")
+        page.wait_for_function(f"() => {state}.renderToken > {token}", timeout=5000)
+        token = page.evaluate(f"{state}.renderToken")
+        page.wait_for_timeout(400)
+        facts = page.evaluate(
+            """() => {
+                const panel = document.querySelector(".bp_graph_preview");
+                const view = panel.querySelector(".bp_node_view[data-bp-node-view='Demo.c']");
+                return {
+                    open: !panel.hidden && !!view,
+                    hash: location.hash,
+                    width: document.querySelector(".bp_graph_canvas").clientWidth,
+                    drawings: document.querySelectorAll(".bp_graph_canvas > svg").length,
+                };
+            }"""
+        )
+        assert facts["open"] and facts["hash"] == "#node=Demo.c", (padding, facts)
+        assert facts["drawings"] == 1, (padding, facts)
+    assert abs(facts["width"] - width) <= 1, (width, facts)
+
+
 def test_chapter_entry_highlighted_source_with_hovers(page: Page, code_site_url: str):
     page.goto(code_site_url + "/Demo___A/", wait_until="load")
     assert "The first module." in page.locator("main").inner_text()

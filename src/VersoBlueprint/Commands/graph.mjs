@@ -1293,6 +1293,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
             graphState.groupHoverController.position(graphState.groupHoverAnchorNode);
           }
         };
+        graphState.repositionPanels = repositionPanels;
         lifecycleSurface.bindDismissal({
           owner: graphBlock,
           boundAttr: "data-bp-graph-panel-dismiss-bound",
@@ -1459,13 +1460,6 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         graphState.renderToken += 1;
         const renderToken = graphState.renderToken;
         syncLegend(graphBlock, activeVariant.key);
-        // A re-render keeps the URL's node view; it opens again once the graph is drawn.
-        graphState.rerendering = true;
-        if (previewController) previewController.hide();
-        graphState.rerendering = false;
-        if (groupHoverController) groupHoverController.hide();
-        layoutGraphCanvas(graphRoot, graphState, opts);
-        rememberGraphLayoutMeasurements(graphBlock, graphRoot, graphState);
         const variantRenderKey = activeVariant.key === egoVariantKey
           ? egoFragment(activeVariant.egoLabel, activeVariant.egoHops)
           : activeVariant.key;
@@ -1476,10 +1470,21 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           graphState.renderedVariantKey === variantRenderKey &&
           graphState.renderedOptionsKey === optionsKey
         ) {
-          // the same drawing in a canvas of another size
+          // The same drawing in a canvas of another size: the open panels stay open (a node
+          // view that makes the page taller can bring in a scroll bar, which narrows the canvas).
+          layoutGraphCanvas(graphRoot, graphState, opts);
+          rememberGraphLayoutMeasurements(graphBlock, graphRoot, graphState);
           graphState.panZoom.resize();
+          if (typeof graphState.repositionPanels === "function") graphState.repositionPanels();
           return;
         }
+        // A re-render keeps the URL's node view; it opens again once the graph is drawn.
+        graphState.rerendering = true;
+        if (previewController) previewController.hide();
+        graphState.rerendering = false;
+        if (groupHoverController) groupHoverController.hide();
+        layoutGraphCanvas(graphRoot, graphState, opts);
+        rememberGraphLayoutMeasurements(graphBlock, graphRoot, graphState);
         graphRoot.setAttribute("data-bp-graph-rendering", "1");
         loadDrawing(previewUtils, graphBlock, activeVariant, options).then(function (drawing) {
           if (graphState.renderToken !== renderToken) return;
