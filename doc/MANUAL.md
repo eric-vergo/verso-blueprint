@@ -1615,7 +1615,8 @@ The rendered graph page is interactive:
 - the drawing pans and zooms: the wheel zooms about the pointer, a drag pans (a
   press that moves less than a few pixels stays a click on the node under it),
   two fingers pinch, a double click zooms in, and with the drawing focused the
-  keys `+`, `-` and `0` zoom in, zoom out and fit the drawing, and the arrow
+  keys `+` and `-` zoom in and out, `0` goes back to the first view (and, pressed
+  there, shows the whole drawing), and the arrow
   keys pan; nothing is animated
 - a graph too large to fit at a readable size starts at the smallest readable
   size with its first layer in view

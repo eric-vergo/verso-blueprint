@@ -843,7 +843,7 @@ async function loadEgoDrawing(previewUtils, graphBlock, variant, options) {
       svg: null,
       note: "This neighbourhood has " + size + " nodes and is not drawn" +
         (most > 0 && size > most ? ": the site draws neighbourhoods of up to " + most + " nodes." : ": the site's neighbourhood drawings stop at a size limit.") +
-        " Try fewer hops."
+        (variant.egoHops > 1 ? " Try fewer hops." : "")
     };
   }
   const base = egoMirrorOf[direction] || direction;
@@ -1176,6 +1176,18 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       const fromLocation = egoFromLocation();
       if (fromLocation && installEgo(fromLocation.label, fromLocation.k)) {
         activeKey = egoVariantKey;
+      }
+      // A node view the URL names (`#node=<label>`) is opened in a view that has the node: the
+      // view the page starts on if it does, else the node's own group's view, else the full graph.
+      const nodeFromLocation = activeKey === egoVariantKey ? "" : nodeViewLabelFromLocation();
+      if (nodeFromLocation) {
+        const wantedId = prefixedHtmlId("bp-node", nodeFromLocation);
+        const has = function (variant) { return !!variant && variant.previewKeyByNodeId.has(wantedId); };
+        if (!has(variantsByKey.get(activeKey))) {
+          const home = variants.find(function (variant) { return variant.key.startsWith("parent:") && has(variant); }) ||
+            (has(variantsByKey.get("full")) ? variantsByKey.get("full") : null);
+          if (home) activeKey = home.key;
+        }
       }
       if (selector) selector.value = activeKey;
       let activeOptions = normalizeGraphOptions({

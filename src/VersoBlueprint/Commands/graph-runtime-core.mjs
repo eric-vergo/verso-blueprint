@@ -389,8 +389,9 @@
   // Pan and zoom of a drawing in its canvas. The drawing's `g.graph` gets a
   // transform; the `svg` element takes the size of the canvas. The wheel zooms about
   // the pointer, a drag pans (a press that moves less than a few pixels stays a
-  // click), two fingers pinch, and the keys `+`, `-`, `0` and the arrows do the same
-  // from the keyboard. Nothing is animated. Returns the controller:
+  // click), two fingers pinch, and the keys `+`, `-` and the arrows do the same from
+  // the keyboard; `0` goes back to the first view and, pressed there, shows the whole
+  // drawing. Nothing is animated. Returns the controller:
   // `fit()`, `resize()`, `transform()`, `setTransform({k, x, y})`, `destroy()`.
   export function createPanZoom(graphRoot, svg, options) {
     const opts = options && typeof options === "object" ? options : {};
@@ -434,6 +435,15 @@
       apply();
       svg.setAttribute("data-bp-graph-readable", first.readable ? "1" : "0");
       return first;
+    };
+    // the whole drawing in the canvas, however small that makes it
+    const whole = function () {
+      const canvas = sizeSvg();
+      const k = Math.min(canvas.width / size.width, canvas.height / size.height, maxFittedGraphScale);
+      state.k = k;
+      state.x = (canvas.width - k * size.width) / 2;
+      state.y = (canvas.height - k * size.height) / 2;
+      apply();
     };
     const zoomAbout = function (px, py, factor) {
       const k = Math.max(minK, Math.min(maxK, state.k * factor));
@@ -519,7 +529,13 @@
       switch (ev.key) {
         case "+": case "=": zoomAbout(canvas.width / 2, canvas.height / 2, 1.25); break;
         case "-": case "_": zoomAbout(canvas.width / 2, canvas.height / 2, 0.8); break;
-        case "0": fit(); break;
+        case "0": {
+          // back to the first view; from the first view, the whole drawing
+          const before = state.k + "," + state.x + "," + state.y;
+          fit();
+          if (before === state.k + "," + state.x + "," + state.y) whole();
+          break;
+        }
         case "ArrowLeft": state.x += step; apply(); break;
         case "ArrowRight": state.x -= step; apply(); break;
         case "ArrowUp": state.y += step; apply(); break;
@@ -539,6 +555,7 @@
     if (!svg.hasAttribute("tabindex")) svg.setAttribute("tabindex", "0");
     const controller = {
       fit: fit,
+      whole: whole,
       // the canvas changed size: the point at its centre stays at its centre
       resize: function () {
         const before = { width: parseFloat(svg.getAttribute("width")) || 0, height: parseFloat(svg.getAttribute("height")) || 0 };
