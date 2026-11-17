@@ -971,7 +971,11 @@ def checkExport (config : ReplayConfig) (checker : FilePath) (version : Option S
       writeRecord config.record? ((recorded.filter (· != recordKey)).push recordKey)
       finish { base with outcome := .accepted }
     | .rejected message => finish { base with outcome := .rejected, message := some message }
-    | .none message => finish { base with message := some s!"the checker said: {message}" }
+    | .none message =>
+      let said := if message.trimAscii.isEmpty then
+          s!"the checker ended with status {code} and wrote nothing"
+        else s!"the checker said: {message}"
+      finish { base with message := some said }
 
 /-- How a worker process ended (`runWorker`). -/
 inductive WorkerEnd where
