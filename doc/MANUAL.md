@@ -1460,12 +1460,18 @@ layout on:
   them together with every constant they depend on (the tooltip says "Lean
   proof complete" for a theorem and "Lean definition complete" for a
   definition, and names the checker); ◇ no `sorry` as the compiled files
-  report, with no accepted replay behind it (the tooltip says why: no replay
-  was run, no checker was found, it did not finish, or the node is not part of
-  the replay); ⊘ the kernel checker rejected the build; ◐ a
+  report, with no verdict of a replay behind it (the tooltip says "not
+  replayed by a kernel" when nothing was replayed for the node, with the
+  reason: no replay was run, no checker was found, the export went over its
+  limit, or the node is not part of the replay; and "no verdict of a kernel
+  replay" when a replay was started and stopped without one); ⊘ the kernel
+  checker rejected the build; ◐ a
   `sorry` in the proof or in what it uses; ⚠ a `sorry` in the statement, an axiom beyond Lean's standard three
   (also when there is no `sorry`: the tooltip names the axiom, or the compiled
-  code the proof rests on), or code that could not be inspected; ✗ a
+  code the proof rests on, and says what the replay did, for example
+  "replayed and accepted by leanchecker …; it rests on an axiom outside
+  Lean's standard three (Demo.ax), which a kernel accepts without a proof, so
+  it is not shown as proved"), or code that could not be inspected; ✗ a
   declaration is missing; ○ no Lean declaration is attached. The glyph's
   tooltip gives its meaning and the details. A folded "Status legend" lists
   the glyphs and ends with what no mark is about: "No tool checks that an
@@ -1556,7 +1562,10 @@ The site title and the search box sit at the top of the sidebar instead of in a
 full-width header, so pages start at the top of the window. Page controls that
 would otherwise float over the content move into the sidebar foot: the
 Blueprint style switcher, and the status-glyph legend of the side-by-side
-layout. On narrow screens (700 pixels and less) the sidebar collapses behind
+layout. A site without the sidebar keeps the style switcher in the foot of
+Verso's table of contents, in the page's layout, so it never covers text; it
+floats in the window's corner only on a page that has no table of contents.
+On narrow screens (700 pixels and less) the sidebar collapses behind
 Verso's menu button and the title and search stay in Verso's slim header bar.
 When printing, the sidebar, header and page navigation are left out.
 
@@ -1618,9 +1627,10 @@ The rendered graph page is interactive:
   keys `+` and `-` zoom in and out, `0` goes back to the first view (and, pressed
   there, shows the whole drawing), and the arrow
   keys pan; nothing is animated
-- the first view shows the whole drawing; a graph too large to fit at a
-  readable size starts at the smallest readable size (labels of about six
-  pixels) with its first layer in view
+- the first view shows the whole drawing whenever it fits at a scale of at
+  least 0.36 (labels of about four pixels, legible at a glance); a graph too
+  large for that starts at the smallest readable size (scale 0.5, labels of
+  about six pixels) with its first layer in view
 - when grouped metadata produces multiple children for the same parent, the
   selector includes a synthetic group overview plus one subgraph view per group
 
@@ -1976,6 +1986,13 @@ Some summary sections use deliberately practical project-management terms:
   rollups still include actionable leaf entries with no dependents.
 - **Quick wins** are actionable entries marked with high priority and small
   effort metadata.
+- **Missing informal statement or proof** counts the nodes with Lean code that
+  lack an informal statement or, for a theorem-like node, an informal proof,
+  and its description gives the two parts ("Nodes with Lean code: 4 nodes
+  without an informal statement, 5 nodes of the theorem-like ones without an
+  informal proof; a node without either is counted once."). The Project Stats
+  page counts informal statements over every node ("Informal statements: 1 of
+  5 nodes has one."), so the two agree in the same terms.
 - **Direct uses** count immediate statement or proof dependency edges into an
   entry. **Downstream unlocks** count entries that depend on it transitively,
   with cycles ignored.
@@ -2199,11 +2216,18 @@ graph. It shows the project statistics on one page, in this order:
    A project without a challenge gets one line saying that a challenge would
    add a headline. "Lean statement proved" is said only when the kernel replay
    accepted the solution's theorem with every constant it depends on; when the replay
-   rejected the build the verdict is "Proof rejected by the kernel checker",
-   and without a verdict of a replay it is what the compiled files report:
-   "Same Lean statement as the challenge; no sorry; permitted axioms: as the
-   compiled files report, not replayed by a kernel". A line under the verdict
-   names the checker and, for a rejection, gives its message.
+   rejected the build the verdict is "Not accepted: the kernel checker
+   rejected this build" (the checker stops at its first problem, which need
+   not be in this theorem's proof); when the replay accepted the theorem and
+   found under it an axiom the verdict does not allow, the verdict says so
+   ("…; replayed and accepted by a kernel; it rests on an axiom …, so it is
+   not shown as proved"); and without a verdict of a replay it is what the
+   compiled files report: "Same Lean statement as the challenge; no sorry;
+   permitted axioms: as the compiled files report, not replayed by a kernel"
+   (or "…, with no verdict of a kernel replay" when a replay stopped without
+   one). A line under the verdict names the checker and, for a rejection,
+   gives its message. The table under "Kernel replay" below gives every
+   state's words.
 3. **Kernel replay**: what the replay of this build established (see "Kernel
    replay" below): accepted, rejected with the checker's message, or not
    replayed with the reason; the checker and its Lean version; how many
@@ -2365,10 +2389,12 @@ replay accepted the Lean code concerned. The rule is the check mark's:
   dependency graph) are about every node at once. They are green only when the
   replay accepted the build, leaves no node with Lean code uncovered, and
   found no node without `sorry` resting on an axiom outside Lean's standard
-  three. Otherwise they are grey, and each says what it rests on: "as the
-  compiled files report, not replayed by a kernel", with the reason once per
-  page. The Project Stats page lists the nodes a replay did not cover and the
-  nodes that rest on such an axiom.
+  three. Otherwise they are grey, and each says what it rests on, in words
+  that are true of the site in its state (the table below): nothing
+  replayed, no verdict, a rejection, or an accepted replay with the nodes it
+  does not cover and the nodes that rest on such an axiom, with the reason
+  once per page. The Project Stats page lists the nodes a replay did not
+  cover and the nodes that rest on such an axiom.
 - **After a rejected replay** nothing on the site is green: the headline and
   the sentence beside the counts are in the error colour, and fills, bars and
   cards are grey. This holds for every node, also those the checker did not
@@ -2385,6 +2411,88 @@ inside it the properties take their green values; `bp_replay_none` and
 carries none of these classes shows no green. In the graph data a node's
 field `replay` (`none`, `accepted`, `acceptedWithDependencies`) says the same,
 and its `visual` colours follow it.
+
+##### What each state says
+
+Every sentence a site prints about the replay is true of the state it is
+printed in; `tests/VersoBlueprintTests/BlueprintReplayWording.lean` renders
+each combination and pins its words. The replay ends in one of four kinds of
+state: **accepted**; **rejected**; **no verdict**, when a replay was started
+and stopped (at its time or memory limit, or on an error); and **nothing
+replayed**, when no replay was run, it was switched off, no checker was
+found, or the export went over its limit before the checker ran. A replay
+that accepted the build covers a node when it checked every Lean declaration
+of the node; it does not when a declaration was not among those it checked
+or its module is not known. In the sentences below, `C` is the checker with
+its version (`leanchecker (Lean 4.35.0)`), `WHY` the reason the replay gives,
+`X` the axioms by name, and "Lean proof" reads "Lean definition" for a
+definition.
+
+A node's mark and its tooltip:
+
+| Replay | The node's Lean code | Mark | Tooltip |
+|---|---|---|---|
+| accepted, covers it | no `sorry`, no axiom or Lean's standard three only | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by C, with everything it depends on |
+| accepted, covers it | no `sorry`, an axiom outside the standard three | ⚠ | Lean proof without sorry, as the compiled files report; replayed and accepted by C, with everything it depends on; it rests on an axiom outside Lean's standard three (X), which a kernel accepts without a proof, so it is not shown as proved |
+| accepted, covers it | no `sorry` as the compiled files report, an axiom only the replay found in the terms | ⚠ | the same, ending "(the replay found it in the terms; the compiled files report none)" |
+| accepted, covers it | `native_decide` | ⚠ | the same, with "it rests on the result of compiled code (X)" |
+| accepted, does not cover it | no `sorry` | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: WHY) |
+| rejected | no `sorry`, no axiom outside the standard three | ⊘ | Lean proof not accepted: C rejected this build |
+| rejected | no `sorry`, an axiom the compiled files report, or `native_decide` | ⚠ | Lean proof without sorry, as the compiled files report, resting on X; not accepted: C rejected this build |
+| no verdict | no `sorry` | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (WHY) |
+| no verdict | no `sorry`, an axiom the compiled files report, or `native_decide` | ⚠ | Lean proof without sorry, as the compiled files report, resting on X; no verdict of a kernel replay (WHY) |
+| nothing replayed | no `sorry` | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (WHY) |
+| nothing replayed | no `sorry`, an axiom the compiled files report, or `native_decide` | ⚠ | Lean proof without sorry, as the compiled files report, resting on X; not replayed by a kernel (WHY) |
+| any | a `sorry` in the proof or in what it uses | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (the status) |
+
+The headline, for a theorem of the Comparator challenge that meets the
+comparison's conditions (the same Lean statement, no `sorry`, no axiom the
+verdict does not allow as the compiled files report). A theorem that does not
+meet them keeps its verdict ("…; the proof uses sorry", "…; the proof rests on
+an axiom …", "Lean statement differs …") in every state, without a line under
+it. A site without a challenge shows the one line that a challenge would add a
+headline.
+
+| Replay | Verdict | Line under it |
+|---|---|---|
+| accepted, no axiom under the theorem beyond those allowed | Lean statement proved | Kernel replay: C accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment. |
+| accepted, an axiom found under it that the verdict does not allow | Same Lean statement as the challenge; replayed and accepted by a kernel; it rests on an axiom outside Lean's standard three (X) (or: the challenge does not permit), which a kernel accepts without a proof, so it is not shown as proved | Kernel replay: C accepted this theorem and every constant it depends on, …; the replay found under it an axiom the verdict does not allow (X), which a kernel accepts without a proof. |
+| accepted, does not cover it | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: not part of the replay: WHY. |
+| rejected | Not accepted: the kernel checker rejected this build | Kernel replay: C rejected this build: the checker's message |
+| no verdict | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: WHY. |
+| nothing replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: WHY. |
+
+The site as a whole: the words after a legend entry or a bucket of
+`sorry`-free code (graph legend, Project Stats bar and legend), the sentence
+after a summary card's description, and the sentence above the counts
+(Project Stats, Blueprint Summary). Under an accepted replay of every node
+there are none, and the counts are green. `U` is the number of nodes with Lean
+code the replay does not cover, `R` the number of nodes without `sorry` that
+rest on an axiom outside the standard three, and `E` the clauses about them:
+"U nodes with Lean code are not part of the replay" and "R nodes without sorry
+rest on the axiom X" (in the singular for one node).
+
+| Site | Beside an entry | After a card | Above the counts |
+|---|---|---|---|
+| accepted, every node covered, none resting | (none) | (none) | (none) |
+| accepted, U or R positive | (the kernel replay accepted the build; on this site E) | Counted as the compiled files report: the kernel replay accepted the build, and on this site E, which a kernel accepts without a proof, so it is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: E, which a kernel accepts without a proof, so it is not shown as proved. |
+| rejected | (this build was rejected by the kernel checker) | The kernel checker rejected this build. | This build was rejected by the kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel. |
+| no verdict | (as the compiled files report, with no verdict of a kernel replay) | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: WHY. |
+| nothing replayed | (as the compiled files report, not replayed by a kernel) | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: WHY. |
+
+(The clause "which a kernel accepts without a proof, so it is not shown as
+proved" follows the clause about resting nodes only; a site whose replay
+leaves only uncovered nodes ends the sentence after E.)
+
+The replay band on the Project Stats page starts with "Accepted: C checked …"
+or "Accepted: C accepted an export identical to this build's in an earlier
+run: …" after an acceptance (also when it does not cover every node: the band
+then lists those nodes, and the nodes that rest on an axiom), "Rejected: C
+found a problem in what this site's declarations depend on. Nothing on this
+site counts as checked by a kernel." after a rejection, "No verdict of a kernel
+replay: WHY. The marks on this site say what the compiled files report." and
+"Not replayed by a kernel: WHY. The marks on this site say what the compiled
+files report." otherwise.
 
 To leave the page out, pass `(statsPage := false)` to `blueprintMain` or
 `blueprintMainWithPreviewData`, or run the generator with the flag
