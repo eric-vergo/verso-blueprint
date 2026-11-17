@@ -31,6 +31,18 @@ open Verso.Multi (AllRemotes)
 private def actionableEntryDescription : String :=
   "Entries with an actionable next formalization step."
 
+/-- The title of the card that counts nodes with Lean code missing informal text. -/
+def missingInformalTitle : String := "Missing informal statement or proof"
+
+/-- What that card counts, with its two parts, in the terms the Project Stats page counts
+informal statements in: nodes with Lean code without an informal statement, and theorem-like
+nodes with Lean code without an informal proof. -/
+def missingInformalText (data : Summary) : String :=
+  let nodes (n : Nat) : String := if n == 1 then "1 node" else s!"{n} nodes"
+  s!"Nodes with Lean code: {nodes data.leanOnlyEntries} without an informal statement, \
+    {nodes data.missingInformalProofs} of the theorem-like ones without an informal proof; a \
+    node without either is counted once."
+
 /-- A card's description with what its count rests on, when no accepted kernel replay of every
 node stands behind it. -/
 private def withReplayNote (site : Replay.SiteState) (text : String) : String :=
@@ -79,9 +91,9 @@ private def summaryOverviewSection (data : Summary) (rows : SummaryRows)
             (Option.some "Missing external or incomplete Lean declarations.")}}
         {{summaryOptionalCard
             showPendingInformal
-            "Missing informal coverage"
+            missingInformalTitle
             (toString data.pendingInformalEntries.length)
-            (Option.some "Entries with Lean code but missing an informal statement or proof block.")}}
+            (Option.some (missingInformalText data))}}
         {{summaryOptionalCard
             showQuickWins
             "Quick wins"
@@ -106,7 +118,7 @@ private def summaryOverviewSection (data : Summary) (rows : SummaryRows)
           true}}
       {{summaryOptionalDetailsList
           showPendingInformal
-          s!"Missing informal coverage ({data.pendingInformalEntries.length})"
+          s!"{missingInformalTitle} ({data.pendingInformalEntries.length})"
           rows.pendingInformalRows}}
     }} true
 

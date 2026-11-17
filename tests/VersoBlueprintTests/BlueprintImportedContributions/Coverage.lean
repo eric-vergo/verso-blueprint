@@ -28,7 +28,7 @@ theorem dependencyOnly : True := trivial
 
 #eval show IO Unit from do
   let html ← renderManualDocHtmlString extension_impls% coverageDoc
-  unless hasSubstr html "Missing informal coverage (3)" &&
+  unless hasSubstr html "Missing informal statement or proof (3)" &&
       hasSubstr html "dependencyOnly" do
     throw <| IO.userError "Rendered summary omitted missing informal coverage"
 
