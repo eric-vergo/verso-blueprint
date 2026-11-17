@@ -7,7 +7,10 @@ with its solution, no dependencies), built here with the toolchain's own `lake`:
 * `accepted`: the honest solution, replayed and accepted;
 * `rejected`: the forged solution of `replay_site_fixture/forged/` (no `sorry`, no axiom, and a
   constant no kernel saw), which the replay rejects;
-* `none`: the honest solution, generated without a replay.
+* `none`: the honest solution, generated without a replay;
+* `axiom`: the honest solution and a theorem that rests on an axiom of the project, replayed and
+  accepted: the counts are grey, and their words say that the replay accepted the build and name
+  the axiom, never that nothing was replayed.
 
 Each site is read in the light and in the dark theme. On the accepted site the headline's
 verdict, the progress bar, the summary's cards, the graph's nodes and legend and the node view's
@@ -16,6 +19,7 @@ computed colour (highlighted Lean code aside), the bars, cards and fills are the
 the words beside the counts and legend entries say what they rest on.
 """
 
+import json
 import shutil
 import subprocess
 import sys
@@ -76,14 +80,49 @@ def vbp_executable() -> Path:
     return exe
 
 
-def build_project(root: Path, forged: bool) -> None:
-    """A copy of the fixture project at `root`, compiled; `forged` puts the forged solution in."""
+# A theorem of `Demo.Basic` that rests on an axiom of the project, after the module's own text.
+AXIOM_SOURCE = """
+axiom Demo.assumed (n : Nat) : Demo.double n = n + n
+
+theorem Demo.double_eq' (n : Nat) : Demo.double n = n + n := Demo.assumed n
+"""
+
+
+def add_axiom(root: Path) -> None:
+    """Adds `AXIOM_SOURCE` to the copy at `root`, with its two declarations in the site's data."""
+    basic = root / "Demo" / "Basic.lean"
+    first = len(basic.read_text(encoding="utf-8").splitlines()) + 1
+    basic.write_text(basic.read_text(encoding="utf-8") + AXIOM_SOURCE, encoding="utf-8")
+
+    def declaration(name: str, kind: str, line: int, signature: str, status: str,
+                    axioms: list[str]) -> dict:
+        span = {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 10}}
+        return {"attrs": [], "axioms": axioms, "display": name, "doc": None, "isPrivate": False,
+                "kind": kind, "name": name, "range": span, "selection": span,
+                "signature": signature, "status": status,
+                "uses": [{"kind": "statement", "name": "Demo.double"}]}
+
+    data = json.loads((root / "code-site.json").read_text(encoding="utf-8"))
+    module = next(m for m in data["modules"] if m["module"] == "Demo.Basic")
+    module["declarations"] += [
+        declaration("Demo.assumed", "axiom", first, "Demo.assumed (n : Nat) : Demo.double n = n + n",
+                    "axiom", ["Demo.assumed"]),
+        declaration("Demo.double_eq'", "theorem", first + 2,
+                    "Demo.double_eq' (n : Nat) : Demo.double n = n + n", "proved", ["Demo.assumed"])]
+    (root / "code-site.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def build_project(root: Path, forged: bool, axiom: bool = False) -> None:
+    """A copy of the fixture project at `root`, compiled; `forged` puts the forged solution in,
+    `axiom` a theorem that rests on an axiom of the project."""
     if root.exists():
         shutil.rmtree(root)
     shutil.copytree(FIXTURE, root)
     if forged:
         shutil.copy(FIXTURE / "forged" / "Solution.lean", root / "Comparator" / "Solution.lean")
         shutil.copy(FIXTURE / "forged" / "code-site.json", root / "code-site.json")
+    if axiom:
+        add_axiom(root)
     shutil.rmtree(root / "forged")
     shutil.copy(PACKAGE_ROOT / "lean-toolchain", root / "lean-toolchain")
     subprocess.run(["lake", "build"], cwd=root, check=True)
@@ -95,12 +134,13 @@ def replay_sites() -> dict[str, Path]:
         pytest.skip("no `lake` to compile the fixture project")
     base = canonical_test_blueprint_output_dir("replay_site_fixture", Path(__file__))
     base.parent.mkdir(parents=True, exist_ok=True)
-    honest, forged = base / "honest", base / "forged"
+    honest, forged, assumed = base / "honest", base / "forged", base / "axiom"
     build_project(honest, forged=False)
     build_project(forged, forged=True)
+    build_project(assumed, forged=False, axiom=True)
     sites = {}
     for state, root, flags in (("accepted", honest, []), ("rejected", forged, []),
-                               ("none", honest, ["--no-kernel-replay"])):
+                               ("none", honest, ["--no-kernel-replay"]), ("axiom", assumed, [])):
         out = base / f"site-{state}"
         if out.exists():
             shutil.rmtree(out)
@@ -256,3 +296,40 @@ def test_without_an_accepted_replay_nothing_is_green(
     assert page.evaluate(GREEN_SCAN) == []
     glyph = page.locator(".bp_graph_preview .bp_node_view .bp_status_glyph")
     assert glyph.inner_text() == ("⊘" if state == "rejected" else "◇")
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+def test_accepted_replay_with_an_axiom_says_so(page: Page, replay_urls: dict[str, str], scheme: str):
+    base = replay_urls["axiom"]
+    i = SCHEMES.index(scheme)
+    open_page(page, base + "/Project-Stats/", scheme)
+    assert page.locator(".bp_project_stats").get_attribute("data-bp-replay-state") == "none"
+    # the replay band and the headline it covers stay positive
+    assert page.locator(".bp_stats_replay_summary").inner_text().strip().startswith("Accepted: ")
+    assert page.locator(".bp_stats_verdict").inner_text() == "Lean statement proved"
+    # the counts are grey, and their words are true of this state
+    assert computed(page, ".bp_stats_bar .bp_stats_status_fully-proved", "backgroundColor") == REPORTED_FILL[i]
+    counts = page.locator(".bp_stats_replay_counts").inner_text()
+    assert counts.startswith("The kernel replay accepted the build, and the counts are as the "
+                             "compiled files report: "), counts
+    assert "rest on the axiom Demo.assumed, which a kernel accepts without a proof" in counts, counts
+    legend = page.locator(".bp_stats_legend").inner_text()
+    assert "(the kernel replay accepted the build; on this site " in legend, legend
+    for text in (counts, legend):
+        assert "not replayed" not in text and "no verdict" not in text, text
+
+    open_page(page, base + "/Blueprint-Summary/", scheme)
+    closed = page.locator(".bp_summary_card_status", has_text="Fully closed").first
+    assert "Counted as the compiled files report: the kernel replay accepted the build" in closed.inner_text()
+    assert "not replayed" not in page.locator(".bp_summary").inner_text()
+
+    open_page(page, base + "/Dependency-Graph/#node=Demo.double_eq'", scheme)
+    wait_for_graph(page)
+    labels = page.locator(".bp_graph_legend[data-bp-legend-kind='full']").inner_text()
+    assert "the kernel replay accepted the build" in labels and "not replayed" not in labels
+    page.wait_for_selector(".bp_graph_preview .bp_node_view .bp_status_glyph", timeout=60000)
+    glyph = page.locator(".bp_graph_preview .bp_node_view .bp_status_glyph")
+    assert glyph.inner_text() == "⚠"
+    title = glyph.get_attribute("title")
+    assert "replayed and accepted by leanchecker" in title and "Demo.assumed" in title, title
+    assert "not shown as proved" in title, title
