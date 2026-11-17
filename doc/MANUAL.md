@@ -1618,8 +1618,9 @@ The rendered graph page is interactive:
   keys `+` and `-` zoom in and out, `0` goes back to the first view (and, pressed
   there, shows the whole drawing), and the arrow
   keys pan; nothing is animated
-- a graph too large to fit at a readable size starts at the smallest readable
-  size with its first layer in view
+- the first view shows the whole drawing; a graph too large to fit at a
+  readable size starts at the smallest readable size (labels of about six
+  pixels) with its first layer in view
 - when grouped metadata produces multiple children for the same parent, the
   selector includes a synthetic group overview plus one subgraph view per group
 
@@ -1693,41 +1694,67 @@ controls and, where the other axis was drawn, shows that drawing instead.
 The layout is a layered drawing in the tradition of Sugiyama, Tagawa and Toda.
 Cycles are removed by reversing a small set of edges (Eades, Lin and Smyth).
 Nodes are assigned to layers by network simplex (Gansner, Koutsofios, North and
-Vo, 1993). Crossings are reduced by weighted-median sweeps with transposition
-and sifting (Matuszewski, Schönfeld and Molitor, 1999), run from several
-deterministic starts. Coordinates within layers follow Brandes and Köpf (2001),
-improved by network simplex. Groups are drawn as boxes around their members and
-may be nested, after Sander's layout of compound graphs (1996). With packing on,
-each connected component is laid out alone and the drawings are placed on
-shelves, tallest first, each filling a row before the next begins (next-fit
-decreasing height; Coffman, Garey, Johnson and Tarjan, 1980). An edge is drawn
-as a cubic curve through the layers, and a long sideways step of an edge runs on
-a track of its own.
+Vo, 1993). A graph whose groups are drawn as boxes is layered from the inside
+out: every group has a block of layers of its own, two groups that an edge joins
+lie one above the other, and the edge leaves the upper group through its lower
+side and enters the lower one through its upper side (Gansner et al. rank
+clusters recursively; Sander's layout of compound graphs, 1996). A layer much
+wider than the others is split into rows. Crossings are reduced by
+weighted-median sweeps with transposition and sifting (Matuszewski, Schönfeld
+and Molitor, 1999), run from several deterministic starts. Coordinates within
+layers follow Brandes and Köpf (2001), improved by network simplex with the
+width of every layer counted, so that the drawing of a written blueprint fits a
+page with its labels readable. With packing on, each connected component is laid
+out alone and the drawings are placed on shelves, tallest first, each filling a
+row before the next begins (next-fit decreasing height; Coffman, Garey, Johnson
+and Tarjan, 1980).
+
+An edge is routed as in section 5 of Gansner et al.: its room is the free space
+beside the nodes of every layer it passes, the route is the shortest polyline
+through that room (an edge with nothing in its way is a straight line), and the
+edge is drawn as one smooth curve that rounds the bends of that route and stays
+clear of every node and group it does not end in. An edge never turns back
+across the layers, so none runs round the outside of the drawing. The ends of the
+edges are spread along a node's side in the order of their other ends, and an
+arrowhead lies along the end of its curve. The line styles keep their meaning:
+an edge from a definition is dashed, an edge that only a proof uses is dotted,
+and an edge that both the statement and the proof use is thicker.
+
+Labels are drawn at 12 pixels. A label that is a long dotted name (a module, a
+declaration in its namespaces) is broken after dots into lines of at most 28
+characters, so that a node is not much wider than the others; the node's name
+and its tooltip keep the whole name.
 
 Measured against Graphviz `dot` (16.1.0) on dependency graphs of real projects, both given
-the same node sizes and gaps. The numbers are this layout's value over `dot`'s (below 1 is
-better): pairs of edges that cross, total and longest edge length, the area of the drawing; then
-each drawing's width over its height.
+the same node sizes and gaps, with the layout's own default options. The first numbers are this
+layout's value over `dot`'s (below 1 is better): pairs of edges that cross, total edge length,
+the area of the drawing. Then, for this layout and for `dot`: by how many degrees an edge turns
+on average, how often it changes the side it bends to, and how near an edge comes to a node it
+does not end at, in pixels.
 
-| Graph | Nodes, edges | Crossings | Edge length | Longest edge | Area | Width : height (this, `dot`) |
-|---|---|---|---|---|---|---|
-| a blueprint of 58 nodes | 58, 146 | 1.01 | 0.85 | 0.84 | 0.61 | 2.9, 4.1 |
-| a blueprint of 69 nodes | 69, 111 | 1.07 | 1.16 | 0.74 | 0.72 | 3.3, 4.1 |
-| a code site's group view | 85, 159 | 1.13 | 1.02 | 1.17 | 0.72 | 4.3, 5.7 |
-| a neighbourhood of 34 nodes | 34, 93 | 0.92 | 0.96 | 0.83 | 0.89 | 2.1, 3.1 |
-| a neighbourhood of 46 nodes | 46, 119 | 1.09 | 0.88 | 0.74 | 0.85 | 2.6, 3.4 |
-| another of 46 nodes | 46, 72 | 0.95 | 1.19 | 1.32 | 1.18 | 3.3, 3.5 |
-| a neighbourhood of 50 nodes | 50, 152 | 0.96 | 0.89 | 0.85 | 0.79 | 1.5, 2.1 |
-| a neighbourhood of 150 nodes | 150, 468 | 0.77 | 0.69 | 0.69 | 0.70 | 3.3, 7.4 |
-| a neighbourhood of 290 nodes | 290, 793 | 0.86 | 0.82 | 0.61 | 1.19 | 10.2, 26.2 |
-| a code site's full view, 85 groups | 2866, 5516 | 1.26 | 3.35 | 8.01 | 1.64 | 50, 82 |
+| Graph | Nodes, edges | Crossings | Edge length | Area | Turning of an edge (degrees) | Changes of bend per edge | Nearest node to an edge (px) |
+|---|---|---|---|---|---|---|---|
+| a blueprint of 58 nodes | 58, 146 | 1.01 | 0.83 | 0.89 | 48.4, 43.6 | 0.25, 0.29 | 4.9, 0.3 |
+| a blueprint of 69 nodes | 69, 111 | 1.06 | 1.14 | 1.05 | 15, 18 | 0.07, 0.03 | 5.7, 1.2 |
+| a code site's group view | 85, 159 | 1.13 | 1.01 | 0.97 | 44.8, 40.1 | 0.36, 0.31 | 5.7, 0.9 |
+| a neighbourhood of 34 nodes | 34, 93 | 0.92 | 0.93 | 0.79 | 52.5, 43.4 | 0.29, 0.26 | 4.6, 1.3 |
+| a neighbourhood of 46 nodes | 46, 119 | 1.09 | 0.88 | 1.02 | 50.1, 49.7 | 0.26, 0.42 | 5.3, 0.8 |
+| another of 46 nodes | 46, 72 | 0.95 | 1.10 | 1.03 | 14.6, 14 | 0.08, 0.1 | 6, 1.8 |
+| a neighbourhood of 50 nodes | 50, 152 | 0.95 | 0.85 | 0.88 | 61.7, 57 | 0.36, 0.49 | 5.4, 1.1 |
+| a neighbourhood of 150 nodes | 150, 468 | 0.77 | 0.70 | 0.99 | 87.4, 83.5 | 0.75, 0.98 | 4.5, 0 |
+| a neighbourhood of 290 nodes | 290, 793 | 0.86 | 0.78 | 1.22 | 69, 61.7 | 0.63, 0.66 | 4.6, 0 |
+| a code site's full view, 85 groups | 2866, 5516 | 0.48 | 1.04 | 5.53 | 111.5, 108.7 | 1.06, 1.37 | 3.5, 0 |
 
 On graphs of up to a few hundred nodes the drawings have about as many crossings as `dot`'s
-(0.77 to 1.13 times) and are more compact. The full view of a large project with its groups as
-boxes is where this layout is clearly behind: its edges are more than three times as long in
-all, because an edge between two groups runs around the boxes of the groups between them. A
-layout takes longer than `dot`'s: about 0.05 to 0.3 s for a graph of 50 to 100 nodes and about
-1 s for the 2,866-node view, against 0.02 to 0.06 s and 1.7 s.
+(0.77 to 1.13 times), shorter edges on most, and edges that turn about as much and keep clear of
+the nodes they pass, where `dot`'s touch or cross such nodes. With the groups as boxes the full
+view of a large project has half of `dot`'s crossings and edges about as long (1.04 times); a
+handful of its edges still pass through a group they do not end in (in `dot`'s drawing a sixth
+of the edges do), and its drawing is taller than `dot`'s wide strip, five times its area. A
+layout takes one to four times as long as `dot`'s on a graph of 50 to 100 nodes (0.02 to 0.1 s
+against 0.02 to 0.03 s) and up to seven times as long on a dense neighbourhood of a few hundred
+nodes; the full view with 85 group boxes takes about 25 s where `dot` takes 2 s, because the
+layers are found again, up to twelve times, while an edge would pass through a group.
 
 #### Node views
 
