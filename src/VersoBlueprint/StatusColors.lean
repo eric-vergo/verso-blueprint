@@ -9,7 +9,7 @@ The colours of the Blueprint status vocabulary, as theme tokens.
 
 Each status colour is one CSS custom property with a light and a dark value. The page token
 stylesheet declares them next to the other `--bp-color-*` tokens, the dependency graph's CSS
-paints nodes with them, and the graph's DOT source carries the light values (Graphviz needs
+paints nodes with them, and the graph's drawings carry the light values (a drawing needs
 concrete colours; the stylesheet then repaints the nodes in the active theme). Pages that show
 statuses (the summary, progress bars) use the same properties, so a status reads the same
 colour everywhere.
@@ -32,7 +32,7 @@ namespace Informal.StatusColors
 structure ColorToken where
   /-- The custom property, including the leading `--`. -/
   name : String
-  /-- Value in the light theme (also the value written into Graphviz DOT). -/
+  /-- Value in the light theme (also the value written into the graph's drawings). -/
   light : String
   /-- Value in the dark theme. -/
   dark : String

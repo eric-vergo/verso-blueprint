@@ -210,7 +210,6 @@ function isGraphVariant(value) {
   const variant = /** @type {Record<string, unknown>} */ (value);
   return isTrimmedNonemptyString(variant.key) &&
     isTrimmedNonemptyString(variant.label) &&
-    isNonemptyString(variant.dot) &&
     isGraphLayoutOptions(variant.options) &&
     areGraphNodeIdPairsValid(variant.selectOnNodeId) &&
     areGraphNodeIdPairsValid(variant.hoverOnNodeId) &&

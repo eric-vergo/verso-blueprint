@@ -15,6 +15,9 @@ require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae
 -- Typesets blueprint math when the site is built (`VersoBlueprint.StaticMath`).
 require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"9badbe4cac48c2061f738e114dc6cb0b66c316be"
 
+-- Lays out and draws the dependency graph when the site is built (`VersoBlueprint.GraphLayout`).
+require pilean from git "https://github.com/eric-vergo/PILean"@"c7cf9ca5166ab891238fc255f61291daf8c6fc02"
+
 package VersoBlueprint where
   leanOptions := #[⟨`experimental.module, true⟩]
 
@@ -30,13 +33,6 @@ input_file blueprintMathJs where
 input_file mathLintWorkerJs where
   path := "static-web/katex-lint.mjs"
   text := true
-
--- The graph's browser libraries and their licences, shipped with every site
--- (static-web/vendor/README.md).
-input_dir vendoredWebAssets where
-  path := "static-web/vendor"
-  text := true
-  filter := .any #[PathPat.extension (.mem #["js"]), PathPat.fileName (.startsWith "LICENSE")]
 
 -- Optional VIR resource API; neither the core library nor generator imports it.
 lean_lib VersoBlueprintVir where
@@ -62,7 +58,7 @@ lean_lib VersoBlueprint where
   srcDir := "src"
   roots := #[`VersoBlueprint]
   precompileModules := true
-  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs, vendoredWebAssets]
+  needs := #[embeddedBlueprintAssets, blueprintMathJs, mathLintWorkerJs]
 
 @[default_target]
 lean_exe «vbp» where

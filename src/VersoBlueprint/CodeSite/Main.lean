@@ -13,15 +13,13 @@ import VersoBlueprint.PreviewManifest
 
 ```
 vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>]
-              [--graphviz <program> | --no-graph-layout]
               [--no-comparator | --challenge-not-built <reason>]
               [--no-kernel-replay] [--no-stats-page] [--reproducible] [--verbose]
 ```
 
 `--root` is the project the data describes (default: the working directory): the source
 excerpts and the Project Stats page read its files. The dependency graph's views are laid out
-while the site is built with Graphviz's `dot` (`--graphviz` names another program; without one
-on the `PATH`, or with `--no-graph-layout`, the page lays them out). When the project has a
+and drawn while the site is built (`Informal.GraphLayout`). When the project has a
 Comparator challenge, the Project Stats page's headline compares it with its solution as a
 Blueprint site does; the solution's modules are imported from the project's build for that
 (`--no-comparator` leaves the comparison out; `--challenge-not-built <reason>` leaves it out and
@@ -44,9 +42,6 @@ structure Options where
   data : Option FilePath := none
   root : Option FilePath := none
   title : Option String := none
-  /-- The Graphviz program the graph is laid out with while the site is built (`none`: the page
-  lays it out). -/
-  graphviz : Option String := some "dot"
   /-- Compare the project's Comparator challenge for the headline (it imports the solution). -/
   compare : Bool := true
   /-- The caller could not build the challenge (why): the headline says so, nothing is compared. -/
@@ -60,7 +55,6 @@ deriving Inhabited
 /-- The usage line. -/
 def usage : String :=
   "vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>] " ++
-  "[--graphviz <program> | --no-graph-layout] " ++
   "[--no-comparator | --challenge-not-built <reason>] [--no-kernel-replay] [--no-stats-page] " ++
   "[--reproducible] [--verbose]"
 
@@ -70,9 +64,6 @@ partial def parseOptions : List String → Options → Except String Options
   | "--data" :: file :: args, opts => parseOptions args { opts with data := some file }
   | "--root" :: dir :: args, opts => parseOptions args { opts with root := some dir }
   | "--title" :: text :: args, opts => parseOptions args { opts with title := some text }
-  | "--graphviz" :: program :: args, opts =>
-    parseOptions args { opts with graphviz := some program }
-  | "--no-graph-layout" :: args, opts => parseOptions args { opts with graphviz := none }
   | "--no-comparator" :: args, opts => parseOptions args { opts with compare := false }
   | "--no-kernel-replay" :: args, opts => parseOptions args { opts with kernelReplay := false }
   | "--challenge-not-built" :: why :: args, opts =>
@@ -80,7 +71,7 @@ partial def parseOptions : List String → Options → Except String Options
   | "--output" :: dir :: args, opts =>
     parseOptions args { opts with rest := opts.rest ++ #["--output", dir] }
   | flag :: args, opts =>
-    if flag ∈ ["--data", "--root", "--title", "--output", "--graphviz", "--challenge-not-built"] then
+    if flag ∈ ["--data", "--root", "--title", "--output", "--challenge-not-built"] then
       .error s!"missing value after {flag}"
     else if flag ∈ [Informal.Commands.noStatsPageFlag, Informal.PreviewManifest.reproducibleFlag,
         "--verbose"] then
@@ -106,7 +97,7 @@ site's declarations and the judged theorems are checked again in a kernel with e
 depend on (`Informal.Replay`), and the comparison is made in the environment that is exported
 for it (`Stats.ProjectStats.withKernelReplayAt`). -/
 def generate (data root : FilePath) (title? : Option String) (args : List String)
-    (graphviz : Option String := some "dot") (compare : Bool := true)
+    (compare : Bool := true)
     (challengeNotBuilt? : Option String := none) (kernelReplay : Bool := true) : IO UInt32 := do
   let root ← try IO.FS.realPath root catch _ => pure root
   let (project, sources) ← load data root
@@ -131,7 +122,7 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
       pure { model with stats }
     else pure model
   let title := titleOf root project model.stats.identity
-  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project graphviz sources.get?) args
+  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project sources.get?) args
     (extensionImpls := by exact extension_impls%) (model := model)
     -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
     (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
@@ -145,10 +136,10 @@ def main (args : List String) : IO UInt32 := do
   match parseOptions args {} with
   | .error e => IO.eprintln e; IO.eprintln usage; return 2
   | .ok { data := none, .. } => IO.eprintln "missing --data <file>"; IO.eprintln usage; return 2
-  | .ok { data := some data, root, title, graphviz, compare, challengeNotBuilt, kernelReplay,
+  | .ok { data := some data, root, title, compare, challengeNotBuilt, kernelReplay,
           rest } =>
     let root := root.getD (← IO.currentDir)
-    try generate data root title rest.toList graphviz compare challengeNotBuilt kernelReplay
+    try generate data root title rest.toList compare challengeNotBuilt kernelReplay
     catch e => IO.eprintln s!"vbp code-site: {e}"; return 1
 
 end Informal.CodeSite

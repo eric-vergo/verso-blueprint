@@ -135,7 +135,7 @@ structure GraphNode (Ref : Type) where
   tooltip? : Option String := none
   ref? : Option Ref := none
   /--
-  Space-separated classes Graphviz writes onto the node's SVG group. The graph stylesheet
+  Space-separated classes written onto the node's SVG group. The graph stylesheet
   repaints status nodes from the status colour tokens by these classes, so the colours above
   only matter where no stylesheet applies.
   -/
@@ -155,7 +155,7 @@ abbrev Graph (Ref : Type) := Array (GraphNode Ref)
 def GraphNode.displayLabel (node : GraphNode Ref) : String :=
   node.displayLabel?.getD (toString node.label)
 
-/-- Graphviz rank direction used by rendered Blueprint graph layouts. -/
+/-- The direction the layers of a rendered Blueprint graph follow. -/
 inductive GraphDirection where
   | LR
   | RL
@@ -163,7 +163,7 @@ inductive GraphDirection where
   | BT
 deriving Inhabited, Repr, BEq, FromJson, ToJson, Quote
 
-/-- DOT `rankdir` token corresponding to a graph direction. -/
+/-- The token of a graph direction in options, controls and drawings. -/
 def GraphDirection.rankdir : GraphDirection → String
   | .LR => "LR"
   | .RL => "RL"
@@ -180,62 +180,28 @@ def GraphDirection.parse? (s : String) : Option GraphDirection :=
   | _ => none
 
 /--
-Options that affect Graphviz layout for rendered Blueprint graphs.
+Options that affect the layout of rendered Blueprint graphs.
 
 These options are stored in graph block payloads and serialized with render
 variants, so update Lean producers and browser consumers together when their
 shape changes.
 -/
 structure GraphOptions where
-  /-- Graphviz rank direction. -/
+  /-- The direction the layers follow. -/
   direction : GraphDirection := .TB
   /--
-  Ask Graphviz to compact disconnected graph components before d3-graphviz fits
-  the SVG into the canvas.
+  Lay each connected component out on its own and pack the drawings into rows,
+  instead of one row of layers for the whole graph.
   -/
-  pack : Bool := false
+  pack : Bool := true
 deriving Inhabited, Repr, BEq, FromJson, ToJson, Quote
-
-private def graphPackAttr (pack : Bool) : String :=
-  if pack then "true" else "false"
-
-/--
-DOT rendering style knobs shared by page graphs and compact widget graphs.
-
-This is a rendering implementation detail, not part of the public graph-data
-schema. It lets all DOT emitters share one header template while preserving
-surface-specific sizing.
--/
-structure GraphDotStyle where
-  /-- Node font size used in the DOT header. -/
-  nodeFontSize : String := "10"
-  /-- Node margin used in the DOT header. -/
-  nodeMargin : String := "0.08,0.04"
-  /-- Default node stroke width used in the DOT header. -/
-  nodePenwidth : String := "1.8"
-  /-- Default edge arrow size used in the DOT header. -/
-  edgeArrowsize : String := "0.6"
-  /-- Default edge stroke width used in the DOT header. -/
-  edgePenwidth : String := "1"
-  /-- Whether to emit the Graphviz `pack` attribute. -/
-  includePack : Bool := true
-deriving Inhabited, BEq
-
-/-- Smaller DOT styling for embedded graph panels. -/
-def GraphDotStyle.compact : GraphDotStyle := {
-  nodeFontSize := "9"
-  nodeMargin := "0.05,0.03"
-  nodePenwidth := "1.4"
-  edgeArrowsize := "0.5"
-  edgePenwidth := "0.9"
-  includePack := false
-}
 
 /--
 One rendered graph view.
 
 The bundled renderer uses variants for the full graph, the synthetic group
-overview, and per-group subgraphs. The `selectOnNodeId` and `hoverOnNodeId`
+overview, and per-group subgraphs. Each is drawn while the site is built
+(`Informal.GraphLayout`). The `selectOnNodeId` and `hoverOnNodeId`
 arrays describe variant transitions keyed by SVG node id, and
 `previewKeyByNodeId` maps SVG nodes to manifest/cache-backed preview keys.
 -/
@@ -244,9 +210,7 @@ structure GraphRenderVariant where
   key : String
   /-- Human-readable view label. -/
   label : String
-  /-- DOT source for this view. -/
-  dot : String
-  /-- Initial layout options used to build the DOT source. -/
+  /-- The layout options the view is shown with first. -/
   options : GraphOptions := {}
   /-- Node ids that switch to another variant when selected. -/
   selectOnNodeId : Array (String × String) := #[]
@@ -262,7 +226,7 @@ def allGraphDirections : Array GraphDirection := #[.TB, .LR, .RL, .BT]
 /--
 Public visual metadata for a graph node.
 
-This mirrors the render-facing DOT attributes without exposing the generic
+This mirrors the render-facing node attributes without exposing the generic
 `GraphNode Ref` type in cached/public JSON schemas.
 -/
 structure NodeVisual where
@@ -385,7 +349,7 @@ variant data are built together exactly once from a `GraphModel`. Public callers
 can inspect them or convert back to `GraphModel`, but cannot update topology
 while retaining stale projections. Preview keys may subsequently be filtered
 against the emitted manifest/cache pair by `filterPreviewReferences`; that
-synchronized post-pass does not reopen topology or change DOT.
+synchronized post-pass does not reopen topology or change a drawing.
 
 `schemaVersion` is bumped for incompatible public JSON shapes or semantic
 contracts.
@@ -399,10 +363,9 @@ structure GraphData where
   edges : Array EdgeData := #[]
   groups : Array GroupData := #[]
   /--
-  Precomputed DOT render variants for the bundled browser graph renderer.
-
-  Manifest clients should use these variants instead of re-deriving DOT from
-  graph topology in JavaScript. The semantic fields above are the current data
+  The render variants of the bundled browser graph renderer: the views a page
+  offers, with their node-to-view and node-to-preview tables. The drawings are
+  made from them while the site is built. The semantic fields above are the current data
   interface for dashboards and audits. The private `GraphData` constructor ties
   these variants to the same finalized topology. The first variant is `full`;
   variant keys are unique, and select/hover mappings target keys in this array.
@@ -486,7 +449,7 @@ def LegendSwatch.inlineStyle (swatch : LegendSwatch) : String :=
     s!"border-radius: {swatch.borderRadius}"
   ]
 
-/-! The light values of the status colour tokens, which DOT sources carry. -/
+/-! The light values of the status colour tokens, which the drawings carry. -/
 
 def statementBorderBlockedColor : String := StatusColors.blockedBorder.light
 def statementBorderReadyColor : String := StatusColors.readyBorder.light
@@ -810,15 +773,16 @@ private def graphBorderRules : List (String × StatusColors.ColorToken) := [
 
 /--
 Stylesheet rules that paint graph nodes from the status colour tokens by their SVG classes.
-Graphviz writes the light colours into the SVG; these rules override them in either theme.
+The drawing carries the light colours; these rules override them in either theme.
 -/
 def graphStatusCss : String :=
-  let node (cls : String) := s!".bp_graph_canvas svg g.node.{cls}"
+  let node (cls : String) :=
+    s!":is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.node.{cls}"
   let fills := graphFillRules.map fun (cls, fill, text) =>
-    s!"{node cls} :is(ellipse, polygon, path) \{ fill: {fill.cssVar}; }\n" ++
+    s!"{node cls} :is(ellipse, path) \{ fill: {fill.cssVar}; }\n" ++
       s!"{node cls} text \{ fill: {text.cssVar}; }\n"
   let borders := graphBorderRules.map fun (cls, border) =>
-    s!"{node cls} :is(ellipse, polygon, path) \{ stroke: {border.cssVar}; }\n"
+    s!"{node cls} :is(ellipse, path) \{ stroke: {border.cssVar}; }\n"
   "\n/* Status colours of graph nodes, from the status tokens. */\n" ++
     String.join fills ++ String.join borders
 
@@ -1207,232 +1171,8 @@ def buildModel
     (groupTitles : Array (Name × String) := #[]) : GraphModel :=
   buildModelWithExternal state roots {} resolveHref? resolveTitle? groupTitles
 
-def escapeDotString (s : String) : String :=
-  let s := s.replace "\\" "\\\\"
-  let s := s.replace "\"" "\\\""
-  let s := s.replace "\n" "\\n"
-  s.replace "\r" ""
-
-def dotIndent (n : Nat) : String := String.ofList (List.replicate n ' ')
-
 def graphNodeSvgId (label : Name) : String :=
   Informal.HtmlId.prefixed "bp-node" (toString label)
-
-partial def emitGroupClusterLines (nodeDefs : NameMap String) (groupMembers : NameMap (Array Name))
-    (groupChildren : NameMap (Array Name)) (groupIds : NameMap Nat)
-    (groupLabel? : Name → Option String) (group : Name) (level fuel : Nat)
-    (visited : NameSet) : Array String × NameSet :=
-  if fuel == 0 || visited.contains group then
-    (#[], visited)
-  else
-    let visited := visited.insert group
-    let pad := dotIndent level
-    let pad2 := dotIndent (level + 2)
-    let clusterName := s!"cluster_{groupIds.getD group 0}"
-    let groupLabel :=
-      match groupLabel? group with
-      | some label =>
-        let label := label.trimAscii.toString
-        if label.isEmpty then toString group else label
-      | none => toString group
-    let openLine := pad ++ s!"subgraph \"{escapeDotString clusterName}\" " ++ "{"
-    let clusterMeta : Array String := #[
-      s!"{pad2}label=\"{escapeDotString groupLabel}\";",
-      s!"{pad2}style=\"rounded,dashed\";",
-      s!"{pad2}color=\"#cbd5e1\";",
-      s!"{pad2}penwidth=1.2;"
-    ]
-    let memberLines := (groupMembers.getD group #[]).foldl (init := (#[] : Array String)) fun acc label =>
-      match nodeDefs.get? label with
-      | some line => acc.push s!"{pad2}{line}"
-      | none => acc
-    let (childLines, visited) :=
-      (groupChildren.getD group #[]).foldl (init := ((#[] : Array String), visited)) fun (acc, visited) child =>
-        let (lines, visited) := emitGroupClusterLines nodeDefs groupMembers groupChildren groupIds groupLabel? child (level + 2) (fuel - 1) visited
-        (acc ++ lines, visited)
-    let closeLine := pad ++ "}"
-    ((#[openLine] ++ clusterMeta ++ memberLines ++ childLines).push closeLine, visited)
-
-def Graph.toDot (g : Graph Ref) (header : String)
-    (groupLabel? : Option (Name → Option String) := none)
-    (refAttrs? : Option (Ref → Option String) := none) : String :=
-  let known : NameSet := g.foldl (init := {}) fun acc node => acc.insert node.label
-  let defLike : NameSet := g.foldl (init := {}) fun acc node =>
-    if node.shape == "box" then acc.insert node.label else acc
-  let nodeByLabel : NameMap (GraphNode Ref) :=
-    g.foldl (init := ({} : NameMap (GraphNode Ref))) fun acc node => acc.insert node.label node
-  let (nodeDefs, groupMembers, edges) :=
-    g.foldl
-      (init := (({} : NameMap String), ({} : NameMap (Array Name)), (#[] : Array String)))
-      fun (nodeDefs, groupMembers, edges) node =>
-        let attrs :=
-          let base : Array String := #[
-            s!"id=\"{escapeDotString (graphNodeSvgId node.label)}\"",
-            s!"label=\"{escapeDotString node.displayLabel}\"",
-            s!"shape=\"{escapeDotString node.shape}\"",
-            s!"style=\"{escapeDotString node.style}\"",
-            s!"fillcolor=\"{escapeDotString node.fillcolor}\"",
-            s!"color=\"{escapeDotString node.color}\"",
-            s!"penwidth=\"{escapeDotString node.penwidth}\"",
-            s!"fontcolor=\"{escapeDotString node.fontcolor}\"",
-            s!"peripheries={node.peripheries}"
-          ]
-          let base :=
-            if node.svgClass.isEmpty then base
-            else base.push s!"class=\"{escapeDotString node.svgClass}\""
-          let base :=
-            match node.gradientangle? with
-            | some gradientangle => base.push s!"gradientangle={gradientangle}"
-            | none => base
-          let base :=
-            match node.tooltip? with
-            | some tooltip => base.push s!"tooltip=\"{escapeDotString tooltip}\""
-            | none => base
-          match node.ref?, refAttrs? with
-          | some ref, some mkAttrs =>
-            match mkAttrs ref with
-            | some extra => (String.intercalate ", " base.toList) ++ ", " ++ extra
-            | none => String.intercalate ", " base.toList
-          | _, _ => String.intercalate ", " base.toList
-        let nodeDefs := nodeDefs.insert node.label s!"\"{node.label}\" [{attrs}];"
-        let groupMembers :=
-          match node.parent? with
-          | none => groupMembers
-          | some parent =>
-            let members := groupMembers.getD parent #[]
-            groupMembers.insert parent (members.push node.label)
-        let stmtDeps := eraseDups node.deps
-        let proofDeps := eraseDups node.proofDeps
-        let stmtDepSet : NameSet :=
-          stmtDeps.foldl (init := ({} : NameSet)) fun acc dep => acc.insert dep
-        let proofDepSet : NameSet :=
-          proofDeps.foldl (init := ({} : NameSet)) fun acc dep => acc.insert dep
-        let edges := stmtDeps.foldl (init := edges) fun edges dep =>
-          if known.contains dep then
-            let mixed := proofDepSet.contains dep
-            if defLike.contains dep then
-              if mixed then
-                edges.push s!"  \"{dep}\" -> \"{node.label}\" [style=dashed, penwidth=1.7];"
-              else
-                edges.push s!"  \"{dep}\" -> \"{node.label}\" [style=dashed, penwidth=1.2];"
-            else if mixed then
-              edges.push s!"  \"{dep}\" -> \"{node.label}\" [penwidth=1.7];"
-            else
-              edges.push s!"  \"{dep}\" -> \"{node.label}\";"
-          else
-            edges
-        let edges := proofDeps.foldl (init := edges) fun edges dep =>
-          if known.contains dep && !stmtDepSet.contains dep then
-            edges.push s!"  \"{dep}\" -> \"{node.label}\" [style=dotted, penwidth=1.2];"
-          else
-            edges
-        (nodeDefs, groupMembers, edges)
-  let groupMembers :=
-    groupMembers.foldl (init := ({} : NameMap (Array Name))) fun acc parent members =>
-      if members.size > 1 then
-        acc.insert parent members
-      else
-        acc
-  let groupedLabels : NameSet :=
-    groupMembers.foldl (init := ({} : NameSet)) fun acc _parent members =>
-      members.foldl (init := acc) fun acc label => acc.insert label
-  let groups : Array Name := groupMembers.toArray.map (·.1)
-  let groupSet : NameSet := groups.foldl (init := ({} : NameSet)) fun acc group => acc.insert group
-  let groupParent : NameMap Name :=
-    groups.foldl (init := ({} : NameMap Name)) fun acc group =>
-      match nodeByLabel.get? group with
-      | some node =>
-        match node.parent? with
-        | some parent =>
-          if groupSet.contains parent then
-            acc.insert group parent
-          else
-            acc
-        | none => acc
-      | none => acc
-  let groupChildren : NameMap (Array Name) :=
-    groupParent.toArray.foldl (init := ({} : NameMap (Array Name))) fun acc (child, parent) =>
-      let children := acc.getD parent #[]
-      if children.contains child then
-        acc
-      else
-        acc.insert parent (children.push child)
-  let (groupIds, _nextId) :=
-    groups.foldl (init := (({} : NameMap Nat), 0)) fun (acc, i) group =>
-      (acc.insert group i, i + 1)
-  let rootGroups :=
-    let roots := groups.filter (fun group => !(groupParent.contains group))
-    if roots.isEmpty then groups else roots
-  let groupLabel? := groupLabel?.getD (fun _ => none)
-  let (clusterLines, visitedGroups) :=
-    rootGroups.foldl (init := ((#[] : Array String), ({} : NameSet))) fun (acc, visited) group =>
-      let (lines, visited) := emitGroupClusterLines nodeDefs groupMembers groupChildren groupIds groupLabel? group 2 (groups.size + 1) visited
-      (acc ++ lines, visited)
-  let (clusterLines, _visitedGroups) :=
-    groups.foldl (init := (clusterLines, visitedGroups)) fun (acc, visited) group =>
-      if visited.contains group then
-        (acc, visited)
-      else
-        let (lines, visited) := emitGroupClusterLines nodeDefs groupMembers groupChildren groupIds groupLabel? group 2 (groups.size + 1) visited
-        (acc ++ lines, visited)
-  let ungroupedNodeLines :=
-    g.foldl (init := (#[] : Array String)) fun acc node =>
-      if groupedLabels.contains node.label then
-        acc
-      else
-        match nodeDefs.get? node.label with
-        | some line => acc.push s!"  {line}"
-        | none => acc
-  let lines := #[header] ++ ungroupedNodeLines ++ clusterLines ++ edges
-  let lines := lines.push "}"
-  lines.foldl (init := "") fun acc line =>
-    if acc.isEmpty then line else acc ++ "\n" ++ line
-
-/-- Common DOT header for rendered Blueprint graphs.
-
-`pack=true` keeps disconnected graph components compact before d3-graphviz fits
-the SVG into the canvas. Without it, sparse multi-component graphs can be
-placed far from the top of the viewport after variant or direction switches.
--/
-def graphDotHeader (options : GraphOptions := {}) (style : GraphDotStyle := {}) : String :=
-  "strict digraph \"\" {\n" ++
-  s!"    rankdir={options.direction.rankdir};\n" ++
-  "    bgcolor=\"white\";\n" ++
-  (if style.includePack then s!"    pack={graphPackAttr options.pack};\n" else "") ++
-  "    splines=true;\n" ++
-  "    nodesep=0.35;\n" ++
-  "    ranksep=0.45;\n" ++
-  s!"    node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\", fontsize={style.nodeFontSize}, margin=\"{style.nodeMargin}\", color=\"#6b7280\", penwidth={style.nodePenwidth}];\n" ++
-  s!"    edge [color=\"#6b7280\", arrowhead=vee, arrowsize={style.edgeArrowsize}, penwidth={style.edgePenwidth}];\n" ++
-  "    graph [fontname=\"Helvetica\"];\n" ++
-  "  "
-
-/--
-Render a graph to DOT using the shared Blueprint graph header.
-
-Use `graphToDot` for the usual page-graph case where refs are href strings.
-`graphToDotWith` is for renderers such as widgets that need a different ref
-type or compact DOT styling.
--/
-def graphToDotWith (g : Graph Ref) (options : GraphOptions := {}) (style : GraphDotStyle := {})
-    (resolveGroupTitle : Name → Option String := fun _ => none)
-    (refAttrs? : Option (Ref → Option String) := none) : String :=
-  Graph.toDot g (graphDotHeader options style)
-    (groupLabel? := some resolveGroupTitle)
-    (refAttrs? := refAttrs?)
-
-/-- Render a page graph with string refs interpreted as same-page hrefs. -/
-def graphToDot (g : Graph String) (options : GraphOptions := {})
-    (resolveGroupTitle : Name → Option String := fun _ => none) : String :=
-  graphToDotWith g options {} resolveGroupTitle
-    (some fun href => some s!"URL=\"{href}\", target=\"_self\"")
-
-/-- Render a semantic graph model directly, for pre-traversal clients such as widgets. -/
-def GraphModel.toDotWith (model : GraphModel) (options : GraphOptions := {})
-    (style : GraphDotStyle := {}) : String :=
-  let model := model.canonicalize
-  graphToDotWith model.toGraph options style (fun group => model.groupTitleMap.get? group)
-    (some fun href => some s!"URL=\"{href}\", target=\"_self\"")
 
 /-- Stable key for the synthetic group overview variant. -/
 def groupVariantKey : String := "group"
@@ -1637,6 +1377,14 @@ def mkParentOverviewGraph (graph : Graph String) (parents : Array Name)
       ref? := none
     }
 
+/-- The groups with more than one node, by title: each has a view of its own. -/
+private def variantParents (graph : Graph String) (groupTitles : Lean.NameMap String) :
+    Array Name :=
+  (graphParentChildren graph).toArray
+    |>.filter (fun (_, children) => children.size > 1)
+    |>.map (·.1)
+    |>.qsort (fun a b => groupTitle groupTitles a < groupTitle groupTitles b)
+
 /--
 Build the render variants for the bundled graph UI.
 
@@ -1652,19 +1400,11 @@ private def mkGraphVariants (graph : Graph String) (options : GraphOptions)
     graph.filterMap fun node =>
       previewKeyForLabel node.label |>.map fun previewKey =>
         (graphNodeSvgId node.label, toString previewKey)
-  let resolveGroupTitle : Name → Option String := fun group =>
-    groupTitles.get? group
-  let parentChildren := graphParentChildren graph
-  let parents :=
-    parentChildren.toArray
-      |>.filter (fun (_, children) => children.size > 1)
-      |>.map (·.1)
-      |>.qsort (fun a b => groupTitle groupTitles a < groupTitle groupTitles b)
+  let parents := variantParents graph groupTitles
   if parents.isEmpty then
     #[{
       key := "full"
       label := "Full Graph"
-      dot := graphToDot graph options resolveGroupTitle
       options
       selectOnNodeId := #[]
       hoverOnNodeId := #[]
@@ -1675,7 +1415,6 @@ private def mkGraphVariants (graph : Graph String) (options : GraphOptions)
     let groupVariant : GraphRenderVariant := {
       key := groupVariantKey
       label := "Group View"
-      dot := graphToDot (mkParentOverviewGraph graph parents groupTitles) options (fun _ => none)
       options
       selectOnNodeId := parentVariantRefs
       hoverOnNodeId := parentVariantRefs
@@ -1684,7 +1423,6 @@ private def mkGraphVariants (graph : Graph String) (options : GraphOptions)
     let fullVariant : GraphRenderVariant := {
       key := "full"
       label := "Full Graph"
-      dot := graphToDot graph options resolveGroupTitle
       options
       selectOnNodeId := #[]
       hoverOnNodeId := #[]
@@ -1696,7 +1434,6 @@ private def mkGraphVariants (graph : Graph String) (options : GraphOptions)
       {
         key := parentVariantKey parent
         label := title
-        dot := graphToDot parentSubgraph options resolveGroupTitle
         options
         selectOnNodeId := #[]
         hoverOnNodeId := #[]
@@ -1724,12 +1461,45 @@ def GraphModel.finish (model : GraphModel) (key : String) (options : GraphOption
     variants := mkGraphVariants graph options groupTitles previewKeys.get?
   }
 
+/-- What a variant shows: its nodes, the titles of its groups, and whether groups are drawn as
+boxes around their nodes. -/
+structure VariantGraph where
+  key : String
+  graph : Graph String
+  groupTitle : Name → Option String
+  clusters : Bool
+
+/-- The graph of every render variant, in the order of `variants`: the full graph with its
+groups as boxes, the group overview, and each group's own nodes (the view is the group, so no
+box is drawn around it). -/
+def GraphData.variantGraphs (data : GraphData) : Array VariantGraph :=
+  let model := data.toModel.canonicalize
+  let graph := model.toGraph
+  let titles := data.groups.foldl (init := ({} : Lean.NameMap String)) fun acc group =>
+    acc.insert group.label group.title
+  let parents := variantParents graph titles
+  let full : VariantGraph := { key := "full", graph, groupTitle := titles.get?, clusters := true }
+  if parents.isEmpty then #[full]
+  else
+    #[full, { key := groupVariantKey, graph := mkParentOverviewGraph graph parents titles,
+              groupTitle := fun _ => none, clusters := false }] ++
+      parents.map fun parent =>
+        let sub := subgraphForParent graph parent
+        { key := parentVariantKey parent
+          graph := sub.map fun node =>
+            if node.parent? == some parent then { node with parent? := none } else node
+          groupTitle := titles.get?, clusters := true }
+
+/-- The graph the neighbourhood views are cut from: every node, without groups. -/
+def GraphData.renderGraph (data : GraphData) : Graph String :=
+  data.toModel.canonicalize.toGraph
+
 /--
 Filter preview references without reopening finalized topology.
 
 This is the only supported post-finish update: unavailable node preview keys
-and their variant lookup entries are removed together, while topology and DOT
-remain unchanged. Preview keys cannot be rewritten after finalization.
+and their variant lookup entries are removed together, while topology and the
+drawings remain unchanged. Preview keys cannot be rewritten after finalization.
 -/
 def GraphData.filterPreviewReferences
     (data : GraphData)

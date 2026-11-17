@@ -614,16 +614,15 @@ def pagePart (title : String) (block : Block Manual) : Part Manual :=
     content := #[block], subParts := #[] }
 
 /-- The document: the front page, a chapter per module that has declarations, the dependency
-graph (on its module view above `moduleViewThreshold` declarations, laid out while the site is
-built with the Graphviz program `layoutProgram` when one is given) and the summary page. -/
-def documentOf (title : String) (project : Project) (layoutProgram : Option String := none)
+graph (on its module view above `moduleViewThreshold` declarations) and the summary page. -/
+def documentOf (title : String) (project : Project)
     (sources : Name → Option String := fun _ => none) : Part Manual :=
   let chapters := project.modules.filter (!·.declarations.isEmpty) |>.map fun m =>
     moduleChapter m (sources m.module) project.texPrelude
   let decls := project.modules.foldl (· + ·.declarations.size) 0
   let initialView := if decls > moduleViewThreshold then some Graph.groupVariantKey else none
   let graph := pagePart "Dependency Graph"
-    (.other (Informal.Commands.Block.graph { initialView, layoutProgram }) #[])
+    (.other (Informal.Commands.Block.graph { initialView }) #[])
   let summary := pagePart Commands.summaryPageTitle
     (.other (Informal.Commands.Block.summary {}) #[])
   { title := #[.text title]

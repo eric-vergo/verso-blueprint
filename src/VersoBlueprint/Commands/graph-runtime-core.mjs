@@ -200,18 +200,10 @@
     if (state) state.canvasAutoHeight = autoHeight;
   }
 
-  export function load(src) {
-    return new Promise(function (resolve, reject) {
-      const s = document.createElement("script");
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-
   export function graphNodeLabel(node) {
     if (!(node instanceof Element)) return "";
+    const name = node.getAttribute("data-bp-node-name");
+    if (typeof name === "string" && name.trim()) return name.trim();
     const titleNode = node.querySelector("title");
     const titleTxt =
       titleNode && typeof titleNode.textContent === "string" ? titleNode.textContent.trim() : "";
@@ -241,7 +233,8 @@
       groupHoverShownKey: "",
       groupHoverShownNodeId: "",
       graphData: null,
-      graphviz: null,
+      panZoom: null,
+      drawingIndex: null,
       renderedVariantKey: "",
       renderedOptionsKey: "",
       canvasAutoHeight: null,
@@ -275,13 +268,17 @@
 
   export function resizeRenderedGraphToCanvas(graphRoot, graphState) {
     if (!(graphRoot instanceof Element)) return false;
-    const svg = graphRoot.querySelector("svg");
+    const svg = graphRoot.querySelector(":scope > svg");
     if (!(svg instanceof SVGElement)) return false;
     const nextWidth = Math.round(graphRoot.clientWidth);
     const nextHeight = Math.round(graphRoot.clientHeight);
     if (!(nextWidth > 0) || !(nextHeight > 0)) return false;
-    svg.setAttribute("width", String(nextWidth));
-    svg.setAttribute("height", String(nextHeight));
+    if (graphState && graphState.panZoom) {
+      graphState.panZoom.resize();
+    } else {
+      svg.setAttribute("width", String(nextWidth));
+      svg.setAttribute("height", String(nextHeight));
+    }
     if (graphState && typeof graphState === "object") {
       graphState.lastCanvasWidth = nextWidth;
       graphState.lastCanvasHeight = nextHeight;
@@ -289,13 +286,17 @@
     return true;
   }
 
-  // Smallest on-screen scale (CSS pixels per Graphviz point) the first view of a
+  // Smallest on-screen scale (CSS pixels per unit of the drawing) the first view of a
   // graph uses. Fitting a large graph into a narrow pane can shrink nodes to a few
   // pixels; below this scale the graph starts readable instead, showing its roots.
-  export const minReadableGraphScale = 0.5;
+  export const minReadableGraphScale = 0.55;
 
-  // The rank that holds the graph's roots for a Graphviz `rankdir`: the axis and
-  // whether it is the low or the high end of that axis.
+  // The largest scale a fitted view uses: a graph of a few nodes is not blown up to
+  // fill the canvas.
+  export const maxFittedGraphScale = 1.4;
+
+  // The layer that holds the graph's roots for a direction: the axis and whether it
+  // is the low or the high end of that axis.
   function rootEdge(direction) {
     switch (String(direction || "TB").toUpperCase()) {
       case "BT": return { axis: "y", low: false };
@@ -305,89 +306,294 @@
     }
   }
 
-  // After a fitted render: keep node clicks working when the pointer moves a few
-  // pixels during a click (d3-zoom otherwise takes it for a drag and swallows the
-  // click), and when the fit made the graph unreadably small, zoom to
-  // `minReadableGraphScale` with the roots' rank at the canvas's leading edge,
-  // centred across it. Pan and zoom stay available. Returns the applied scale
-  // (CSS pixels per point), or null when the fitted view was kept.
-  export function applyReadableGraphZoom(graphRoot, graphviz, direction, minScale) {
-    if (!(graphRoot instanceof Element) || !graphviz) return null;
-    const zoom = typeof graphviz.zoomBehavior === "function" ? graphviz.zoomBehavior() : null;
-    const selection = typeof graphviz.zoomSelection === "function" ? graphviz.zoomSelection() : null;
-    if (!zoom || !selection) return null;
-    if (typeof zoom.clickDistance === "function") zoom.clickDistance(6);
-    const svg = graphRoot.querySelector("svg");
-    const graph = svg ? svg.querySelector("g.graph") || svg.querySelector("g") : null;
-    const d3 = typeof window !== "undefined" ? window.d3 : null;
-    if (!svg || !graph || !d3 || typeof d3.zoomTransform !== "function" || !d3.zoomIdentity) return null;
-    const ctm = svg.getScreenCTM();
-    if (!ctm || !(ctm.a > 0)) return null;
-    const current = d3.zoomTransform(svg);
-    const pxPerPoint = ctm.a * current.k;
+  // The size of a drawing, from the attributes it was written with.
+  export function drawingSize(svg) {
+    const read = function (name) {
+      const value = parseFloat(svg.getAttribute("data-bp-drawing-" + name) || svg.getAttribute(name) || "");
+      return isFinite(value) && value > 0 ? value : 0;
+    };
+    let width = read("width");
+    let height = read("height");
+    if (!(width > 0) || !(height > 0)) {
+      const box = String(svg.getAttribute("viewBox") || "").trim().split(/[\s,]+/).map(parseFloat);
+      if (box.length === 4 && box[2] > 0 && box[3] > 0) {
+        width = box[2];
+        height = box[3];
+      }
+    }
+    return { width: width || 1, height: height || 1 };
+  }
+
+  // Where the first view of a drawing of `size` goes in a canvas of `canvas` (both
+  // `{ width, height }`): fitted and centred, at most `maxFittedGraphScale`; when the
+  // fit would be smaller than `minScale`, at `minScale` with the roots' layer (`lead`,
+  // the centre of the roots across the layers, in drawing units) at the canvas's
+  // leading edge. Returns `{ k, x, y, readable }`.
+  export function initialTransform(size, canvas, direction, lead, minScale) {
     const wanted = Number.isFinite(minScale) && minScale > 0 ? minScale : minReadableGraphScale;
-    if (pxPerPoint >= wanted) return null;
-    const nodes = Array.from(graph.querySelectorAll("g.node")).map(function (node) {
-      try { return node.getBBox(); } catch (_err) { return null; }
-    }).filter(function (box) { return box && box.width > 0; });
-    if (nodes.length === 0) return null;
+    const fit = Math.min(canvas.width / size.width, canvas.height / size.height);
+    if (fit >= wanted) {
+      const k = Math.min(fit, maxFittedGraphScale);
+      return { k: k, x: (canvas.width - k * size.width) / 2, y: (canvas.height - k * size.height) / 2, readable: false };
+    }
     const edge = rootEdge(direction);
+    const margin = 24;
+    const k = wanted;
+    const centre = Number.isFinite(lead) ? lead : (edge.axis === "y" ? size.width : size.height) / 2;
+    if (edge.axis === "y") {
+      return {
+        k: k,
+        x: canvas.width / 2 - k * centre,
+        y: edge.low ? margin : canvas.height - margin - k * size.height,
+        readable: true
+      };
+    }
+    return {
+      k: k,
+      x: edge.low ? margin : canvas.width - margin - k * size.width,
+      y: canvas.height / 2 - k * centre,
+      readable: true
+    };
+  }
+
+  // The centre, across the layers, of the nodes in the roots' layer of a drawing.
+  function rootsCentre(svg, direction, size) {
+    const edge = rootEdge(direction);
+    const boxes = [];
+    svg.querySelectorAll("g.node").forEach(function (node) {
+      try {
+        const box = node.getBBox();
+        if (box && box.width > 0) boxes.push(box);
+      } catch (_err) {}
+    });
+    if (boxes.length === 0) return NaN;
     const lead = function (box) {
       return edge.axis === "y" ? (edge.low ? box.y : box.y + box.height) : (edge.low ? box.x : box.x + box.width);
     };
-    const leadValues = nodes.map(lead);
-    const extreme = edge.low ? Math.min.apply(null, leadValues) : Math.max.apply(null, leadValues);
-    const rankSize = Math.max.apply(null, nodes.map(function (box) { return edge.axis === "y" ? box.height : box.width; }));
-    const roots = nodes.filter(function (box) { return Math.abs(lead(box) - extreme) <= rankSize / 2; });
+    const leads = boxes.map(lead);
+    const extreme = edge.low ? Math.min.apply(null, leads) : Math.max.apply(null, leads);
+    const layer = Math.max.apply(null, boxes.map(function (box) { return edge.axis === "y" ? box.height : box.width; }));
+    const roots = boxes.filter(function (box) { return Math.abs(lead(box) - extreme) <= layer / 2; });
     const across = roots.map(function (box) { return edge.axis === "y" ? box.x + box.width / 2 : box.y + box.height / 2; });
     const centre = across.reduce(function (a, b) { return a + b; }, 0) / across.length;
-    // the target point in the svg's own (viewBox) coordinates
-    const rect = graphRoot.getBoundingClientRect();
-    const margin = 24;
-    const inv = ctm.inverse();
-    const screen = svg.createSVGPoint();
-    if (edge.axis === "y") {
-      screen.x = rect.left + rect.width / 2;
-      screen.y = edge.low ? rect.top + margin : rect.bottom - margin;
-    } else {
-      screen.x = edge.low ? rect.left + margin : rect.right - margin;
-      screen.y = rect.top + rect.height / 2;
-    }
-    const target = screen.matrixTransform(inv);
-    const k = wanted / ctm.a;
-    const rx = edge.axis === "y" ? centre : extreme;
-    const ry = edge.axis === "y" ? extreme : centre;
-    selection.call(zoom.transform, d3.zoomIdentity.translate(target.x - k * rx, target.y - k * ry).scale(k));
-    return wanted;
+    return Number.isFinite(centre) ? centre : (edge.axis === "y" ? size.width : size.height) / 2;
   }
 
-  export function resetGraphvizForVariant(graphRoot, graphState) {
-    let cachedGraphviz = null;
-    if (graphState && typeof graphState === "object" && graphState.graphviz) {
-      cachedGraphviz = graphState.graphviz;
-    } else if (graphRoot instanceof Element && graphRoot.__graphviz__) {
-      cachedGraphviz = graphRoot.__graphviz__;
-    }
-    // d3-graphviz caches zoom state on the canvas. Destroy the renderer first
-    // so the replacement SVG gets fresh D3 zoom handlers.
-    if (cachedGraphviz && typeof cachedGraphviz.destroy === "function") {
-      cachedGraphviz.destroy();
-    } else if (graphRoot instanceof Element && graphRoot.__graphviz__) {
-      delete graphRoot.__graphviz__;
-    }
-    if (graphRoot instanceof Element) {
-      graphRoot.querySelectorAll("svg").forEach(function (svg) {
-        svg.remove();
+  // Pan and zoom of a drawing in its canvas. The drawing's `g.graph` gets a
+  // transform; the `svg` element takes the size of the canvas. The wheel zooms about
+  // the pointer, a drag pans (a press that moves less than a few pixels stays a
+  // click), two fingers pinch, and the keys `+`, `-`, `0` and the arrows do the same
+  // from the keyboard. Nothing is animated. Returns the controller:
+  // `fit()`, `resize()`, `transform()`, `setTransform({k, x, y})`, `destroy()`.
+  export function createPanZoom(graphRoot, svg, options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const group = svg.querySelector("g.graph") || svg.querySelector("g");
+    const size = drawingSize(svg);
+    svg.setAttribute("data-bp-drawing-width", String(size.width));
+    svg.setAttribute("data-bp-drawing-height", String(size.height));
+    svg.removeAttribute("viewBox");
+    const state = { k: 1, x: 0, y: 0 };
+    let minK = 0.05;
+    const maxK = 8;
+    const canvasSize = function () {
+      return { width: Math.max(1, graphRoot.clientWidth), height: Math.max(1, graphRoot.clientHeight) };
+    };
+    const apply = function () {
+      if (group) {
+        group.setAttribute(
+          "transform",
+          "translate(" + state.x.toFixed(2) + "," + state.y.toFixed(2) + ") scale(" + state.k.toFixed(5) + ")"
+        );
+      }
+      svg.setAttribute("data-bp-graph-scale", state.k.toFixed(4));
+    };
+    const sizeSvg = function () {
+      const canvas = canvasSize();
+      svg.setAttribute("width", String(canvas.width));
+      svg.setAttribute("height", String(canvas.height));
+      return canvas;
+    };
+    const fit = function () {
+      const canvas = sizeSvg();
+      let first = initialTransform(size, canvas, opts.direction, NaN, opts.minScale);
+      if (first.readable) {
+        // a mirrored drawing's own coordinates are those of the direction it was drawn for
+        first = initialTransform(size, canvas, opts.direction, rootsCentre(svg, opts.geometry || opts.direction, size), opts.minScale);
+      }
+      minK = Math.min(first.k, Math.min(canvas.width / size.width, canvas.height / size.height)) * 0.5;
+      state.k = first.k;
+      state.x = first.x;
+      state.y = first.y;
+      apply();
+      svg.setAttribute("data-bp-graph-readable", first.readable ? "1" : "0");
+      return first;
+    };
+    const zoomAbout = function (px, py, factor) {
+      const k = Math.max(minK, Math.min(maxK, state.k * factor));
+      const ratio = k / state.k;
+      state.x = px - ratio * (px - state.x);
+      state.y = py - ratio * (py - state.y);
+      state.k = k;
+      apply();
+    };
+    const local = function (ev) {
+      const rect = svg.getBoundingClientRect();
+      return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+    };
+    const pointers = new Map();
+    let dragged = false;
+    let pinch = 0;
+    const onWheel = function (ev) {
+      ev.preventDefault();
+      const unit = ev.deltaMode === 1 ? 16 : ev.deltaMode === 2 ? 400 : 1;
+      const p = local(ev);
+      zoomAbout(p.x, p.y, Math.exp(-ev.deltaY * unit * (ev.ctrlKey ? 0.01 : 0.0015)));
+    };
+    const onDown = function (ev) {
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY, startX: ev.clientX, startY: ev.clientY });
+      if (pointers.size === 1) dragged = false;
+      if (pointers.size === 2) {
+        const pts = Array.from(pointers.values());
+        pinch = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      }
+    };
+    const onMove = function (ev) {
+      const p = pointers.get(ev.pointerId);
+      if (!p) return;
+      const dx = ev.clientX - p.x;
+      const dy = ev.clientY - p.y;
+      p.x = ev.clientX;
+      p.y = ev.clientY;
+      if (pointers.size === 1) {
+        // a press that moves less than this stays a click on a node
+        if (!dragged && Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY) < 6) return;
+        if (!dragged) {
+          dragged = true;
+          try { svg.setPointerCapture(ev.pointerId); } catch (_err) {}
+          svg.setAttribute("data-bp-graph-panning", "1");
+        }
+        state.x += dx;
+        state.y += dy;
+        apply();
+      } else if (pointers.size === 2) {
+        dragged = true;
+        const pts = Array.from(pointers.values());
+        const distance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const rect = svg.getBoundingClientRect();
+        if (pinch > 0 && distance > 0) {
+          zoomAbout((pts[0].x + pts[1].x) / 2 - rect.left, (pts[0].y + pts[1].y) / 2 - rect.top, distance / pinch);
+        }
+        pinch = distance;
+      }
+    };
+    const onUp = function (ev) {
+      if (!pointers.has(ev.pointerId)) return;
+      pointers.delete(ev.pointerId);
+      try { svg.releasePointerCapture(ev.pointerId); } catch (_err) {}
+      if (pointers.size === 0) svg.removeAttribute("data-bp-graph-panning");
+    };
+    // the click that ends a drag is not a click on what lies under the pointer
+    const onClick = function (ev) {
+      if (!dragged) return;
+      dragged = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+    };
+    const onDouble = function (ev) {
+      if (ev.target instanceof Element && ev.target.closest("g.node")) return;
+      const p = local(ev);
+      zoomAbout(p.x, p.y, ev.shiftKey ? 1 / 1.6 : 1.6);
+    };
+    const onKey = function (ev) {
+      if (ev.target !== svg || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      const canvas = canvasSize();
+      const step = 60;
+      switch (ev.key) {
+        case "+": case "=": zoomAbout(canvas.width / 2, canvas.height / 2, 1.25); break;
+        case "-": case "_": zoomAbout(canvas.width / 2, canvas.height / 2, 0.8); break;
+        case "0": fit(); break;
+        case "ArrowLeft": state.x += step; apply(); break;
+        case "ArrowRight": state.x -= step; apply(); break;
+        case "ArrowUp": state.y += step; apply(); break;
+        case "ArrowDown": state.y -= step; apply(); break;
+        default: return;
+      }
+      ev.preventDefault();
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    svg.addEventListener("pointerdown", onDown);
+    svg.addEventListener("pointermove", onMove);
+    svg.addEventListener("pointerup", onUp);
+    svg.addEventListener("pointercancel", onUp);
+    svg.addEventListener("click", onClick, true);
+    svg.addEventListener("dblclick", onDouble);
+    svg.addEventListener("keydown", onKey);
+    if (!svg.hasAttribute("tabindex")) svg.setAttribute("tabindex", "0");
+    const controller = {
+      fit: fit,
+      // the canvas changed size: the point at its centre stays at its centre
+      resize: function () {
+        const before = { width: parseFloat(svg.getAttribute("width")) || 0, height: parseFloat(svg.getAttribute("height")) || 0 };
+        const canvas = sizeSvg();
+        state.x += (canvas.width - before.width) / 2;
+        state.y += (canvas.height - before.height) / 2;
+        apply();
+      },
+      transform: function () { return { k: state.k, x: state.x, y: state.y }; },
+      setTransform: function (next) {
+        if (!next || !(next.k > 0)) return;
+        state.k = next.k;
+        state.x = Number.isFinite(next.x) ? next.x : state.x;
+        state.y = Number.isFinite(next.y) ? next.y : state.y;
+        apply();
+      },
+      zoomBy: function (factor) {
+        const canvas = canvasSize();
+        zoomAbout(canvas.width / 2, canvas.height / 2, factor);
+      },
+      destroy: function () {
+        svg.removeEventListener("wheel", onWheel);
+        svg.removeEventListener("pointerdown", onDown);
+        svg.removeEventListener("pointermove", onMove);
+        svg.removeEventListener("pointerup", onUp);
+        svg.removeEventListener("pointercancel", onUp);
+        svg.removeEventListener("click", onClick, true);
+        svg.removeEventListener("dblclick", onDouble);
+        svg.removeEventListener("keydown", onKey);
+      }
+    };
+    fit();
+    return controller;
+  }
+
+  // A drawing's labels are sized for a sans-serif face of Helvetica's metrics. Where
+  // the page's face is wider, a label that would pass its node's outline is drawn
+  // at the width that fits. Drawings of very many nodes are left as they are.
+  export function fitDrawingLabels(svg, limit) {
+    const nodes = svg.querySelectorAll("g.node");
+    if (nodes.length > (limit || 1500)) return 0;
+    let fitted = 0;
+    const todo = [];
+    nodes.forEach(function (node) {
+      const outline = node.querySelector(":scope > path, :scope > ellipse");
+      if (!outline) return;
+      let room = 0;
+      try { room = outline.getBBox().width; } catch (_err) { return; }
+      const ellipse = outline.localName === "ellipse";
+      node.querySelectorAll(":scope > text").forEach(function (text) {
+        let length = 0;
+        try { length = text.getComputedTextLength(); } catch (_err) { return; }
+        const most = (ellipse ? room * 0.82 : room) - 8;
+        if (length > most && most > 8) todo.push([text, most]);
       });
-    }
-    if (graphState && typeof graphState === "object") {
-      graphState.graphviz = null;
-      graphState.renderFinalizedToken = 0;
-      graphState.lastCanvasWidth = 0;
-      graphState.lastCanvasHeight = 0;
-      graphState.renderedVariantKey = "";
-      graphState.renderedOptionsKey = "";
-    }
+    });
+    todo.forEach(function (entry) {
+      entry[0].setAttribute("textLength", entry[1].toFixed(1));
+      entry[0].setAttribute("lengthAdjust", "spacingAndGlyphs");
+      fitted += 1;
+    });
+    return fitted;
   }
 
   function readBehaviorSource(behaviorSource) {
@@ -439,15 +645,17 @@
     graphLayoutMode,
     readPreviewBehaviorDefaults,
     layoutGraphCanvas,
-    load,
     graphNodeLabel,
     graphNodeId,
     ensureGraphBlockState,
     rememberGraphLayoutMeasurements,
     resizeRenderedGraphToCanvas,
-    resetGraphvizForVariant,
-    applyReadableGraphZoom,
     minReadableGraphScale,
+    maxFittedGraphScale,
+    drawingSize,
+    initialTransform,
+    createPanZoom,
+    fitDrawingLabels,
     makeGroupPanelPositioner
   };
 
