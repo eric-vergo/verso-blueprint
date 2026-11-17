@@ -153,15 +153,15 @@ private def result (outcome : Replay.Outcome) : Replay.Result :=
     Replay.standing (some (result .noChecker)) needed ==
       .notReplayed "no kernel checker was found" &&
     Replay.standing (some (result .timedOut)) needed ==
-      .notReplayed "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s" &&
+      .noVerdict "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s" &&
     Replay.standing (some (result .off)) needed ==
       .notReplayed "the kernel replay was switched off for this build" &&
     Replay.standing (some { result .failed with message := some "no export was written" })
         needed ==
-      .notReplayed "the replay could not run to a verdict: no export was written" &&
+      .noVerdict "the replay could not run to a verdict: no export was written" &&
     Replay.standing (some { result .overMemory with memoryLimit := some (64 * 1024 * 1024) })
         needed ==
-      .notReplayed "the replay was stopped: leanchecker (Lean 4.35.0) went over its memory \
+      .noVerdict "the replay was stopped: leanchecker (Lean 4.35.0) went over its memory \
         limit of 64 MiB" &&
     Replay.standing (some { result .overExport with exportLimit := some (8 * 1024 * 1024) })
         needed ==
@@ -196,11 +196,11 @@ private def headline : Headline := { challengeModule := `P.Challenge, solutionMo
 -- The states. "Proved" is said in one of them.
 /--
 info: [("proved", "Lean statement proved"),
- ("rejected", "Proof rejected by the kernel checker"),
+ ("rejected", "Not accepted: the kernel checker rejected this build"),
  ("not-replayed",
   "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel"),
  ("not-replayed",
-  "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel"),
+  "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay"),
  ("not-replayed",
   "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel")]
 -/
@@ -226,7 +226,7 @@ info: [("proved", "Lean statement proved"),
         checked" &&
     headlineStanding replay? headline { met with name := `P.assumed } == .assumed #[`P.ax] &&
     (headlineVerdict met (headlineStanding replay? headline { met with name := `P.assumed })).1
-      == "not-replayed" &&
+      == "axioms" &&
     headlineStanding replay? { headline with permittedAxioms := some #[`P.ax] }
       { met with name := `P.assumed } == .accepted
 
@@ -236,7 +236,7 @@ info: ["Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every
  "Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment (in an earlier run, for an export identical to this build's).",
  "Kernel replay: leanchecker (Lean 4.35.0) rejected this build: (kernel) declaration type mismatch",
  "No kernel replay: no kernel checker was found.",
- "No kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.",
+ "No verdict of a kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.",
  "No kernel replay: this site was generated without a kernel replay."]
 -/
 #guard_msgs (whitespace := lax) in
@@ -263,7 +263,7 @@ info: [("proved",
   "Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)"),
  ("reported",
   "◇",
-  "Lean proof without sorry, as the compiled files report; not replayed by a kernel (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)"),
+  "Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)"),
  ("reported",
   "◇",
   "Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)")]
@@ -302,7 +302,7 @@ info: ("reported",
 /--
 info: ("problem",
  "problem",
- "Lean proof without sorry, resting on an axiom outside Lean's standard three (P.ax) (found by the kernel replay in the terms; the compiled files report none)")
+ "Lean proof without sorry, as the compiled files report; replayed and accepted by leanchecker (Lean 4.35.0), with everything it depends on; it rests on an axiom outside Lean's standard three (P.ax), which a kernel accepts without a proof, so it is not shown as proved (the replay found it in the terms; the compiled files report none)")
 -/
 #guard_msgs (whitespace := lax) in
 #eval
@@ -363,7 +363,7 @@ private def page (replay? : Option Replay.Result) : String :=
 #eval
   let html := page (some (result .rejected))
   hasSubstr html "data-bp-verdict=\"rejected\"" &&
-    hasSubstr html ">Proof rejected by the kernel checker</span>" &&
+    hasSubstr html s!">{rejectedVerdictText}</span>" &&
     !hasSubstr html ">Lean statement proved</span>" &&
     hasSubstr html "data-bp-replay=\"rejected\"" &&
     hasSubstr html "Rejected: leanchecker (Lean 4.35.0) found a problem in what this site's \
@@ -377,7 +377,6 @@ private def page (replay? : Option Replay.Result) : String :=
 #guard_msgs in
 #eval
   let states := [(some (result .noChecker), "no kernel checker was found"),
-    (some (result .timedOut), "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s"),
     (some (result .off), "the kernel replay was switched off for this build"),
     (none, "this site was generated without a kernel replay")]
   states.all fun (replay?, why) =>
@@ -389,6 +388,19 @@ private def page (replay? : Option Replay.Result) : String :=
       hasSubstr html "data-bp-replay=\"none\"" &&
       hasSubstr html s!"Not replayed by a kernel: {why}. The marks on this site say what the \
         compiled files report."
+
+-- A replay stopped at its limit: no verdict, and never "not replayed".
+/-- info: true -/
+#guard_msgs in
+#eval
+  let why := "the replay with leanchecker (Lean 4.35.0) did not finish within 900 s"
+  let html := page (some (result .timedOut))
+  hasSubstr html "data-bp-verdict=\"not-replayed\"" &&
+    hasSubstr html s!">{conditionsMetNoVerdictText}</span>" &&
+    hasSubstr html s!"No verdict of a kernel replay: {why}." &&
+    hasSubstr html s!"No verdict of a kernel replay: {why}. The marks on this site say what \
+      the compiled files report." &&
+    !hasSubstr html "Not replayed by a kernel"
 
 /-! ## Colour follows the replay -/
 
@@ -430,11 +442,15 @@ private def page (replay? : Option Replay.Result) : String :=
 -- and no node without `sorry` resting on an axiom outside the standard three.
 /--
 info: [("accepted", "bp_replay_accepted", none),
- ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
- ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
+ ("none",
+  "bp_replay_none",
+  some "the kernel replay accepted the build; on this site 1 node with Lean code is not part of the replay"),
+ ("none",
+  "bp_replay_none",
+  some "the kernel replay accepted the build; on this site 1 node without sorry rests on an axiom outside Lean's standard three"),
  ("rejected", "bp_replay_rejected", some "this build was rejected by the kernel checker"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
- ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
+ ("none", "bp_replay_none", some "as the compiled files report, with no verdict of a kernel replay"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel")]
 -/
 #guard_msgs (whitespace := lax) in
@@ -450,11 +466,12 @@ info: [("accepted", "bp_replay_accepted", none),
 /-- info: true -/
 #guard_msgs in
 #eval
-  Replay.siteState (some (result .accepted)) #[`a, `b] ==
-      .none "2 nodes with Lean code are not part of the replay" &&
-    Replay.siteState (some (result .accepted)) #[] #[`a] ==
-      .none "1 node with Lean code rests on an axiom outside Lean's standard three, which a \
-        kernel accepts without a proof" &&
+  Replay.siteState (some (result .accepted)) #[`a, `b] == .acceptedExcept 2 0 #[] &&
+    Replay.siteState (some (result .accepted)) #[] #[`a] #[`P.ax] == .acceptedExcept 0 1 #[`P.ax] &&
+    (Replay.siteState (some (result .accepted)) #[] #[`a] #[`P.ax]).sentence == "The kernel \
+      replay accepted the build, and the counts are as the compiled files report: 1 node \
+      without sorry rests on the axiom P.ax, which a kernel accepts without a proof, so it is \
+      not shown as proved." &&
     (Replay.siteState none).sentence == "The counts are as the compiled files report, not \
       replayed by a kernel: this site was generated without a kernel replay." &&
     (Replay.siteState (some (result .rejected))).sentence == "This build was rejected by the \
@@ -774,7 +791,7 @@ info: [("Informal.Replay.Outcome.accepted", [`CmpMatch.double_cases, `CmpMatch.d
 /--
 info: ("Informal.Replay.Outcome.rejected", [`CmpForged.double_odd], false)
 (true, true)
-("rejected", "Proof rejected by the kernel checker")
+("rejected", "Not accepted: the kernel checker rejected this build")
 "rejected"
 ("Informal.Replay.Outcome.rejected", [`CmpForged.double_odd], false)
 -/
@@ -852,7 +869,7 @@ private def projectOverDependency (dir : System.FilePath) :
 /--
 info: ("Informal.Replay.Outcome.rejected", [`ReplayReach.double_odd], false)
 (true, true)
-("rejected", "Proof rejected by the kernel checker")
+("rejected", "Not accepted: the kernel checker rejected this build")
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do
@@ -909,7 +926,7 @@ info: ("Informal.Replay.Outcome.accepted",
     | .accepted => "accepted"
     | .assumed _ => "assumed"
     | .rejected => "rejected"
-    | .notReplayed _ => "none"
+    | .notReplayed _ | .noVerdict _ => "none"
   IO.println (repr ((names.push `ReplayReach.double).toList.map fun (d : Name) =>
     (d.toString, standingOf d)))
   IO.println (repr (r.notCovered.toList.map fun ((d, why) : Name × String) => (d.toString, why)))
