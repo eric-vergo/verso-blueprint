@@ -1682,7 +1682,7 @@ is drawn, 150).
 
 Neighbourhoods are drawn with the layers from the top down and from left to
 right only; the page mirrors them for the opposite directions and keeps every
-label upright. The neighbourhood drawings of one graph stop at 128 MiB in all,
+label upright. The neighbourhood drawings of one graph stop at 192 MiB in all,
 smallest sets first, and a neighbourhood of more than 150 nodes is not drawn.
 When a neighbourhood's drawing was left out, the page shows a notice under the
 controls and, where the other axis was drawn, shows that drawing instead.

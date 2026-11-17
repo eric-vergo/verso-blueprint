@@ -306,7 +306,8 @@
 }
 
 /* The node an ego view is centred on. */
-.bp_graph_canvas g.node.bp_graph_ego_center > :is(path, ellipse) {
+/* (the class twice: the status colours' rules are as specific and come later) */
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.node.bp_graph_ego_center.bp_graph_ego_center > :is(path, ellipse) {
   stroke: var(--bp-color-link, #1d4ed8);
   stroke-width: 3;
 }

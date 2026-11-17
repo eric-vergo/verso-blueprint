@@ -340,10 +340,17 @@
     const margin = 24;
     const k = wanted;
     const centre = Number.isFinite(lead) ? lead : (edge.axis === "y" ? size.width : size.height) / 2;
+    // Across the layers the roots are centred, but never so that the canvas shows empty room
+    // beside a drawing that has more to show: a drawing that fits is centred whole, and a wider
+    // one is kept against the canvas's sides.
+    const across = function (room, extent) {
+      if (k * extent <= room - 2 * margin) return (room - k * extent) / 2;
+      return Math.max(room - margin - k * extent, Math.min(margin, room / 2 - k * centre));
+    };
     if (edge.axis === "y") {
       return {
         k: k,
-        x: canvas.width / 2 - k * centre,
+        x: across(canvas.width, size.width),
         y: edge.low ? margin : canvas.height - margin - k * size.height,
         readable: true
       };
@@ -351,7 +358,7 @@
     return {
       k: k,
       x: edge.low ? margin : canvas.width - margin - k * size.width,
-      y: canvas.height / 2 - k * centre,
+      y: across(canvas.height, size.height),
       readable: true
     };
   }

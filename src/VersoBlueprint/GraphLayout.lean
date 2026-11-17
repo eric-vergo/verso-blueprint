@@ -279,7 +279,7 @@ graph around a hub, slow to lay out and hard to read, and the page says that it 
 def egoNodeLimit : Nat := 150
 
 /-- The default limit on the total size of a graph's neighbourhood drawings, in bytes. -/
-def egoByteLimit : Nat := 128 * 1024 * 1024
+def egoByteLimit : Nat := 192 * 1024 * 1024
 
 /-- The folder of a graph's drawings inside the site's data folder. -/
 def drawingsFolder (graphKey : String) : String :=
