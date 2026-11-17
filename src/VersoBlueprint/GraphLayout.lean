@@ -12,10 +12,12 @@ Graph layout and drawing at build time.
 
 Every view of the dependency graph is laid out and drawn while the site is generated, in Lean,
 by PILean's layered layout (the method of Sugiyama, Tagawa and Toda as refined by Gansner,
-Koutsofios, North and Vo): layers by network simplex, crossing reduction by weighted medians,
-transposition and sifting from several starts, coordinates after Brandes and Köpf improved by
-network simplex, clusters as in Sander's compound layout, components packed on shelves. The
-result is deterministic: the same graph gives the same bytes.
+Koutsofios, North and Vo): layers by network simplex, a graph with groups from the inside out so
+that every group has layers of its own, crossing reduction by weighted medians, transposition
+and sifting from several starts, coordinates after Brandes and Köpf improved by network simplex,
+every edge the shortest route through the free space beside the nodes it passes, drawn as one
+smooth curve, components packed on shelves. The result is deterministic: the same graph gives
+the same bytes.
 
 * `drawings` draws one view (`View`) for every direction a reader can choose and with its
   components packed or in one row of layers, as inert SVG (no script, link or event handler)
@@ -43,11 +45,31 @@ structure View where
   clusters : Bool := true
 
 /-- The size of node labels. -/
-def fontSize : Float := 11
+def fontSize : Float := 12
 
-/-- The lines of a node's label. -/
+/-- The most characters of a line of a label before a dotted name is broken. -/
+def labelWidth : Nat := 28
+
+/-- A dotted name over several lines of at most `width` characters where its components allow:
+broken after a dot, never inside a component. A text without a dot, or one that fits, is one
+line. -/
+def wrapDotted (text : String) (width : Nat := labelWidth) : Array String := Id.run do
+  if text.length ≤ width then return #[text]
+  let parts := text.splitOn "."
+  let mut lines : Array String := #[]
+  let mut line := ""
+  for part in parts, i in [0:parts.length] do
+    let piece := if i + 1 < parts.length then part ++ "." else part
+    if !line.isEmpty && line.length + piece.length > width then
+      lines := lines.push line
+      line := piece
+    else line := line ++ piece
+  return if line.isEmpty then lines else lines.push line
+
+/-- The lines of a node's label: its own lines, each long dotted name (a module, a declaration
+in its namespaces) broken after dots, so that a node is not much wider than the others. -/
 def labelLines (node : GraphNode Ref) : Array String :=
-  (node.displayLabel.splitOn "\n").toArray
+  ((node.displayLabel.splitOn "\n").toArray).flatMap wrapDotted
 
 /-- The outline of a node. -/
 def webShape (node : GraphNode Ref) : PILean.Graph.WebShape :=
@@ -60,9 +82,9 @@ def nodeSize (node : GraphNode Ref) : Float × Float :=
   let width := lines.foldl (fun w s => max w (PILean.Graph.sansWidth s fontSize)) 0 * 1.06
   let extra := fontSize * 1.2 * ((lines.size : Nat) - 1).toFloat
   match webShape node with
-  | .ellipse => (max 56 (width * 1.18 + 22), 32 + extra)
-  | .tab => (max 60 (width + 24), 30 + extra)
-  | _ => (max 48 (width + 18), 26 + extra)
+  | .ellipse => (max 56 (width * 1.12 + 20), 32 + extra)
+  | .tab => (max 60 (width + 22), 30 + extra)
+  | _ => (max 48 (width + 16), 26 + extra)
 
 private def styleTokens (node : GraphNode Ref) : List String :=
   (node.style.splitOn ",").map (·.trimAscii.toString)
@@ -150,11 +172,24 @@ def toLayoutGraph (view : View) :
           parent := (parentOf group).bind fun p => sorted.idxOf? p }
   return ({ nodes, edges, clusters }, g.map webNode, webEdges)
 
-/-- The options of the layout: the gaps between nodes and layers, and how many extra starts the
-crossing reduction makes. -/
-def layoutOptions (leftToRight : Bool) (starts : Nat := 16) : PILean.Graph.LayeredOptions :=
+/-- The width from which the nodes of one layer are split over rows: wide enough for a row of
+ten nodes, and for a large graph the width that would make its nodes fill a drawing about twice
+as wide as tall. -/
+def layerWidth (graph : PILean.Graph) : Float :=
+  let area := graph.nodes.foldl (init := 0) fun sum node =>
+    let (width, height) := node.size.getD (0, 0)
+    sum + (width + 18) * (height + 36)
+  max 1800 (2.5 * area).sqrt
+
+/-- The options of the layout: the gaps between nodes and layers, how much the width of a layer
+counts against the straightness of the edges (a drawing of a written blueprint then fits a page
+with its labels readable), the width from which a layer is split into rows, and how many extra
+starts the crossing reduction makes. -/
+def layoutOptions (leftToRight : Bool) (starts : Nat := 16) (maxLayerWidth : Float := 0) :
+    PILean.Graph.LayeredOptions :=
   { direction := if leftToRight then .leftToRight else .topToBottom
-    layerGap := 40, nodeGap := 22, edgeGap := 12, portStep := 10, starts }
+    layerGap := 36, nodeGap := 18, edgeGap := 10, portStep := 10, compact := 4
+    maxLayerWidth, starts }
 
 /-- The style of the layout: the margin around the drawing and the size of cluster titles. -/
 def layoutStyle : PILean.Style := { margin := 12, noteSize := fontSize }
@@ -163,7 +198,7 @@ def layoutStyle : PILean.Style := { margin := 12, noteSize := fontSize }
 components packed or in one row of layers. -/
 def layoutOf (graph : PILean.Graph) (leftToRight pack : Bool) (starts : Nat := 16) :
     PILean.Graph.Layout :=
-  let options := layoutOptions leftToRight starts
+  let options := layoutOptions leftToRight starts (layerWidth graph)
   if pack then graph.layoutPacked options layoutStyle else graph.layout options layoutStyle
 
 /-- One drawing of a view. -/

@@ -5,6 +5,7 @@ Author: Eric Vergo
 -/
 
 import PILean.Svg.Inert
+import PILean.Graph.Check
 import VersoBlueprint.GraphLayout
 import VersoBlueprintTests.Blueprint.Support
 import VersoBlueprintTests.BlueprintGraph.Shared
@@ -13,7 +14,8 @@ import VersoBlueprintTests.BlueprintGraph.Shared
 The dependency graph is laid out and drawn while the site is built: the layout graph a view
 becomes (nodes, edges and groups with the page's side of each), the drawings of a view (one per
 direction and packing, deterministic, inert, escaping what a label says), the mirrored directions,
-the neighbourhood sets, and the folder of drawings with its index and limit.
+the routes of the edges (clear of nodes and of groups they do not end in, never back across the
+layers), the neighbourhood sets, and the folder of drawings with its index and limit.
 -/
 
 namespace Verso.VersoBlueprintTests.BlueprintGraph.Layout
@@ -119,6 +121,23 @@ private def webEdges (view : View) : Array PILean.Graph.WebEdge :=
   let nodes := webNodes { graph := #[multi, mk `n] }
   nodes[0]!.lines == #["first line", "second line"] &&
   (nodeSize multi).2 > (nodeSize (mk `n)).2
+
+-- A long dotted name is broken after dots into lines of at most 28 characters where its
+-- components allow; other labels keep their lines, and nothing of a label is lost.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let long := "Project.Analysis.SpecialFunctions.Complex.LogBounds"
+  let node := mk `long (display? := some long)
+  labelLines node == #["Project.Analysis.", "SpecialFunctions.Complex.", "LogBounds"] &&
+  String.join (labelLines node).toList == long &&
+  wrapDotted "a_label_without_any_dot_that_is_longer_than_a_line" ==
+    #["a_label_without_any_dot_that_is_longer_than_a_line"] &&
+  wrapDotted "Short.name" == #["Short.name"] &&
+  wrapDotted "A.ComponentLongerThanALineIsNeverBrokenInside.b" 20 ==
+    #["A.", "ComponentLongerThanALineIsNeverBrokenInside.", "b"] &&
+  (webNodes { graph := #[node] })[0]!.lines.size == 3 &&
+  (nodeSize node).1 < (PILean.Graph.sansWidth long fontSize)
 
 /-! ## The drawings -/
 
@@ -249,6 +268,74 @@ private def webEdges (view : View) : Array PILean.Graph.WebEdge :=
   hasSubstr d "stroke-dasharray=\"5 3\"" && hasSubstr d "class=\"edge bp_graph_edge_mixed\"" &&
   hasSubstr d "class=\"edge bp_graph_edge_proof\"" && hasSubstr d "Group G" &&
   hasSubstr d "class=\"cluster\""
+
+/-! ## The routes of the edges -/
+
+/-- Two groups joined through a third node, a node used across both, and a long edge past
+them: the edges have groups to go round. -/
+private def grouped : Graph String := #[
+  mk `top,
+  mk `u1 #[`top] (parent? := some `upper), mk `u2 #[`u1] (parent? := some `upper),
+  mk `between #[`u2],
+  mk `l1 #[`between] (parent? := some `lower), mk `l2 #[`l1, `u1] (parent? := some `lower),
+  mk `side #[`top], mk `last #[`l2, `top, `side]]
+
+private def points (path : PILean.Path) : Array PILean.Point :=
+  (path.flatten 0.5).foldl (fun acc line => acc ++ line.points) #[]
+
+-- No edge passes a node it does not end at, or through a group that holds neither of its ends,
+-- and the boxes of the groups hold exactly their nodes, in every direction and packing.
+/-- info: true -/
+#guard_msgs in
+#eval
+  [sampleView, { graph := grouped }].all fun view =>
+    let g := layoutGraph view
+    [false, true].all fun leftToRight =>
+      [false, true].all fun pack =>
+        let l := layoutOf g leftToRight pack
+        (PILean.Graph.clearanceProblems g l).isEmpty && (PILean.Graph.clusterProblems g l).isEmpty
+
+-- An edge never turns back across the layers (no edge runs round the outside of the drawing),
+-- and an edge between neighbouring layers with nothing in its way is one straight line.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let g := layoutGraph { graph := grouped }
+  let down := (layoutOf g false false).edges.all fun e =>
+    let ps := points e.path
+    (Array.range (ps.size - 1)).all fun i => ps[i]!.y ≤ ps[i + 1]!.y + 1e-6
+  let across := (layoutOf g true false).edges.all fun e =>
+    let ps := points e.path
+    (Array.range (ps.size - 1)).all fun i => ps[i]!.x ≤ ps[i + 1]!.x + 1e-6
+  let straight := (layoutOf (layoutGraph chainView) false false).edges.all fun e =>
+    e.points.size == 2
+  down && across && straight
+
+-- The check sees a fault: an edge drawn through the middle of another node is reported.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let g := layoutGraph { graph := grouped }
+  let l := layoutOf g false false
+  let box := l.nodes[3]!.box
+  let through := ((PILean.Path.empty.moveTo ⟨box.x0 - 5, (box.y0 + box.y1) / 2⟩).lineTo
+    ⟨box.x1 + 5, (box.y0 + box.y1) / 2⟩)
+  let bad := { l with edges := l.edges.modify 0 fun e => { e with path := through } }
+  (PILean.Graph.clearanceProblems g l).isEmpty && !(PILean.Graph.clearanceProblems g bad).isEmpty
+
+-- The options: the width of a layer counts in the coordinates, and a layer is split into rows
+-- from a width that grows with the graph and is never less than a row of about ten nodes.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let small := layoutGraph sampleView
+  let wide : Graph String := (Array.range 120).map fun i => mk (Name.mkSimple s!"leaf{i}") #[`hub]
+  let star := layoutGraph { graph := #[mk `hub] ++ wide }
+  let unsplit := star.layout (layoutOptions false) layoutStyle
+  (layoutOptions false).compact == 4 && (layoutOptions true (maxLayerWidth := 7)).maxLayerWidth == 7 &&
+  layerWidth small == 1800 && layerWidth star ≥ 1800 &&
+  (layoutOf star false false).width < unsplit.width / 2 &&
+  (layoutOf star false false).height > unsplit.height
 
 /-! ## Neighbourhoods -/
 
