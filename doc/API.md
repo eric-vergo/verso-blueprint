@@ -723,7 +723,7 @@ Three common workflows consume that same model:
 Lean callers can build the semantic graph object from elaboration state with
 `Informal.Graph.buildModel`. Before Verso traversal finishes, the value is a
 `GraphModel`: it may not yet include rendered hrefs or display titles and it
-contains no derived edge, child, or DOT-variant caches:
+contains no derived edge, child, or render-variant caches:
 
 ```lean
 import VersoBlueprint.Graph
@@ -767,21 +767,21 @@ group metadata. `GraphModel.finish` is the lower-level finalization operation.
 It derives one edge per retained source/target pair with combined
 statement/proof axes, omits dependencies with a missing source endpoint,
 derives group membership from node parents, preserves metadata for retained
-groups, and generates the DOT variants from that same graph.
+groups, and generates the render variants from that same graph.
 
 The resulting `GraphData` constructor is private. A finished record can be
 inspected or converted back with `toModel`, but its topology cannot be changed
 while retaining old edges, children, or variants. `FromJson GraphData` likewise
 rejects duplicate dependencies and any edge, group-membership, preview mapping,
-or DOT variant that disagrees with the authoritative nodes.
+or render variant that disagrees with the authoritative nodes.
 
 Topology finalization and preview-artifact resolution are separate boundaries.
-`GraphModel.finish` fixes topology and DOT exactly once. Later, after the
+`GraphModel.finish` fixes topology and render variants exactly once. Later, after the
 manifest and rendered-fragment cache are both known,
 `PreviewManifest.File.finalizePreviewReferences` uses
 `GraphData.filterPreviewReferences` to remove unavailable preview keys from nodes
 and their variant lookup entries together. That synchronized post-pass cannot
-change nodes' dependencies or parents, derived edges or children, or DOT, and
+change nodes' dependencies or parents, derived edges or children, or render variants, and
 cannot rewrite one preview key into another.
 
 Once traversal has completed, use `Informal.GraphApi` to finalize either one
@@ -866,7 +866,7 @@ explicitly requesting that facet.
 | Explicit proof facet identity | `PreviewCache.proofKey label` |
 
 The bundled graph renderer uses that finalized graph data as its block-level
-source of truth. `GraphApi.finishData` attaches DOT render variants at the one
+source of truth. `GraphApi.finishData` attaches render variants at the one
 semantic-to-public topology boundary, so page rendering and custom clients
 exercise the same schema and topology without scraping rendered graph pages.
 
@@ -920,6 +920,12 @@ standard `.bp_graph_fullwidth` element first and insert or render it later. Use
 rendered in one call. Both helpers consume the graph record's precomputed
 `variants` array and return `null` when it does not contain valid render
 variants.
+
+Variants carry no drawing. Each view of a graph is drawn when the site is built
+and written to the site's data folder as `blueprint-graph/<key>/` (the graph's
+key with every character that is not a letter or digit replaced by `-`): the
+render helpers fetch the drawing of the view, direction and packing a reader
+chooses from there, through the `dataUrl` of the preview API they are given.
 
 The module can also initialize an existing graph block. That existing-markup
 path is for markup that is already present, such as the standard

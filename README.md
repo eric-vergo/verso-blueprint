@@ -375,7 +375,9 @@ Blueprint can render:
 The graph page is interactive rather than static: it can expose a view switcher
 for grouped graphs, a legend popover, a `Graph options` control for direction
 and component-packing switches, and graph-node previews that can be configured
-as pinned or hover panels with docked or anchored placement.
+as pinned or hover panels with docked or anchored placement. Every view is laid
+out and drawn as SVG while the site is built, in Lean, so the page needs no
+layout program or graph library; pan and zoom are the page's own.
 
 Progress is computed automatically from the status of the associated Lean code
 and declarations, so the HTML summary and graph views stay aligned with the
@@ -575,6 +577,10 @@ Verso Blueprint builds on:
   write and render Blueprint documents
 - [Lean 4](https://lean-lang.org/), the language and tooling used to elaborate
   the document and connect it to formal code
+- [PILean](https://github.com/eric-vergo/PILean), a pure Lean library under the
+  Apache 2.0 licence that lays out and draws the dependency graph; it is a Lake
+  dependency, and none of its files are copied into this repository or into a
+  generated site
 
 Verso Blueprint has been directly inspired by previous blueprint projects:
 

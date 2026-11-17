@@ -110,8 +110,9 @@
   hardcoding the active catalog.
 - End-user docs should treat `lake exe vbp build` as the preferred Blueprint
   generation interface.
-- End-user docs should not require Python helper scripts or a system Graphviz
-  installation for normal package usage.
+- End-user docs should not require Python helper scripts or any layout program
+  for normal package usage: the dependency graph is laid out and drawn while the
+  site is built, in Lean.
 - End-user docs should also explain the current standard Verso workflow
   honestly: a Blueprint project owns both the Blueprint source modules and a
   generator entry point that writes `_out/` when invoked by `vbp build`.

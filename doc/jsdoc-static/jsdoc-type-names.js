@@ -45,7 +45,6 @@
     "BlueprintGraphNode",
     "BlueprintGraphData",
     "BlueprintGraphVariant",
-    "BlueprintGraphRuntimeLibraries",
     "BlueprintGraphRenderOptions",
     "BlueprintGraphLayoutOptions",
     "BlueprintGraphController",
