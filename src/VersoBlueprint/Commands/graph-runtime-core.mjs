@@ -289,7 +289,7 @@
   // Smallest on-screen scale (CSS pixels per unit of the drawing) the first view of a
   // graph uses. Fitting a large graph into a narrow pane can shrink nodes to a few
   // pixels; below this scale the graph starts readable instead, showing its roots.
-  export const minReadableGraphScale = 0.55;
+  export const minReadableGraphScale = 0.5;
 
   // The largest scale a fitted view uses: a graph of a few nodes is not blown up to
   // fill the canvas.
