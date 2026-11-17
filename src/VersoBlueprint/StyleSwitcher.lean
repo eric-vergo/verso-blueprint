@@ -31,6 +31,14 @@ def css : String := r##"
   font-size: 0.82rem;
 }
 
+/* In the foot of the table of contents: in the page's layout, never over its text. */
+#toc > .last > #bp-style-switcher {
+  position: static;
+  display: inline-flex;
+  margin: 0.5rem 0.75rem 0.75rem;
+  box-shadow: none;
+}
+
 #bp-style-switcher .bp-style-switcher-control {
   display: inline-flex;
   align-items: center;
@@ -269,7 +277,11 @@ private def jsTemplate : String := r##"(function () {
       saveStyle(value);
     });
 
-    document.body.appendChild(host);
+    // A floating box would cover the text under it, so the switcher goes into the foot of the
+    // table of contents when the page has one (a sidebar adopts it from there); it floats only
+    // on a page without one.
+    const tocFoot = document.querySelector("#toc > .last");
+    (tocFoot || document.body).appendChild(host);
   }
 
   function installProofHider() {
