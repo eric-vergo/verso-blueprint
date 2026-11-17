@@ -165,8 +165,8 @@ private def result (outcome : Replay.Outcome) : Replay.Result :=
         limit of 64 MiB" &&
     Replay.standing (some { result .overExport with exportLimit := some (8 * 1024 * 1024) })
         needed ==
-      .notReplayed "the replay was stopped: the export of what the site's declarations depend \
-        on went over its size limit of 8 MiB"
+      .notReplayed "the export of what the site's declarations depend on went over its size \
+        limit of 8 MiB, so the checker was not run"
 
 -- A kernel accepts an axiom without a proof. A declaration the replay checked counts as proved
 -- only when the replay found no axiom under it beyond the permitted ones: Lean's standard three,
@@ -1027,10 +1027,10 @@ private def standIn (dir : System.FilePath) (command : String) : IO System.FileP
     { user := { read := true, write := true, execution := true } }
   return script
 
--- An export larger than its limit is not checked: no verdict, with the reason.
+-- An export larger than its limit is not checked: nothing replayed, with the reason.
 /--
 info: ("Informal.Replay.Outcome.overExport", some 1000)
-"the replay was stopped: the export of what the site's declarations depend on went over its size limit of 0 MiB"
+"the export of what the site's declarations depend on went over its size limit of 0 MiB, so the checker was not run"
 -/
 #guard_msgs (whitespace := lax) in
 #eval show CoreM Unit from do

@@ -178,8 +178,8 @@ def Result.whyNot (r : Result) : String :=
     s!"the replay was stopped: {r.message.getD r.checkerName} went over its memory limit{limit}"
   | .overExport =>
     let limit := r.exportLimit.map (s!" of {mib ·} MiB") |>.getD ""
-    s!"the replay was stopped: the export of what the site's declarations depend on went over \
-      its size limit{limit}"
+    s!"the export of what the site's declarations depend on went over its size limit{limit}, \
+      so the checker was not run"
   | .failed =>
     let detail := r.message.map (s!": {·}") |>.getD ""
     s!"the replay could not run to a verdict{detail}"
