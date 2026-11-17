@@ -118,9 +118,17 @@ def Index.resting (index : Index) : Array Name :=
     | .assumed axioms => if axioms.contains Data.sorryAxiom then none else some label
     | _ => none).qsort (·.toString < ·.toString)
 
+/-- The axioms outside Lean's standard three under the nodes of `Index.resting`, each once. -/
+def Index.restingAxioms (index : Index) : Array Name :=
+  let resting := index.resting
+  Data.sortAxioms <| index.standings.fold (init := #[]) fun acc label standing =>
+    match standing with
+    | .assumed axioms => if resting.contains label then acc ++ axioms else acc
+    | _ => acc
+
 /-- What the site as a whole may show in the success colour. -/
 def Index.siteState (index : Index) : Replay.SiteState :=
-  Replay.siteState index.replay? index.uncovered index.resting
+  Replay.siteState index.replay? index.uncovered index.resting index.restingAxioms
 
 /-- What the replay establishes for node `label` of a dependency graph. -/
 def Index.nodeReplay (index : Index) (label : Name) : Graph.NodeReplay :=

@@ -196,6 +196,10 @@ def generate_code_site(data: Path, root: Path, output_dir: Path, *flags: str) ->
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
+    # Verso looks for the project of a site by its `lean-toolchain`; a project written to a
+    # temporary folder has none of its own
+    if not any((folder / "lean-toolchain").exists() for folder in (root, *root.parents)):
+        shutil.copy(PACKAGE_ROOT / "lean-toolchain", root / "lean-toolchain")
     subprocess.run(
         [str(vbp_executable()), "code-site", "--data", str(data), "--root", str(root),
          "--output", str(output_dir), "--reproducible", *flags],
@@ -235,4 +239,17 @@ def large_site_dir(tmp_path_factory) -> Path:
 @pytest.fixture(scope="session")
 def large_site_url(large_site_dir: Path):
     with serve_site(large_site_dir) as url:
+        yield url
+
+
+@pytest.fixture(scope="session")
+def mid_site_url(tmp_path_factory):
+    """A generated site of 64 declarations in four chains of modules, whose full graph drawn top
+    down is a little too wide for a 1400 px window at the readable scale."""
+    root = tmp_path_factory.mktemp("mid-code-site")
+    data = write_large_code_site(root, modules=4, per_module=16, chains=4)
+    site = generate_code_site(
+        data, root, root / "_out", "--no-kernel-replay", "--no-comparator", "--no-stats-page"
+    )
+    with serve_site(site) as url:
         yield url

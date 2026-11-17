@@ -170,7 +170,11 @@ structure Summary where
   theoremStatus : EntryStatusCounts := {}
   corollaryStatus : EntryStatusCounts := {}
   axiomStatus : EntryStatusCounts := {}
+  /-- Nodes with Lean code that lack an informal statement or, for a theorem-like node, an
+  informal proof. -/
   pendingInformalEntries : List PendingInformalItem := []
+  /-- Theorem-like nodes with Lean code and without an informal proof. -/
+  missingInformalProofs : Nat := 0
   leanDecls : Nat := 0
   incompleteDecls : Nat := 0
   incompleteDetails : List IncompleteItem := []

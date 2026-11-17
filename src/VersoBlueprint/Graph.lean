@@ -494,7 +494,7 @@ def warningHiddenInGroupViewText : String := "Warning markers are not shown indi
 def edgeMixedText : String := "Thicker solid/dashed: statement + proof deps"
 def groupEdgeMixedText : String := "Thicker solid: statement + proof deps"
 def graphLegendFullViewNote : String :=
-  "Shape shows declaration kind, border shows the status of the Lean statement, fill shows the status of the Lean proof or definition, and edge style separates statement from proof dependencies. A status is about Lean code: no tool checks that a Lean statement says what its informal statement says. Green is drawn only for Lean code a kernel replay accepted; the same status without one is grey."
+  "Shape shows declaration kind, border shows the status of the Lean statement, fill shows the status of the Lean proof or definition, and edge style separates statement from proof dependencies. A status is about Lean code: no tool checks that a Lean statement says what its informal statement says. Green is drawn only for Lean code a kernel replay accepted and that rests on no axiom outside Lean's standard three; otherwise the same status is grey."
 
 private def legendItem (label : String) (swatch? : Option LegendSwatch := none) : LegendItem :=
   { label, swatch? }

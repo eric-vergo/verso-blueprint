@@ -84,13 +84,17 @@ private def directSorry : Data.ProvedStatus :=
   let native := statusGlyph (some (mark .theorem .proved #[`Demo.t._native.native_decide.ax_1]))
   let both := statusGlyph (some (mark .theorem .proved #[`A.ax, `B.ax, `T._native.bv_decide.ax_2]))
   extra.1.modifier == "problem" &&
-    extra.2 == "Lean proof without sorry, resting on an axiom outside Lean's standard three \
-      (Demo.ax)" &&
+    extra.2 == "Lean proof without sorry, as the compiled files report, resting on an axiom \
+      outside Lean's standard three (Demo.ax); not replayed by a kernel (this site was generated \
+      without a kernel replay)" &&
     native.1.modifier == "problem" &&
-    native.2 == "Lean proof without sorry, resting on the result of compiled code \
-      (Demo.t._native.native_decide.ax_1)" &&
-    both.2 == "Lean proof without sorry, resting on axioms outside Lean's standard three \
-      (A.ax, B.ax) and the result of compiled code (T._native.bv_decide.ax_2)"
+    native.2 == "Lean proof without sorry, as the compiled files report, resting on the result \
+      of compiled code (Demo.t._native.native_decide.ax_1); not replayed by a kernel (this site \
+      was generated without a kernel replay)" &&
+    both.2 == "Lean proof without sorry, as the compiled files report, resting on axioms \
+      outside Lean's standard three (A.ax, B.ax) and the result of compiled code \
+      (T._native.bv_decide.ax_2); not replayed by a kernel (this site was generated without a \
+      kernel replay)"
 
 -- A `sorry`, a missing declaration, no declaration.
 /-- info: true -/
@@ -495,6 +499,7 @@ private def nodeView : NodeView.NodeView := {
     let index ← IO.FS.readFile (html / "index.html")
     let chapter ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
     let statsPage ← IO.FS.readFile (html / "Project-Stats" / "index.html")
+    let summaryPage ← IO.FS.readFile (html / "Blueprint-Summary" / "index.html")
     let views ← IO.FS.readFile (html / "-verso-data" / "blueprint-node-views.json")
     let entries := ((Json.parse views).toOption.bind
         (fun j => (j.getObjValAs? (Array Json) "entries").toOption)).getD #[]
@@ -544,6 +549,13 @@ private def nodeView : NodeView.NodeView := {
       ("Lean complete counts", hasSubstr statsPage "2 of 4 theorems, 1 of 2 definitions."),
       ("informal statement count", hasSubstr statsPage "Informal statements: 2 of 6 nodes have \
         one. No tool has checked any of them against the Lean statements."),
+      -- the summary's card counts statements and proofs, and says so in the same terms as the
+      -- count above: 4 of the 6 nodes have no informal statement, 3 theorems no informal proof
+      ("informal card title", hasSubstr summaryPage "Missing informal statement or proof"),
+      ("informal card parts", hasSubstr summaryPage "Nodes with Lean code: 4 nodes without an \
+        informal statement, 3 nodes of the theorem-like ones without an informal proof; a node \
+        without either is counted once."),
+      ("no old card title", !hasSubstr summaryPage "Missing informal coverage"),
       ("the explanation of the marks", hasSubstr statsPage s!"id=\"{Informal.Meaning.anchor}\""),
       ("no old wording", !hasSubstr statsPage "fully proved" && !hasSubstr stated "Proved in Lean")]
     return (checks.filter (!·.2)).map (·.1)

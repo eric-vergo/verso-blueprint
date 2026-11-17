@@ -291,6 +291,12 @@
   // pixels; below this scale the graph starts readable instead, showing its roots.
   export const minReadableGraphScale = 0.5;
 
+  // A drawing that fits whole at this scale or above starts whole, although the fit is below
+  // `minReadableGraphScale`: a picture cropped by a little hides more than slightly smaller
+  // labels do (12 px labels are about 4.3 px high here, still legible at a glance and read by
+  // zooming in). Below it the first view is the readable one, on the roots.
+  export const wholeGraphScaleFloor = 0.36;
+
   // The largest scale a fitted view uses: a graph of a few nodes is not blown up to
   // fill the canvas.
   export const maxFittedGraphScale = 1.4;
@@ -325,14 +331,15 @@
   }
 
   // Where the first view of a drawing of `size` goes in a canvas of `canvas` (both
-  // `{ width, height }`): fitted and centred, at most `maxFittedGraphScale`; when the
-  // fit would be smaller than `minScale`, at `minScale` with the roots' layer (`lead`,
+  // `{ width, height }`): fitted and centred, at most `maxFittedGraphScale`, whenever the
+  // fit is at least `wholeGraphScaleFloor` (or `minScale`, when that is smaller); when the
+  // fit is smaller still, at `minScale` with the roots' layer (`lead`,
   // the centre of the roots across the layers, in drawing units) at the canvas's
   // leading edge. Returns `{ k, x, y, readable }`.
   export function initialTransform(size, canvas, direction, lead, minScale) {
     const wanted = Number.isFinite(minScale) && minScale > 0 ? minScale : minReadableGraphScale;
     const fit = Math.min(canvas.width / size.width, canvas.height / size.height);
-    if (fit >= wanted) {
+    if (fit >= Math.min(wanted, wholeGraphScaleFloor)) {
       const k = Math.min(fit, maxFittedGraphScale);
       return { k: k, x: (canvas.width - k * size.width) / 2, y: (canvas.height - k * size.height) / 2, readable: false };
     }
@@ -675,6 +682,7 @@
     rememberGraphLayoutMeasurements,
     resizeRenderedGraphToCanvas,
     minReadableGraphScale,
+    wholeGraphScaleFloor,
     maxFittedGraphScale,
     drawingSize,
     initialTransform,

@@ -290,25 +290,50 @@ private def notAllowedText (t : HeadlineTheorem) : String :=
     s!"{if one then "an axiom" else "axioms"} the challenge does not permit ({names})"
   else s!"{if one then "an axiom" else "axioms"} outside Lean's standard three ({names})"
 
-/-- The verdict when the comparison's conditions are met and no kernel replay stands behind
-them: exactly what the compiled files report. -/
+/-- The verdict when the comparison's conditions are met and nothing was replayed for the
+theorem: exactly what the compiled files report. -/
 def conditionsMetText : String :=
   "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files \
     report, not replayed by a kernel"
+
+/-- The verdict when the comparison's conditions are met and a replay stopped without a
+verdict. -/
+def conditionsMetNoVerdictText : String :=
+  "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files \
+    report, with no verdict of a kernel replay"
+
+/-- The verdict when the comparison's conditions are met, the checker accepted the build, and
+the replay found under the theorem `axioms` the challenge does not permit (outside Lean's
+standard three when it states no list). -/
+def conditionsMetAssumedText (t : HeadlineTheorem) (axioms : Array Name) : String :=
+  let names := ", ".intercalate (axioms.toList.map (·.toString))
+  let one := axioms.size == 1
+  let which := if t.axiomsPermitted.isSome then "the challenge does not permit"
+    else "outside Lean's standard three"
+  s!"Same Lean statement as the challenge; replayed and accepted by a kernel; it rests on \
+    {if one then "an axiom" else "axioms"} {which} ({names}), which a kernel accepts without a \
+    proof, so it is not shown as proved"
+
+/-- The verdict on a theorem whose comparison's conditions are met when the checker rejected the
+build. The checker stops at its first problem, which need not be in this theorem's proof. -/
+def rejectedVerdictText : String := "Not accepted: the kernel checker rejected this build"
 
 /-- The verdict on a theorem of the challenge: a token for markup and the words shown. The
 words are about the Lean statement. "Proved" is said only of the same Lean statement as the
 challenge's, without `sorry`, without an axiom the verdict does not allow, and with the theorem
 and everything it depends on accepted by a kernel replay (`standing`). When the replay rejected
 the build the verdict says so; without a verdict of a replay it says what the compiled files
-report (`conditionsMetText`). -/
+report (`conditionsMetText`), or that no verdict was reached; when the replay accepted the
+theorem and found an axiom under it the verdict is not allowed, it says so. -/
 def headlineVerdict (t : HeadlineTheorem)
     (standing : Replay.Standing := .notReplayed Replay.noReplayText) : String × String :=
   if t.conditionsMet then
     match standing with
     | .accepted => ("proved", "Lean statement proved")
-    | .rejected => ("rejected", "Proof rejected by the kernel checker")
-    | .notReplayed _ | .assumed _ => ("not-replayed", conditionsMetText)
+    | .rejected => ("rejected", rejectedVerdictText)
+    | .notReplayed _ => ("not-replayed", conditionsMetText)
+    | .noVerdict _ => ("not-replayed", conditionsMetNoVerdictText)
+    | .assumed axioms => ("axioms", conditionsMetAssumedText t axioms)
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -415,7 +440,16 @@ def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing)
     let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
     s!"Kernel replay: {checker} rejected this build{message}"
   | .notReplayed why => s!"No kernel replay: {why}."
-  | .assumed _ => s!"No verdict of a kernel replay: {standing.why}."
+  | .noVerdict why => s!"No verdict of a kernel replay: {why}."
+  | .assumed axioms =>
+    let earlier := if replay?.any (·.recorded) then
+        " (in an earlier run, for an export identical to this build's)" else ""
+    let noun := if axioms.size == 1 then "an axiom" else "axioms"
+    s!"Kernel replay: {checker} accepted this theorem and every constant it depends on, in \
+      this project, in its dependencies and in Lean's own library, starting from an empty \
+      environment{earlier}; the replay found under it {noun} the verdict does not allow \
+      ({", ".intercalate (axioms.toList.map (·.toString))}), which a kernel accepts without a \
+      proof."
 
 /-- What the replay establishes for a judged theorem of a headline: whether it checked the
 theorem with everything it depends on, and found no axiom under it beyond those the challenge
@@ -831,13 +865,16 @@ def meaningItems : Array (String × String) := #[
       that holds for every node with Lean code that has no sorry. Everywhere else the same \
       statuses are drawn in grey, and after a rejected replay nothing is green."),
   ("Kernel replay, and the check mark on a node",
-    "while this site was generated, the Lean declarations of its nodes and every constant they \
-      depend on, in this project, in its dependencies and in Lean's own library, were exported \
-      and checked again in Lean's kernel by the toolchain's leanchecker, starting from an empty \
-      environment. A node has the check mark only when its Lean code is complete and the replay \
-      accepted it; otherwise its mark is the diamond, which says what the compiled files \
-      report. A file can keep Lean's kernel from seeing a declaration, in a project or in \
-      something it depends on, and only a replay notices."),
+    "a replay made while a site is generated exports the Lean declarations of its nodes and \
+      every constant they depend on, in the project, in its dependencies and in Lean's own \
+      library, and checks them again in Lean's kernel with the toolchain's leanchecker, \
+      starting from an empty environment; the Kernel replay section above says whether one ran \
+      for this site and how it ended. A node has the check mark only when its Lean code is \
+      complete, rests on no axiom outside Lean's standard three, and the replay accepted it. \
+      Otherwise its mark is the diamond when no verdict of a replay stands behind its code, the \
+      warning mark when the code rests on such an axiom (whether or not the replay accepted \
+      it), and ⊘ when the checker rejected the build. A file can keep Lean's kernel from seeing \
+      a declaration, in a project or in something it depends on, and only a replay notices."),
   ("Axioms",
     "the axioms each declaration depends on, as Lean reports them for this build. propext, \
       Classical.choice and Quot.sound are Lean's standard three; a sorry, the result of compiled \

@@ -278,7 +278,7 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
       else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced with
         | .accepted => view.codeEntrySymbol
         | .rejected => "⊘"
-        | .notReplayed _ => "◇"
+        | .notReplayed _ | .noVerdict _ => "◇"
         | .assumed _ => "⚠"
     { classSuffix := view.codeEntryClassSuffix, symbol }
 

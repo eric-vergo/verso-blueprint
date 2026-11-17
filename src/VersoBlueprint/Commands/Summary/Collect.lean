@@ -457,6 +457,8 @@ private def collectSummaryOverview (ctx : SummaryBuildContext) : Summary :=
       informalOnlyEntries := acc.informalOnlyEntries + (if hasStatement && !hasCode then 1 else 0)
       totalStatus := bumpEntryStatus acc.totalStatus statusFlags
       pendingInformalEntries
+      missingInformalProofs := acc.missingInformalProofs +
+        (if hasCode && node.kind.isTheoremLike && !hasProof then 1 else 0)
       leanDecls := acc.leanDecls + leanSummary.leanDecls
       incompleteDecls := acc.incompleteDecls + leanSummary.incompleteDecls
       incompleteDetails := leanSummary.incompleteDetails ++ acc.incompleteDetails
