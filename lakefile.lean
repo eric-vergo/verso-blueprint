@@ -2,7 +2,7 @@ import Lake
 open Lake DSL
 
 -- Pin the matching Lean 4.35 stable dependency stack.
-require verso from git "https://github.com/leanprover/verso"@"v4.35.0"
+require verso from git "https://github.com/leanprover/verso"@"v4.35.0-patch1"
 require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.35.0"
 -- Side-by-side nodes need `SubVerso.Module.findDecl?`, which is not in an upstream
 -- SubVerso release. The commit below is on the branch `release/verso-v4.35.0` of
