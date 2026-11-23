@@ -37,12 +37,13 @@ namespace Informal.GraphLayout
 open Lean
 open Informal.Graph
 
-/-- A view to draw: its nodes, the titles of its groups, and whether groups are drawn as
-boxes around their nodes. -/
+/-- A view to draw: its nodes, the titles of its groups, whether groups are drawn as boxes
+around their nodes, and how its edges are drawn. -/
 structure View where
   graph : Graph String
   groupTitle : Name → Option String := fun _ => none
   clusters : Bool := true
+  routing : GraphRouting := .bundled
 
 /-- The size of node labels. -/
 def fontSize : Float := 12
@@ -189,24 +190,65 @@ def layerWidth (graph : PILean.Graph) : Float :=
     sum + (width + 18) * (height + 36)
   max 1800 (2.5 * area).sqrt
 
+/-- The look of bundled routes: neighbouring lanes 8 pixels apart, the innermost corner of a
+turning bundle of radius 10 (each lane further out turning about the same centre), a straight
+stem of 14 pixels at every port, and at least 16 pixels between two runs on one track. -/
+def bundleStyle : PILean.Graph.BundleStyle :=
+  { laneGap := 8, radius := 10, stemLength := 14, trackGap := 16 }
+
+/-- The most edges of a view drawn with bundled lanes. -/
+def bundledEdgeLimit : Nat := 2000
+
+/-- The most edges at one node of a view drawn with bundled lanes: the lanes of a node with many
+more edges than its neighbours run side by side round the whole drawing. -/
+def bundledDegreeLimit : Nat := 60
+
+/-- The largest number of edges at one node of `graph` (an edge from a node to itself counted
+once). -/
+def maxDegree (graph : PILean.Graph) : Nat := Id.run do
+  let mut degree : Array Nat := Array.replicate graph.nodes.size 0
+  for e in graph.edges do
+    if e.src < degree.size then degree := degree.modify e.src (· + 1)
+    if e.dst != e.src && e.dst < degree.size then degree := degree.modify e.dst (· + 1)
+  return degree.foldl max 0
+
+/-- How the edges of a view of `graph` are drawn when `asked` is asked for: bundled lanes up to
+`bundledEdgeLimit` edges in all and `bundledDegreeLimit` at one node, curves beyond, with the
+sentence that says so. -/
+def routingFor (asked : GraphRouting) (graph : PILean.Graph) : GraphRouting × Option String :=
+  match asked with
+  | .spline => (.spline, none)
+  | .bundled =>
+    let degree := maxDegree graph
+    if graph.edges.size > bundledEdgeLimit then
+      (.spline, some s!"This view has {graph.edges.size} edges, so it is drawn with curved \
+        edges: edges are drawn in bundled lanes in views of up to {bundledEdgeLimit} edges.")
+    else if degree > bundledDegreeLimit then
+      (.spline, some s!"A node of this view has {degree} edges, so the view is drawn with \
+        curved edges: edges are drawn in bundled lanes when no node has more than \
+        {bundledDegreeLimit}.")
+    else (.bundled, none)
+
 /-- The options of the layout: the gaps between nodes and layers, how much the width of a layer
 counts against the straightness of the edges (a drawing of a written blueprint then fits a page
-with its labels readable), the width from which a layer is split into rows, and how many extra
-starts the crossing reduction makes. -/
-def layoutOptions (leftToRight : Bool) (starts : Nat := 16) (maxLayerWidth : Float := 0) :
-    PILean.Graph.LayeredOptions :=
+with its labels readable), the width from which a layer is split into rows, how many extra
+starts the crossing reduction makes, and how the edges are drawn. -/
+def layoutOptions (leftToRight : Bool) (starts : Nat := 16) (maxLayerWidth : Float := 0)
+    (routing : GraphRouting := .bundled) : PILean.Graph.LayeredOptions :=
   { direction := if leftToRight then .leftToRight else .topToBottom
     layerGap := 36, nodeGap := 18, edgeGap := 10, portStep := 10, compact := 4
-    maxLayerWidth, starts }
+    maxLayerWidth, starts
+    routing := match routing with | .bundled => .bundled | .spline => .spline
+    bundle := bundleStyle }
 
 /-- The style of the layout: the margin around the drawing and the size of cluster titles. -/
 def layoutStyle : PILean.Style := { margin := 12, noteSize := fontSize }
 
 /-- The layout of a graph with its layers from the top down or from left to right, its
-components packed or in one row of layers. -/
-def layoutOf (graph : PILean.Graph) (leftToRight pack : Bool) (starts : Nat := 16) :
-    PILean.Graph.Layout :=
-  let options := layoutOptions leftToRight starts (layerWidth graph)
+components packed or in one row of layers, its edges drawn as `routing` says. -/
+def layoutOf (graph : PILean.Graph) (leftToRight pack : Bool) (starts : Nat := 16)
+    (routing : GraphRouting := .bundled) : PILean.Graph.Layout :=
+  let options := layoutOptions leftToRight starts (layerWidth graph) routing
   if pack then graph.layoutPacked options layoutStyle else graph.layout options layoutStyle
 
 /-- One drawing of a view. -/
@@ -219,6 +261,8 @@ structure Drawing where
   pack : Option Bool
   /-- The `svg` element. -/
   svg : String
+  /-- Why the drawing's edges are not drawn as the view asked (`routingFor`), when they are not. -/
+  note : Option String := none
 
 /-- Text for an attribute value: `&`, `<`, `>` and `"` escaped. -/
 def escapeAttribute (text : String) : String :=
@@ -243,17 +287,103 @@ def withAccessibleNames (nodes : Array PILean.Graph.WebNode) (svg : String) : St
       | _, _ => piece
     "<g id=\"".intercalate (first :: rest)
 
+/-! ## Routes for the page
+
+A page highlights an edge's whole route, from the port it leaves to the arrowhead it reaches,
+when a reader points at the edge or at one of its nodes. The drawing carries what that needs,
+computed here from the layout, so the page draws nothing of its own:
+
+* every `path.edge` has `data-edge` (its number in the drawing), `data-from` and `data-to` (the
+  ids of its nodes) and, when it shares a stem with other edges, `data-stems`: the path data of
+  the part of each shared stem that is its own route (from the port to where it leaves the stem,
+  and from where it joins a stem to the arrowhead);
+* every `path.stem` has `data-node` and `data-port` (`out` or `in`);
+* every arrowhead has `data-node` and `data-port="in"` when it is a port's (bundled routes), or
+  `data-edge` when it is an edge's own (curves). -/
+
+/-- The first and the last point of a path. -/
+def pathEnds (path : PILean.Path) : Option (PILean.Point × PILean.Point) := do
+  let pointOf : PILean.PathCmd → Option PILean.Point
+    | .move p | .line p => some p
+    | .quad _ p | .cubic _ _ p => some p
+    | .close => none
+  let first ← path.cmds.findSome? pointOf
+  let last ← path.cmds.reverse.findSome? pointOf
+  return (first, last)
+
+/-- A segment as path data, or nothing when its ends are less than a tenth of a pixel apart. -/
+def segmentData (a b : PILean.Point) : String :=
+  if (a.x - b.x).abs < 0.1 && (a.y - b.y).abs < 0.1 then ""
+  else s!"M{PILean.fmtNum a.x 1} {PILean.fmtNum a.y 1} L{PILean.fmtNum b.x 1} {PILean.fmtNum b.y 1}"
+
+/-- The path data of the parts of shared stems that belong to edge `e`'s route: from its source's
+exit stem's port to the start of its own path, and from the end of its own path to its target's
+entry stem's end at the arrowhead. -/
+def ownStems (layout : PILean.Graph.Layout) (e : PILean.Graph.RoutedEdge) : String :=
+  let stemOf := fun (node : Nat) (entry : Bool) =>
+    (layout.ports.find? fun p => p.node == node && p.entry == entry).bind (·.stem) |>.bind pathEnds
+  match pathEnds e.path with
+  | none => ""
+  | some (start, stop) =>
+    let out := match stemOf e.src false with
+      | some (port, _) => segmentData port start
+      | none => ""
+    let into := match stemOf e.dst true with
+      | some (_, base) => segmentData stop base
+      | none => ""
+    " ".intercalate ([out, into].filter (!·.isEmpty))
+
+/-- `text` with the attributes `attrs[i]` written into the `i`-th element that starts with
+`opening ++ rest` (each attribute text starts with a space): after `opening`, before `rest`. -/
+def tagElements (text opening rest : String) (attrs : Array String) : String :=
+  match text.splitOn (opening ++ rest) with
+  | [] => text
+  | first :: pieces =>
+    let tagged := pieces.toArray.mapIdx fun i piece => opening ++ attrs.getD i "" ++ rest ++ piece
+    first ++ String.join tagged.toList
+
+/-- The drawing of `layout` with the attributes a page reads to highlight routes (see above);
+`ids` are the nodes' element ids by number. -/
+def withRouteData (layout : PILean.Graph.Layout) (ids : Array String) (svg : String) : String :=
+  let id := fun (n : Nat) => escapeAttribute (ids.getD n "")
+  let edgeAttrs := layout.edges.mapIdx fun i e =>
+    let stems := ownStems layout e
+    s!" data-edge=\"{i}\" data-from=\"{id e.src}\" data-to=\"{id e.dst}\"" ++
+      (if stems.isEmpty then "" else s!" data-stems=\"{stems}\"")
+  let stemAttrs := (layout.ports.filter (·.stem.isSome)).map fun p =>
+    s!" data-node=\"{id p.node}\" data-port=\"{if p.entry then "in" else "out"}\""
+  let headAttrs :=
+    ((layout.edges.mapIdx fun i e => (i, e)).filter (·.2.head.isSome)).map (fun (i, _) =>
+      s!" data-edge=\"{i}\"") ++
+    (layout.ports.filter (·.head.isSome)).map fun p =>
+      s!" data-node=\"{id p.node}\" data-port=\"in\""
+  let svg := tagElements svg "<path" " class=\"edge" edgeAttrs
+  let svg := tagElements svg "<path" " class=\"stem\"" stemAttrs
+  match svg.splitOn "<g class=\"heads\"" with
+  | [before, after] =>
+    match after.splitOn "</g>" with
+    | heads :: rest =>
+      before ++ "<g class=\"heads\"" ++ tagElements heads "<path" "" headAttrs ++ "</g>" ++
+        "</g>".intercalate rest
+    | [] => svg
+  | _ => svg
+
 /-- A layout written for a direction: the layout of the top-down or left-to-right direction,
-mirrored for the opposite one. -/
+mirrored for the opposite one, with how its edges are drawn (`data-bp-routing`), the sentence
+that says why when that is not what the view asked for (`data-bp-routing-note`), and what a page
+needs to highlight routes (`withRouteData`). -/
 def svgFor (layout : PILean.Graph.Layout) (nodes : Array PILean.Graph.WebNode)
-    (edges : Array PILean.Graph.WebEdge) (direction : GraphDirection) : String :=
+    (edges : Array PILean.Graph.WebEdge) (direction : GraphDirection)
+    (routing : GraphRouting := .bundled) (note : Option String := none) : String :=
   let mirrored := match direction with
     | .BT => layout.mirror true
     | .RL => layout.mirror false
     | _ => layout
-  withAccessibleNames nodes <| mirrored.toWebSvg nodes edges
-    { classes := "bp_graph_drawing", fontSize, titlesBelow := direction == .BT
-      attrs := #[("data-bp-direction", direction.rankdir)] }
+  let attrs := #[("data-bp-direction", direction.rankdir), ("data-bp-routing", routing.token)] ++
+    (note.map fun n => #[("data-bp-routing-note", n)]).getD #[]
+  withRouteData mirrored (nodes.map (·.id)) <| withAccessibleNames nodes <|
+    mirrored.toWebSvg nodes edges
+      { classes := "bp_graph_drawing", fontSize, titlesBelow := direction == .BT, attrs }
 
 /-- The directions drawn from one layout. -/
 def directionsOf (leftToRight : Bool) : Array GraphDirection :=
@@ -272,21 +402,25 @@ def severalComponents (graph : PILean.Graph) : Bool :=
 layers when the view has more than one. The layouts are computed in parallel. -/
 def drawings (key : String) (view : View) : Array Drawing :=
   let (graph, nodes, edges) := toLayoutGraph view
+  let (routing, note) := routingFor view.routing graph
   let packs : Array (Option Bool) :=
     if severalComponents graph then #[some true, some false] else #[none]
   let jobs := #[false, true].flatMap fun leftToRight => packs.map fun pack => (leftToRight, pack)
   let tasks := jobs.map fun (leftToRight, pack) => Task.spawn fun _ =>
-    let layout := layoutOf graph leftToRight (pack.getD false)
+    let layout := layoutOf graph leftToRight (pack.getD false) (routing := routing)
     (directionsOf leftToRight).map fun direction =>
-      ({ variant := key, direction, pack, svg := svgFor layout nodes edges direction } : Drawing)
+      ({ variant := key, direction, pack,
+         svg := svgFor layout nodes edges direction routing note, note } : Drawing)
   tasks.flatMap (·.get)
 
 /-- The one drawing of a view for a direction and a packing. -/
 def drawing (key : String) (view : View) (direction : GraphDirection) (pack : Bool) : Drawing :=
   let (graph, nodes, edges) := toLayoutGraph view
+  let (routing, note) := routingFor view.routing graph
   let pack? := if severalComponents graph then some pack else none
-  let layout := layoutOf graph (direction == .LR || direction == .RL) pack
-  { variant := key, direction, pack := pack?, svg := svgFor layout nodes edges direction }
+  let layout := layoutOf graph (direction == .LR || direction == .RL) pack (routing := routing)
+  { variant := key, direction, pack := pack?, svg := svgFor layout nodes edges direction routing note
+    note }
 
 /-! ## Neighbourhood views -/
 
@@ -398,7 +532,7 @@ def drawingsFolder (graphKey : String) : String :=
 
 Returns the number of neighbourhood drawings written and left out. -/
 def writeDrawings (dir : System.FilePath) (views : Array (String × View))
-    (graph : Graph String) (direction : GraphDirection)
+    (graph : Graph String) (direction : GraphDirection) (routing : GraphRouting := .bundled)
     (limit : Nat := egoByteLimit) (nodeLimit : Nat := egoNodeLimit) (jobs : Nat := 8) :
     IO (Nat × Nat) := do
   IO.FS.createDirAll dir
@@ -428,12 +562,14 @@ def writeDrawings (dir : System.FilePath) (views : Array (String × View))
         omitted := omitted + batch.size
         continue
       let tasks := batch.map fun id => Task.spawn fun _ =>
-        let view : View := { graph := sets[id]!.map (graph[·]!), clusters := false }
+        let view : View := { graph := sets[id]!.map (graph[·]!), clusters := false, routing }
         let (g, nodes, edges) := toLayoutGraph view
+        let (routing, note) := routingFor view.routing g
         -- thousands of these are drawn: fewer starts each
-        let layout := layoutOf g leftToRight false (starts := if sets[id]!.size ≤ 40 then 4 else 1)
+        let layout := layoutOf g leftToRight false
+          (starts := if sets[id]!.size ≤ 40 then 4 else 1) (routing := routing)
         let d : GraphDirection := if leftToRight then .LR else .TB
-        (d, svgFor layout nodes edges d)
+        (d, svgFor layout nodes edges d routing note)
       for id in batch, task in tasks do
         let (d, svg) := task.get
         if bytes + svg.utf8ByteSize > limit then

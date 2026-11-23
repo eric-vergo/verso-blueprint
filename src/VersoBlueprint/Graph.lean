@@ -182,6 +182,27 @@ def GraphDirection.parse? (s : String) : Option GraphDirection :=
   | "bt" | "bottom-top" => some .BT
   | _ => none
 
+/-- How the edges of a rendered Blueprint graph are drawn. -/
+inductive GraphRouting where
+  /-- Horizontal and vertical lanes: the edges that leave a node share one stem, the edges that
+  enter it share one stem and one arrowhead, and parallel edges run as bundles of lanes. -/
+  | bundled
+  /-- One smooth curve per edge, each with its own arrowhead. -/
+  | spline
+deriving Inhabited, Repr, BEq, FromJson, ToJson, Quote
+
+/-- The token of a routing in options and drawings. -/
+def GraphRouting.token : GraphRouting → String
+  | .bundled => "bundled"
+  | .spline => "spline"
+
+/-- Parse a routing token (`bundled` or `spline`). -/
+def GraphRouting.parse? (s : String) : Option GraphRouting :=
+  match s.toLower with
+  | "bundled" => some .bundled
+  | "spline" => some .spline
+  | _ => none
+
 /--
 Options that affect the layout of rendered Blueprint graphs.
 
@@ -197,6 +218,9 @@ structure GraphOptions where
   instead of one row of layers for the whole graph.
   -/
   pack : Bool := true
+  /-- How the edges are drawn; a view too large for bundled lanes is drawn with curves
+  (`Informal.GraphLayout.routingFor`). -/
+  routing : GraphRouting := .bundled
 deriving Inhabited, Repr, BEq, FromJson, ToJson, Quote
 
 /--

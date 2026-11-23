@@ -81,6 +81,50 @@
   fill: var(--bp-color-graph-edge);
 }
 
+/* The stems of bundled routes: the trunk that the edges leaving a node, or entering it, share.
+   Solid and one pixel wide, in the edges' colour, whatever the line style of the edges. */
+:is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.edges > path.stem {
+  stroke: var(--bp-color-graph-edge);
+  stroke-width: 1;
+  stroke-dasharray: none;
+}
+
+/* Route tracing (`bindRouteTracing`): the routes of the edge or node pointed at or focused, from
+   port to arrowhead, in the trace colour; everything else dimmed. */
+.bp_graph_canvas svg g.bp_graph_edge_hits path {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 9;
+  pointer-events: stroke;
+}
+
+.bp_graph_canvas svg g.bp_graph_trace path {
+  fill: none;
+  stroke-dasharray: none;
+}
+
+.bp_graph_canvas svg[data-bp-tracing] g.edges path[data-bp-traced] {
+  stroke: var(--bp-color-graph-trace);
+  stroke-width: 2;
+}
+
+.bp_graph_canvas svg[data-bp-tracing] g.heads path[data-bp-traced] {
+  fill: var(--bp-color-graph-trace);
+}
+
+.bp_graph_canvas svg[data-bp-tracing] g.edges > path:not([data-bp-traced]),
+.bp_graph_canvas svg[data-bp-tracing] g.heads > path:not([data-bp-traced]) {
+  opacity: 0.16;
+}
+
+.bp_graph_canvas svg[data-bp-tracing] g.node:not([data-bp-traced]) {
+  opacity: 0.4;
+}
+
+.bp_graph_canvas svg[data-bp-tracing] g.cluster {
+  opacity: 0.6;
+}
+
 :is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.cluster path {
   stroke: var(--bp-color-graph-cluster);
 }
@@ -89,7 +133,8 @@
   fill: var(--bp-color-graph-label);
 }
 
-/* What a view could not show (a neighbourhood the site did not draw). */
+/* What a view could not show (a neighbourhood the site did not draw), or how it is drawn when
+   that is not what was asked for (curves for a view too large for bundled lanes). */
 .bp_graph_notice {
   margin: 0.45rem 0 0.35rem;
   font-size: 0.82rem;

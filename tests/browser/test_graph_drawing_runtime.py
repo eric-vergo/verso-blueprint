@@ -8,7 +8,10 @@ drawing being in the page before any script runs, the drawings the page fetches 
 directions and packing, a strict Content-Security-Policy, pan, wheel zoom about the pointer, keyboard
 zoom, neighbourhood views mirrored for the opposite directions with upright labels, the notice for a
 neighbourhood the site did not draw, `parseDrawing` refusing text that is not SVG, a readable
-start on a large graph, resizing, a narrow window, reduced motion and the console staying quiet.
+start on a large graph, resizing, a narrow window, reduced motion, the console staying quiet,
+and bundled lanes: one arrowhead per entry port, an edge's or a node's routes highlighted from
+port to arrowhead by pointer and by keyboard focus, the plain drawing without scripts, and a view
+past the limit drawn with curves with a notice.
 """
 
 import json
@@ -683,3 +686,134 @@ class TestQuietConsole:
         page.mouse.click(node["x"], node["y"])
         page.wait_for_selector(".bp_graph_preview:not([hidden]) .bp_node_view", timeout=60000)
         assert errors == []
+
+
+ROUTE_FACTS = """() => {
+    const svg = document.querySelector(".bp_graph_canvas > svg");
+    const edges = Array.from(svg.querySelectorAll("g.edges > path.edge"));
+    const heads = Array.from(svg.querySelectorAll("g.heads > path"));
+    const targets = new Set(edges.map((e) => e.getAttribute("data-to")));
+    return {
+        routing: svg.getAttribute("data-bp-routing"),
+        edges: edges.length,
+        heads: heads.length,
+        targets: targets.size,
+        portHeads: heads.filter((h) => h.getAttribute("data-port") === "in").length,
+        stems: svg.querySelectorAll("g.edges > path.stem").length,
+        shared: edges.filter((e) => e.hasAttribute("data-stems")).length,
+        named: edges.every((e) => svg.querySelector('g.node[id="' + e.getAttribute("data-from") + '"]') &&
+                                  svg.querySelector('g.node[id="' + e.getAttribute("data-to") + '"]')),
+    };
+}"""
+
+TRACE_FACTS = """() => {
+    const svg = document.querySelector(".bp_graph_canvas > svg");
+    const traced = (sel) => Array.from(svg.querySelectorAll(sel + "[data-bp-traced]"));
+    return {
+        tracing: svg.getAttribute("data-bp-tracing"),
+        edges: traced("g.edges > path.edge").map((e) => [e.getAttribute("data-from"), e.getAttribute("data-to")]),
+        heads: traced("g.heads > path").map((h) => h.getAttribute("data-node")),
+        nodes: traced("g.node").map((n) => n.getAttribute("id")),
+        pieces: svg.querySelectorAll("g.bp_graph_trace > path").length,
+        dimmedEdge: (() => {
+            const other = svg.querySelector("g.edges > path.edge:not([data-bp-traced])");
+            return other ? Number(getComputedStyle(other).opacity) : null;
+        })(),
+    };
+}"""
+
+
+class TestBundledRoutes:
+    """Bundled lanes: one arrowhead per entry port, shared stems, and the page highlighting an
+    edge's whole route (its own path, its parts of shared stems, the arrowhead it reaches)."""
+
+    def test_one_arrowhead_per_entry_port(self, page: Page, mid_site_url: str):
+        goto_graph(page, mid_site_url + "/Dependency-Graph/")
+        facts = page.evaluate(ROUTE_FACTS)
+        assert facts["routing"] == "bundled", facts
+        # one arrowhead per node that edges reach, however many reach it
+        assert facts["edges"] >= facts["heads"] and facts["heads"] == facts["targets"], facts
+        assert facts["portHeads"] == facts["heads"] and facts["named"], facts
+        assert facts["stems"] > 0 and facts["shared"] > 0, facts
+
+    def test_hovering_an_edge_highlights_its_whole_route(self, page: Page, mid_site_url: str):
+        goto_graph(page, mid_site_url + "/Dependency-Graph/")
+        index = page.evaluate(
+            """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.edges > path.edge"))
+                .find((e) => e.hasAttribute("data-stems")).getAttribute("data-edge")"""
+        )
+        edge = page.locator(f'.bp_graph_canvas > svg g.edges > path.edge[data-edge="{index}"]')
+        source, target = edge.get_attribute("data-from"), edge.get_attribute("data-to")
+        # the point half way along the edge's own path, through its transparent hit copy
+        point = page.evaluate(
+            """(i) => {
+                const hit = document.querySelector('.bp_graph_canvas > svg [data-bp-hit-edge="' + i + '"]');
+                const p = hit.getPointAtLength(hit.getTotalLength() / 2);
+                const m = hit.getScreenCTM();
+                return { x: p.x * m.a + p.y * m.c + m.e, y: p.x * m.b + p.y * m.d + m.f };
+            }""",
+            index,
+        )
+        page.mouse.move(point["x"], point["y"])
+        page.wait_for_function("() => document.querySelector('.bp_graph_canvas > svg').hasAttribute('data-bp-tracing')")
+        facts = page.evaluate(TRACE_FACTS)
+        assert facts["edges"] == [[source, target]], facts
+        assert facts["heads"] == [target] and facts["pieces"] == 1, facts
+        assert sorted(facts["nodes"]) == sorted([source, target]), facts
+        assert facts["dimmedEdge"] is not None and facts["dimmedEdge"] < 0.5, facts
+        page.mouse.move(2, 2)
+        assert page.evaluate(TRACE_FACTS)["tracing"] is None
+
+    def test_focusing_a_node_highlights_its_routes(self, page: Page, mid_site_url: str):
+        goto_graph(page, mid_site_url + "/Dependency-Graph/")
+        node = page.locator(".bp_graph_canvas > svg g.node[tabindex]").nth(3)
+        node_id = node.get_attribute("id")
+        node.focus()
+        facts = page.evaluate(TRACE_FACTS)
+        assert facts["tracing"] == "1", facts
+        assert facts["edges"] and all(node_id in pair for pair in facts["edges"]), facts
+        page.keyboard.press("Escape")
+        assert page.evaluate(TRACE_FACTS)["tracing"] is None
+
+    def test_page_without_scripts_shows_the_plain_drawing(self, browser, code_site_dir: Path):
+        from conftest import serve_site
+
+        context = browser.new_context(java_script_enabled=False)
+        try:
+            page = context.new_page()
+            with serve_site(code_site_dir) as url:
+                page.goto(url + "/Dependency-Graph/", wait_until="domcontentloaded")
+                svg = page.locator(".bp_graph_first_drawing > svg")
+                assert svg.get_attribute("data-bp-routing") == "bundled"
+                assert svg.get_attribute("data-bp-tracing") is None
+                assert page.locator(".bp_graph_first_drawing > svg g.edges > path.edge").count() > 0
+        finally:
+            context.close()
+
+    def test_view_past_the_limit_is_drawn_with_curves_and_says_so(self, page: Page, tmp_path_factory):
+        from conftest import generate_code_site, serve_site
+
+        root = tmp_path_factory.mktemp("hub-code-site")
+        leaves = 70
+        declarations = [{"name": "Hub.hub", "kind": "def", "signature": "def Hub.hub : Nat",
+                         "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}}}]
+        for i in range(leaves):
+            declarations.append({
+                "name": f"Hub.leaf{i}", "kind": "theorem", "signature": f"theorem Hub.leaf{i} : True",
+                "range": {"start": {"line": i + 1, "character": 0}, "end": {"line": i + 1, "character": 5}},
+                "uses": [{"name": "Hub.hub", "kind": "statement"}],
+            })
+        data = root / "code-site.json"
+        data.write_text(json.dumps({"format": "verso-blueprint-code-1", "title": "Hub",
+                                    "modules": [{"module": "Hub", "source": "", "declarations": declarations}]}))
+        site = generate_code_site(data, root, root / "_out", "--no-kernel-replay", "--no-comparator",
+                                  "--no-stats-page")
+        source = (site / "Dependency-Graph" / "index.html").read_text(encoding="utf-8")
+        note = f"A node of this view has {leaves} edges, so the view is drawn with curved edges"
+        assert 'data-bp-routing="spline"' in source and note in source
+        with serve_site(site) as url:
+            goto_graph(page, url + "/Dependency-Graph/")
+            notice = page.locator(".bp_graph_notice:not([hidden])")
+            assert note in notice.inner_text()
+            facts = page.evaluate(ROUTE_FACTS)
+            assert facts["routing"] == "spline" and facts["heads"] == facts["edges"], facts

@@ -487,4 +487,90 @@ private def packsOf (index : Json) (key : String) : Array String :=
    (perNode[1]!.extract 1 3).all (overIds.contains ·) && sets[perNode[1]![0]!]!.size == 2,
    (egoSetsWithin pathGraph 150).1 == (egoSets pathGraph).1)
 
+/-! ## Bundled lanes and the routes a page highlights -/
+
+/-- Every value of attribute `name` in a drawing, in order. -/
+private def attrValues (svg name : String) : Array String :=
+  ((svg.splitOn s!" {name}=\"").drop 1).toArray.map fun piece => (piece.splitOn "\"").head!
+
+/-- The drawing of a view, laid out top down and unpacked, with its routing. -/
+private def drawn (view : View) : String :=
+  (drawing "v" view .TB false).svg
+
+-- A view is drawn with bundled lanes unless it asks for curves: every edge is one `path.edge`,
+-- an entry port draws one arrowhead for all the edges that reach it, and each edge carries its
+-- two nodes, by the ids the nodes have in the same drawing.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let svg := drawn sampleView
+  let ids := webNodes sampleView |>.map (·.id)
+  let g := layoutGraph sampleView
+  let targets := (g.edges.map (·.dst)).foldl (fun acc d => if acc.contains d then acc else acc.push d) #[]
+  (attrValues svg "data-from").size == g.edges.size &&
+  count svg "<path data-edge=\"0\" data-from=" == 1 &&
+  count (((svg.splitOn "<g class=\"heads\"").getD 1 "").splitOn "</g>" |>.head!) "<path" ==
+    targets.size &&
+  svg.contains "data-bp-routing=\"bundled\"" &&
+  (attrValues svg "data-from" ++ attrValues svg "data-to").all ids.contains
+
+-- With curves every edge has its own arrowhead, named by the edge's number, and no stem.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let svg := drawn { sampleView with routing := .spline }
+  let g := layoutGraph sampleView
+  (attrValues svg "data-from").size == g.edges.size && count svg "class=\"stem\"" == 0 &&
+  attrValues (((svg.splitOn "<g class=\"heads\"").getD 1 "").splitOn "</g>" |>.head!) "data-edge" ==
+    (Array.range g.edges.size).map toString &&
+  svg.contains "data-bp-routing=\"spline\""
+
+-- The parts of shared stems that belong to an edge's route run from the port to where the edge's
+-- own path starts, and from where it ends to the arrowhead: straight pieces along the layers'
+-- direction (vertical top down, horizontal left to right).
+/-- info: true -/
+#guard_msgs in
+#eval
+  let fan : Graph String := #[mk `s, mk `t1 #[`s], mk `t2 #[`s], mk `t3 #[`s],
+    mk `u #[`t1, `t2, `t3]]
+  [false, true].all fun leftToRight =>
+    let g := layoutGraph { graph := fan }
+    let l := layoutOf g leftToRight false
+    let pieces := l.edges.map (ownStems l ·) |>.filter (!·.isEmpty)
+    !pieces.isEmpty && pieces.all fun d =>
+      ((d.splitOn "M").drop 1).all fun seg =>
+        match (seg.replace "L" " ").splitOn " " |>.filter (!·.isEmpty) with
+        | [x0, y0, x1, y1] => if leftToRight then y0 == y1 else x0 == x1
+        | _ => false
+
+-- Under both routings no edge turns back across the layers, so none runs round the outside of
+-- the drawing against the layers' direction.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let g := layoutGraph { graph := grouped }
+  [GraphRouting.bundled, .spline].all fun routing =>
+    let down := (layoutOf g false false (routing := routing)).edges.all fun e =>
+      let ps := points e.path
+      (Array.range (ps.size - 1)).all fun i => ps[i]!.y ≤ ps[i + 1]!.y + 1e-6
+    let across := (layoutOf g true false (routing := routing)).edges.all fun e =>
+      let ps := points e.path
+      (Array.range (ps.size - 1)).all fun i => ps[i]!.x ≤ ps[i + 1]!.x + 1e-6
+    down && across
+
+-- A view too large for bundled lanes is drawn with curves, and its drawing says why: above
+-- `bundledDegreeLimit` edges at one node, or `bundledEdgeLimit` edges in all.
+/-- info: (true, true, true, true) -/
+#guard_msgs in
+#eval
+  let star (n : Nat) : Graph String :=
+    #[mk `hub] ++ (Array.range n).map fun i => mk (.mkSimple s!"leaf{i}") #[`hub]
+  let atLimit := layoutGraph { graph := star bundledDegreeLimit }
+  let over := layoutGraph { graph := star (bundledDegreeLimit + 1) }
+  let svg := drawn { graph := star (bundledDegreeLimit + 1) }
+  ((routingFor .bundled atLimit).1 == .bundled,
+   (routingFor .bundled over).1 == .spline && (routingFor .bundled over).2.isSome,
+   svg.contains "data-bp-routing=\"spline\"" && svg.contains "data-bp-routing-note=\"A node of this view has 61 edges",
+   (routingFor .spline atLimit) == (.spline, none))
+
 end Verso.VersoBlueprintTests.BlueprintGraph.Layout

@@ -39,6 +39,11 @@ register_option verso.blueprint.graph.defaultPack : Bool := {
   descr := "Default component packing for `blueprint_graph` when `(pack := ...)` is omitted"
 }
 
+register_option verso.blueprint.graph.defaultRouting : String := {
+  defValue := "bundled"
+  descr := "Default edge drawing for `blueprint_graph` when `(routing := ...)` is omitted (`bundled` or `spline`)"
+}
+
 register_option verso.blueprint.graph.defaultPreviewMode : String := {
   defValue := "pinned"
   descr := "Default preview behavior for `blueprint_graph` when `(preview := ...)` is omitted (`pinned` or `hover`)"
@@ -119,8 +124,8 @@ private def graphToHtml
         | some k => if publicGraphData.variants.any (·.key == k) then k else "full"
         | none => "full"
       let viewOf := fun (v : Informal.Graph.VariantGraph) =>
-        ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters } :
-          Informal.GraphLayout.View)
+        ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters
+           routing := graphData.options.routing } : Informal.GraphLayout.View)
       -- A generator that writes the site's data folder puts every drawing there
       -- (`Informal.GraphLayout.writeDrawings`), and only the first is drawn here.
       let drawings : Array Informal.GraphLayout.Drawing :=
@@ -140,6 +145,9 @@ private def graphToHtml
             <div class="bp_graph_first_drawing" "data-variant"={{d.variant}}
                 "data-direction"={{d.direction.rankdir}} "data-pack"={{packValue d.pack}}>
               {{.raw d.svg}}
+              {{match d.note with
+                | some note => {{<p class="bp_graph_notice">{{note}}</p>}}
+                | none => .empty}}
             </div>
           }}
         | none => .empty
@@ -434,6 +442,23 @@ instance : FromArgVal GraphDirection Verso.Doc.Elab.PartElabM where
         throwError "Expected a direction identifier or string, got {toMessageData other}"
   }
 
+instance : FromArgVal GraphRouting Verso.Doc.Elab.PartElabM where
+  fromArgVal := {
+    description := doc!"edge drawing (`bundled` or `spline`)"
+    signature := CanMatch.Ident ∪ CanMatch.String
+    get := fun
+      | .name id =>
+        match GraphRouting.parse? id.getId.toString with
+        | some r => pure r
+        | none => throwErrorAt id "Expected `bundled` or `spline`"
+      | .str s =>
+        match GraphRouting.parse? s.getString with
+        | some r => pure r
+        | none => throwErrorAt s "Expected \"bundled\" or \"spline\""
+      | other =>
+        throwError "Expected `bundled` or `spline`, got {toMessageData other}"
+  }
+
 instance : FromArgVal Informal.HoverRender.PreviewMode Verso.Doc.Elab.PartElabM where
   fromArgVal := {
     description := doc!"graph preview mode (`pinned` or `hover`)"
@@ -471,6 +496,7 @@ instance : FromArgVal Informal.HoverRender.PreviewPlacement Verso.Doc.Elab.PartE
 structure BlueprintGraphConfig where
   direction : Option GraphDirection := none
   pack : Option Bool := none
+  routing : Option GraphRouting := none
   preview : Option Informal.HoverRender.PreviewMode := none
   previewPlacement : Option Informal.HoverRender.PreviewPlacement := none
 
@@ -479,6 +505,7 @@ instance : FromArgs BlueprintGraphConfig Verso.Doc.Elab.PartElabM where
     BlueprintGraphConfig.mk <$>
       .named' `direction true <*>
       .named' `pack true <*>
+      .named' `routing true <*>
       .named' `preview true <*>
       .named' `previewPlacement true
 
@@ -503,7 +530,17 @@ def parseGraphOptions (cfg : BlueprintGraphConfig) : Verso.Doc.Elab.PartElabM Gr
       (← getOptions).get
         verso.blueprint.graph.defaultPack.name
         verso.blueprint.graph.defaultPack.defValue
-  pure { direction, pack }
+  let routing ← match cfg.routing with
+    | some routing => pure routing
+    | none =>
+      let configured := (← getOptions).get verso.blueprint.graph.defaultRouting.name
+        verso.blueprint.graph.defaultRouting.defValue
+      match GraphRouting.parse? configured with
+      | some routing => pure routing
+      | none =>
+        logWarning m!"Invalid value '{configured}' for option 'verso.blueprint.graph.defaultRouting'; expected bundled or spline. Falling back to bundled."
+        pure .bundled
+  pure { direction, pack, routing }
 
 def parseGraphPreviewMode
     (cfg : BlueprintGraphConfig) : Verso.Doc.Elab.PartElabM Informal.HoverRender.PreviewMode := do

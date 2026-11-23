@@ -14,12 +14,14 @@ import VersoBlueprint.PreviewManifest
 ```
 vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>]
               [--no-comparator | --challenge-not-built <reason>]
-              [--no-kernel-replay] [--no-stats-page] [--reproducible] [--verbose]
+              [--no-kernel-replay] [--no-stats-page] [--graph-routing bundled|spline]
+              [--reproducible] [--verbose]
 ```
 
 `--root` is the project the data describes (default: the working directory): the source
 excerpts and the Project Stats page read its files. The dependency graph's views are laid out
-and drawn while the site is built (`Informal.GraphLayout`). When the project has a
+and drawn while the site is built (`Informal.GraphLayout`), with bundled lanes unless
+`--graph-routing spline` asks for curves. When the project has a
 Comparator challenge, the Project Stats page's headline compares it with its solution as a
 Blueprint site does; the solution's modules are imported from the project's build for that
 (`--no-comparator` leaves the comparison out; `--challenge-not-built <reason>` leaves it out and
@@ -48,6 +50,8 @@ structure Options where
   challengeNotBuilt : Option String := none
   /-- Check the site's declarations, and what they depend on, again in a kernel. -/
   kernelReplay : Bool := true
+  /-- How the dependency graph's edges are drawn. -/
+  graphRouting : Informal.Graph.GraphRouting := .bundled
   /-- Everything else, passed on to the generator (`--output`, `--no-stats-page`, …). -/
   rest : Array String := #[]
 deriving Inhabited
@@ -56,6 +60,7 @@ deriving Inhabited
 def usage : String :=
   "vbp code-site --data <file> [--root <dir>] [--output <dir>] [--title <text>] " ++
   "[--no-comparator | --challenge-not-built <reason>] [--no-kernel-replay] [--no-stats-page] " ++
+  "[--graph-routing bundled|spline] " ++
   "[--reproducible] [--verbose]"
 
 /-- Parse the command line. -/
@@ -68,10 +73,15 @@ partial def parseOptions : List String → Options → Except String Options
   | "--no-kernel-replay" :: args, opts => parseOptions args { opts with kernelReplay := false }
   | "--challenge-not-built" :: why :: args, opts =>
     parseOptions args { opts with challengeNotBuilt := some why }
+  | "--graph-routing" :: token :: args, opts =>
+    match Informal.Graph.GraphRouting.parse? token with
+    | some routing => parseOptions args { opts with graphRouting := routing }
+    | none => .error s!"--graph-routing takes bundled or spline, not '{token}'"
   | "--output" :: dir :: args, opts =>
     parseOptions args { opts with rest := opts.rest ++ #["--output", dir] }
   | flag :: args, opts =>
-    if flag ∈ ["--data", "--root", "--title", "--output", "--challenge-not-built"] then
+    if flag ∈ ["--data", "--root", "--title", "--output", "--challenge-not-built",
+        "--graph-routing"] then
       .error s!"missing value after {flag}"
     else if flag ∈ [Informal.Commands.noStatsPageFlag, Informal.PreviewManifest.reproducibleFlag,
         "--verbose"] then
@@ -142,7 +152,8 @@ depend on (`Informal.Replay`), and the comparison is made in the environment tha
 for it (`Stats.ProjectStats.withKernelReplayAt`). -/
 def generate (data root : FilePath) (title? : Option String) (args : List String)
     (compare : Bool := true)
-    (challengeNotBuilt? : Option String := none) (kernelReplay : Bool := true) : IO UInt32 := do
+    (challengeNotBuilt? : Option String := none) (kernelReplay : Bool := true)
+    (graphRouting : Informal.Graph.GraphRouting := .bundled) : IO UInt32 := do
   let root ← try IO.FS.realPath root catch _ => pure root
   let (project, sources) ← load data root
   let project := { project with title := title? <|> project.title }
@@ -166,7 +177,7 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
       pure { model with stats }
     else pure model
   let title := titleOf root project model.stats.identity
-  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project sources.get?) args
+  Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project sources.get? graphRouting) args
     (extensionImpls := by exact extension_impls%) (model := model)
     -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
     (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
@@ -181,9 +192,9 @@ def main (args : List String) : IO UInt32 := do
   | .error e => IO.eprintln e; IO.eprintln usage; return 2
   | .ok { data := none, .. } => IO.eprintln "missing --data <file>"; IO.eprintln usage; return 2
   | .ok { data := some data, root, title, compare, challengeNotBuilt, kernelReplay,
-          rest } =>
+          graphRouting, rest } =>
     let root := root.getD (← IO.currentDir)
-    try generate data root title rest.toList compare challengeNotBuilt kernelReplay
+    try generate data root title rest.toList compare challengeNotBuilt kernelReplay graphRouting
     catch e => IO.eprintln s!"vbp code-site: {e}"; return 1
 
 end Informal.CodeSite

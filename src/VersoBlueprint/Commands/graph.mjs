@@ -20,6 +20,7 @@ const {
   createPanZoom,
   drawingSize,
   fitDrawingLabels,
+  bindRouteTracing,
   makeGroupPanelPositioner
 } = graphRuntimeCoreModule;
 
@@ -1505,7 +1506,9 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           graphRoot.querySelectorAll(":scope > svg, :scope > .bp_graph_first_drawing").forEach(function (old) {
             old.remove();
           });
-          setNotice(drawing.note);
+          // a view too large for bundled lanes is drawn with curves, and its drawing says so
+          const routingNote = drawing.svg ? (drawing.svg.getAttribute("data-bp-routing-note") || "") : "";
+          setNotice([drawing.note, routingNote].filter(Boolean).join(" "));
           graphState.renderedVariantKey = variantRenderKey;
           graphState.renderedOptionsKey = optionsKey;
           graphRoot.setAttribute("data-bp-active-view", activeVariant.key);
@@ -1528,6 +1531,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           });
           graphRoot.insertBefore(svg, graphRoot.firstChild);
           fitDrawingLabels(svg);
+          bindRouteTracing(svg);
           graphState.panZoom = createPanZoom(graphRoot, svg, {
             direction: drawing.direction || options.direction,
             geometry: drawing.geometry || drawing.direction || options.direction
