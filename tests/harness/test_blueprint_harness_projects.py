@@ -1788,6 +1788,26 @@ class BlueprintHarnessProjectsTests(unittest.TestCase):
             self.assertNotIn("mathlib", {entry["name"] for entry in child_manifest["packages"]})
         self.assertNotIn("mathlib", {entry["name"] for entry in root_manifest["packages"]})
 
+    def test_committed_child_manifests_pin_shared_packages_like_the_root(self) -> None:
+        root_manifest = json.loads((PACKAGE_ROOT / "lake-manifest.json").read_text(encoding="utf-8"))
+        root_entries = {entry["name"]: entry for entry in root_manifest["packages"]}
+        child_manifest_paths = sorted(
+            path
+            for base in (PACKAGE_ROOT / "project_template", PACKAGE_ROOT / "tests")
+            for path in base.rglob("lake-manifest.json")
+            if ".lake" not in path.parts
+        )
+        self.assertGreaterEqual(len(child_manifest_paths), 2)
+        for path in child_manifest_paths:
+            child_manifest = json.loads(path.read_text(encoding="utf-8"))
+            for entry in child_manifest["packages"]:
+                root_entry = root_entries.get(entry["name"])
+                if root_entry is None:
+                    continue
+                for key in ("rev", "url", "inputRev", "scope"):
+                    with self.subTest(manifest=str(path.relative_to(PACKAGE_ROOT)), package=entry["name"], key=key):
+                        self.assertEqual(entry.get(key), root_entry.get(key))
+
     def test_clone_git_project_checks_out_commit_ref_without_branch_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
