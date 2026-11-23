@@ -302,21 +302,23 @@ def conditionsMetNoVerdictText : String :=
   "Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files \
     report, with no verdict of a kernel replay"
 
-/-- The verdict when the comparison's conditions are met, the checker accepted the build, and
-the replay found under the theorem `axioms` the challenge does not permit (outside Lean's
-standard three when it states no list). -/
-def conditionsMetAssumedText (t : HeadlineTheorem) (axioms : Array Name) : String :=
+/-- The verdict when the comparison's conditions are met and the replay found under the theorem
+`axioms` outside Lean's standard three (which the challenge may permit): the theorem was not
+exported and not checked, since both checkers decline an export that uses such an axiom. -/
+def conditionsMetNotCheckedText (axioms : Array Name) : String :=
   let names := ", ".intercalate (axioms.toList.map (·.toString))
   let one := axioms.size == 1
-  let which := if t.axiomsPermitted.isSome then "the challenge does not permit"
-    else "outside Lean's standard three"
-  s!"Same Lean statement as the challenge; replayed and accepted by a kernel; it rests on \
-    {if one then "an axiom" else "axioms"} {which} ({names}), which a kernel accepts without a \
-    proof, so it is not shown as proved"
+  s!"Same Lean statement as the challenge; not checked by the kernel replay: it rests on \
+    {if one then "an axiom" else "axioms"} outside Lean's standard three ({names}), and a replay \
+    checks only what rests on the standard three alone, so it is not shown as proved"
 
-/-- The verdict on a theorem whose comparison's conditions are met when the checker rejected the
-build. The checker stops at its first problem, which need not be in this theorem's proof. -/
-def rejectedVerdictText : String := "Not accepted: the kernel checker rejected this build"
+/-- The verdict on a theorem whose comparison's conditions are met when a checker rejected the
+build. A checker stops at its first problem, which need not be in this theorem's proof. -/
+def rejectedVerdictText : String := "Not accepted: a kernel checker rejected this build"
+
+/-- The verdict when one checker accepted the build and the other rejected it. -/
+def disagreedVerdictText : String :=
+  "Not accepted: the two kernel checkers disagree on this build"
 
 /-- The verdict on a theorem of the challenge: a token for markup and the words shown. The
 words are about the Lean statement. "Proved" is said only of the same Lean statement as the
@@ -326,14 +328,17 @@ the build the verdict says so; without a verdict of a replay it says what the co
 report (`conditionsMetText`), or that no verdict was reached; when the replay accepted the
 theorem and found an axiom under it the verdict is not allowed, it says so. -/
 def headlineVerdict (t : HeadlineTheorem)
-    (standing : Replay.Standing := .notReplayed Replay.noReplayText) : String × String :=
+    (standing : Replay.Standing := .notReplayed Replay.noReplayText)
+    (replay? : Option Replay.Result := none) : String × String :=
   if t.conditionsMet then
     match standing with
     | .accepted => ("proved", "Lean statement proved")
-    | .rejected => ("rejected", rejectedVerdictText)
+    | .rejected =>
+      if replay?.any (·.outcome == .disagreed) then ("rejected", disagreedVerdictText)
+      else ("rejected", rejectedVerdictText)
     | .notReplayed _ => ("not-replayed", conditionsMetText)
     | .noVerdict _ => ("not-replayed", conditionsMetNoVerdictText)
-    | .assumed axioms => ("axioms", conditionsMetAssumedText t axioms)
+    | .notChecked axioms => ("axioms", conditionsMetNotCheckedText axioms)
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -351,6 +356,10 @@ def headlineVerdict (t : HeadlineTheorem)
     | .missing => ("missing", "Not in the solution")
     | .hole => ("hole", "Definition hole")
     | .notCompared => ("not-compared", "Not compared")
+    | .notTheorem =>
+      let what := (t.difference.map (s!": {·}")).getD ""
+      ("not-theorem", s!"Not a theorem in the challenge{what}; only a theorem is judged as \
+        proved")
 
 /-- How the solution declares a definition of the challenge, in a few words. -/
 def definitionVerdict : Correspondence → String
@@ -359,12 +368,16 @@ def definitionVerdict : Correspondence → String
   | .differs => "differs in the solution"
   | .missing => "not in the solution"
   | .notCompared => "not compared"
+  | .notTheorem => "not a theorem"
 
 /-- Why the challenge could not be compared, in a sentence. -/
 def unavailableText : Unavailable → String
   | .configInvalid => "comparator.json could not be read or lacks the fields lake comparator needs."
   | .challengeNotBuilt => "The challenge module has not been built."
-  | .challengeOutOfDate => "The compiled challenge module does not match its source."
+  | .challengeOutOfDate =>
+    "The compiled challenge module does not match its source: build it again after an edit."
+  | .challengeProvenanceUnknown =>
+    "It is not known that the compiled challenge module was compiled from its source as shown."
   | .challengeUnreadable => "The compiled challenge module could not be read."
   | .solutionNotImported => "The Blueprint does not import the solution module."
   | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
@@ -376,7 +389,8 @@ private def axiomChip (a : Name) : Output.Html :=
     #[("data-bp-axiom-class", cls.token), ("title", cls.description)]
 
 private def axiomsHtml (t : HeadlineTheorem) : Output.Html :=
-  if t.solution == .missing || t.solution == .notCompared then .empty else
+  if t.solution == .missing || t.solution == .notCompared || t.solution == .notTheorem then .empty
+  else
   let note : String :=
     if t.axioms.isEmpty then "no axioms"
     else if t.axioms.all (AxiomClass.ofName · == .standard) then
@@ -428,42 +442,39 @@ private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Outpu
 /-- The line under a verdict that rests on the comparison's conditions: what the kernel replay
 did for the judged theorem (`standing`). -/
 def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing) : String :=
-  let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
+  let checker := (replay?.map (·.checkerName)).getD "the kernel checkers"
   match standing with
   | .accepted =>
-    let earlier := if replay?.any (·.recorded) then
-        " (in an earlier run, for an export identical to this build's)" else ""
-    s!"Kernel replay: {checker} accepted this theorem and every constant it depends on, in \
-      this project, in its dependencies and in Lean's own library, starting from an empty \
-      environment{earlier}."
+    let earlier :=
+      if replay?.any (·.reproducible) then
+        " (in this run, or in an earlier one for an export identical to this build's)"
+      else if replay?.any (·.recorded) then
+        " (in an earlier run, for an export identical to this build's)"
+      else ""
+    s!"Kernel replay: {checker} each checked this theorem and every constant it depends on, \
+      in this project, in its dependencies and in Lean's own library, starting from its own \
+      built-in prelude, and both accepted it{earlier}."
   | .rejected =>
+    let what := (replay?.map (·.rejectionText)).getD "a kernel checker rejected this build"
     let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
-    s!"Kernel replay: {checker} rejected this build{message}"
+    s!"Kernel replay: {what}{message}"
   | .notReplayed why => s!"No kernel replay: {why}."
   | .noVerdict why => s!"No verdict of a kernel replay: {why}."
-  | .assumed axioms =>
-    let earlier := if replay?.any (·.recorded) then
-        " (in an earlier run, for an export identical to this build's)" else ""
-    let noun := if axioms.size == 1 then "an axiom" else "axioms"
-    s!"Kernel replay: {checker} accepted this theorem and every constant it depends on, in \
-      this project, in its dependencies and in Lean's own library, starting from an empty \
-      environment{earlier}; the replay found under it {noun} the verdict does not allow \
-      ({", ".intercalate (axioms.toList.map (·.toString))}), which a kernel accepts without a \
-      proof."
+  | .notChecked axioms => s!"Kernel replay: not checked: {Replay.notCheckedClause axioms}."
 
-/-- What the replay establishes for a judged theorem of a headline: whether it checked the
-theorem with everything it depends on, and found no axiom under it beyond those the challenge
-permits (Lean's standard three when it states no list). -/
-def headlineStanding (replay? : Option Replay.Result) (h : Headline) (t : HeadlineTheorem) :
-    Replay.Standing :=
+/-- What the replay establishes for a judged theorem of a headline: whether both checkers
+checked the theorem with everything it depends on. A theorem that rests on an axiom outside
+Lean's standard three is not checked, whatever the challenge `_headline` permits: both checkers
+decline an export that uses such an axiom. -/
+def headlineStanding (replay? : Option Replay.Result) (_headline : Headline)
+    (t : HeadlineTheorem) : Replay.Standing :=
   Replay.provedStanding replay? #[t.name]
-    (permitted := h.permittedAxioms.getD Data.standardAxioms)
 
 private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : HeadlineTheorem) :
     Output.Html :=
   let replay? := view.stats.replay
   let standing := headlineStanding replay? h t
-  let (token, verdict) := headlineVerdict t standing
+  let (token, verdict) := headlineVerdict t standing replay?
   let claim? := view.stats.claims.bind (·.view? t.name)
   let replayNote : Output.Html :=
     if !t.conditionsMet then .empty
@@ -533,7 +544,15 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
       -- a challenge that could not be read states nothing either way
       else if h.unavailable.isSome then .empty
       else el "p" "bp_stats_headline_unavailable" (txt "The challenge states no theorem.")
-    band "bp_stats_headline" "Headline result" #[unavailable, theorems, definitions, source]
+    let unjudged : Output.Html :=
+      if h.unjudged.isEmpty then .empty
+      else el "details" "bp_stats_more bp_stats_headline_unjudged" (.seq #[
+        .tag "summary" #[] (txt s!"Theorems of the challenge that are not judged \
+          ({formatCount h.unjudged.size})"),
+        el "ul" "bp_stats_files" (.seq (h.unjudged.map fun (n, why) =>
+          .tag "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
+    band "bp_stats_headline" "Headline result"
+      #[unavailable, theorems, unjudged, definitions, source]
 
 /-! ## Kernel replay -/
 
@@ -541,8 +560,33 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
 def replayToken (replay? : Option Replay.Result) : String :=
   match replay?.map (·.outcome) with
   | some Replay.Outcome.accepted => "accepted"
-  | some Replay.Outcome.rejected => "rejected"
+  | some Replay.Outcome.rejected | some Replay.Outcome.disagreed => "rejected"
   | _ => "none"
+
+/-- What one checker answered, in a few words: "accepted 3,402 declaration records", "rejected
+it: …", with how long it ran and the most memory it was seen to hold when they are known. -/
+def checkerRunText (c : Replay.CheckerRun) : String :=
+  let said := c.message.map (s!": {·}") |>.getD ""
+  let answer := match c.answer with
+    | .accepted =>
+      match c.declarations with
+      | some n => s!"accepted the export ({Replay.counted n "declaration record"})"
+      | Option.none => "accepted the export"
+    | .rejected => s!"rejected the export{said}"
+    | .declined => s!"declined to check the export{said}"
+    | .error => s!"ended with an error{said}"
+    | .noAnswer => s!"gave no answer{(c.message.map (s!" ({·})")).getD ""}"
+    | .timedOut => "was stopped at the time limit"
+    | .overMemory => "was stopped over its memory limit"
+    | .notStarted => s!"could not be started{said}"
+  let mib (b : Nat) := (b + 1024 * 1024 - 1) / (1024 * 1024)
+  let used := match c.ms, c.peakBytes with
+    | some ms, some peak => s!" ({(ms + 500) / 1000} s, at most {mib peak} MiB of memory)"
+    | some ms, Option.none => s!" ({(ms + 500) / 1000} s)"
+    | _, _ => ""
+  -- which program it was: the file's SHA-256, also for one a setting named
+  let file := (c.sha256.map fun h => s!"; its file's SHA-256 begins {(h.take 12).copy}").getD ""
+  s!"{c.label} {answer}{used}{file}"
 
 /-- What the page says when the generator ran no replay. -/
 def noReplaySummary : String :=
@@ -557,7 +601,8 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   let token := replayToken replay?
   let summary := (replay?.map (·.summary)).getD noReplaySummary
   -- the checker's message; what kept a replay from a verdict is in the summary already
-  let message : Output.Html := match replay?.filter (·.outcome == .rejected) |>.bind (·.message) with
+  let message : Output.Html :=
+    match replay?.filter (·.outcome.isRejection) |>.bind (·.message) with
     | some m => el "pre" "bp_stats_replay_message" (txt m)
     | Option.none => .empty
   let listed (cls caption : String) (items : Array Output.Html) : Output.Html :=
@@ -568,6 +613,10 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   let byName (names : Array Name) := names.qsort (·.toString < ·.toString)
   let modules : Output.Html := match replay? with
     | some r => .seq #[
+        if r.checkers.isEmpty then .empty
+        else el "ul" "bp_stats_replay_checkers" (.seq (r.checkers.map fun c =>
+          el "li" s!"bp_stats_replay_checker bp_stats_replay_checker_{c.name}"
+            (txt (checkerRunText c)))),
         listed "bp_stats_replay_declarations"
           (if r.outcome == .accepted then
             "Declarations checked, each with everything it depends on"
@@ -577,8 +626,8 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           "Declarations of the site that the replay does not cover"
           (r.notCovered.map fun (d, why) => .seq #[code d.toString, txt s!" {why}"]),
         listed "bp_stats_replay_axioms"
-          "Declarations that depend on an axiom outside Lean's standard three, as the replay \
-            found by walking the terms"
+          "Declarations not checked: each rests on an axiom outside Lean's standard three, as \
+            the replay found by walking the terms"
           (r.axioms.map fun (d, axioms) => .seq #[code d.toString,
             txt s!": {", ".intercalate (axioms.toList.map (·.toString))}"])]
     | Option.none => .empty
@@ -867,8 +916,9 @@ def meaningItems : Array (String × String) := #[
   ("Kernel replay, and the check mark on a node",
     "a replay made while a site is generated exports the Lean declarations of its nodes and \
       every constant they depend on, in the project, in its dependencies and in Lean's own \
-      library, and checks them again in Lean's kernel with the toolchain's leanchecker, \
-      starting from an empty environment; the Kernel replay section above says whether one ran \
+      library, and checks them again with con-leche and con-ron, two checkers that ship with the \
+      Lean toolchain, each starting from its own built-in prelude; the Kernel replay section \
+      above says whether one ran \
       for this site and how it ended. A node has the check mark only when its Lean code is \
       complete, rests on no axiom outside Lean's standard three, and the replay accepted it. \
       Otherwise its mark is the diamond when no verdict of a replay stands behind its code, the \

@@ -64,11 +64,11 @@ private def directSorry : Data.ProvedStatus :=
   let thm := statusGlyph (some (mark .theorem .proved)) (some accepted)
   let defn := statusGlyph (some (mark .definition .proved)) (some accepted)
   thm.1.modifier == "proved" &&
-    thm.2 == "Lean proof complete: no sorry in it or in what it uses; checked again in Lean's \
-      kernel by leanchecker (Lean 4.35.0), with everything it depends on" &&
+    thm.2 == "Lean proof complete: no sorry in it or in what it uses; checked again by \
+      con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it" &&
     defn.1.modifier == "proved" &&
-    defn.2 == "Lean definition complete: no sorry in it or in what it uses; checked again in \
-      Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on" &&
+    defn.2 == "Lean definition complete: no sorry in it or in what it uses; checked again by \
+      con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it" &&
     !hasSubstr defn.2 "roved" && !hasSubstr thm.2 "Proved" &&
     (statusGlyph (some (mark .theorem .proved))).1.modifier == "reported" &&
     (statusGlyph (some (mark .definition .proved))).2 == "Lean definition without sorry, as the \
@@ -216,8 +216,8 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
     appearsBefore html "theorem main : P"
       "Docstring in the challenge (not checked against the Lean statement)" &&
     appearsBefore html "Docstring in the challenge" "The main result." &&
-    hasSubstr html "Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every \
-      constant it depends on" &&
+    hasSubstr html "Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this \
+      theorem and every constant it depends on" &&
     hasSubstr html "Compared by this site" && hasSubstr html "The comparison runs no kernel" &&
     hasSubstr html "This page reports on one build, made with Lean v4.35.0 and the package \
       revisions above. No other toolchain or revision was checked." &&

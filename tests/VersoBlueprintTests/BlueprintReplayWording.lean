@@ -40,18 +40,40 @@ open Verso.VersoBlueprintTests.Blueprint.Support
 /-- The axiom `native_decide` adds for `P.native`, as Lean names it. -/
 private def nativeAxiom : Name := `P.native._native.native_decide.ax_1_1
 
+/-- The run of one checker. -/
+private def run (name : String) (answer : Replay.Answer) (message : Option String := none) :
+    Replay.CheckerRun :=
+  { name, version := some "4.35.0", answer, message
+    declarations := if answer == .accepted then some 118 else none }
+
 /-- A replay that ended with `outcome`, of the declarations of the nodes below: the replay found
-`Demo.ax` under `P.ax`, the compiled-code axiom under `P.native` and `sorryAx` under `P.sorry`. -/
+`Demo.ax` under `P.ax` and `P.assumed`, the compiled-code axiom under `P.native` and `sorryAx`
+under `P.sorry`, so those four were left out of the export and not checked. -/
 private def result (outcome : Replay.Outcome) : Replay.Result :=
   { outcome, version := some "4.35.0"
-    declarations := replayOrder #[`P.clean, `P.std, `P.ax, `P.native, `P.sorry, `P.main,
-      `P.assumed]
+    declarations := replayOrder #[`P.clean, `P.std, `P.main]
     axioms := #[(`P.ax, #[`Demo.ax]), (`P.native, #[nativeAxiom]), (`P.sorry, #[``sorryAx]),
       (`P.assumed, #[`Demo.ax])]
     constants := 120
+    records := 118
+    checkers := match outcome with
+      | .accepted => #[run "con-leche" .accepted, run "con-ron" .accepted]
+      | .rejected => #[run "con-leche" .rejected (some "invalid: type mismatch in theorem P.bad"),
+          run "con-ron" .rejected (some "rejected: type mismatch in theorem")]
+      | .disagreed => #[run "con-leche" .accepted,
+          run "con-ron" .rejected (some "rejected: type mismatch in theorem")]
+      | .declined => #[run "con-leche" .accepted,
+          run "con-ron" .declined (some "con-ron: declined: non-standard axiom [at axiom P.ax]")]
+      | .failed => #[run "con-leche" .accepted,
+          run "con-ron" .noAnswer (some "status 3: con-ron: fuel exhausted")]
+      | _ => #[]
     message := match outcome with
-      | .rejected => some "(kernel) declaration type mismatch"
-      | .failed => some "no export was written"
+      | .rejected => some "invalid: type mismatch in theorem P.bad"
+      | .disagreed => some "rejected: type mismatch in theorem"
+      | .declined => some "con-ron: declined: non-standard axiom [at axiom P.ax]"
+      | .failed => some "con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted)"
+      | .noChecker => some "this project's Lean (v4.34.0) ships no con-leche or con-ron"
+      | .overMemory => some "con-ron (Lean 4.35.0)"
       | _ => none
     limitSeconds := if outcome == .timedOut then some 900 else none
     memoryLimit := if outcome == .overMemory then some (64 * 1024 * 1024) else none
@@ -60,11 +82,14 @@ private def result (outcome : Replay.Outcome) : Replay.Result :=
 /-- Every state of a replay, by name. -/
 private def replays : List (String × Option Replay.Result) := [
   ("accepted", some (result .accepted)),
+  ("accepted (reproducible)", some (result .accepted).forReproducible),
   ("rejected", some (result .rejected)),
+  ("disagreed", some (result .disagreed)),
+  ("declined", some (result .declined)),
+  ("no answer", some (result .failed)),
   ("timed out", some (result .timedOut)),
   ("over memory", some (result .overMemory)),
-  ("failed", some (result .failed)),
-  ("no checker", some (result .noChecker)),
+  ("no checker shipped", some (result .noChecker)),
   ("export over its limit", some (result .overExport)),
   ("switched off", some (result .off)),
   ("not run", none)]
@@ -113,54 +138,78 @@ private def row (cells : List String) : String := " | ".intercalate cells
 
 -- Every node in every state: the state, the node, the glyph, the glyph's text.
 /--
-info: accepted | no axiom | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on
-accepted | standard axioms only | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again in Lean's kernel by leanchecker (Lean 4.35.0), with everything it depends on
-accepted | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report; replayed and accepted by leanchecker (Lean 4.35.0), with everything it depends on; it rests on an axiom outside Lean's standard three (Demo.ax), which a kernel accepts without a proof, so it is not shown as proved
-accepted | an axiom only the replay found | ⚠ | Lean proof without sorry, as the compiled files report; replayed and accepted by leanchecker (Lean 4.35.0), with everything it depends on; it rests on an axiom outside Lean's standard three (Demo.ax), which a kernel accepts without a proof, so it is not shown as proved (the replay found it in the terms; the compiled files report none)
-accepted | native_decide | ⚠ | Lean proof without sorry, as the compiled files report; replayed and accepted by leanchecker (Lean 4.35.0), with everything it depends on; it rests on the result of compiled code (P.native._native.native_decide.ax_1_1), which a kernel accepts without a proof, so it is not shown as proved
+info: accepted | no axiom | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
+accepted | standard axioms only | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
+accepted | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved
+accepted | an axiom only the replay found | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved (the replay found it in the terms; the compiled files report none)
+accepted | native_decide | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on the result of compiled code (P.native._native.native_decide.ax_1_1), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved
 accepted | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 accepted | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: P.other is not among the declarations that were checked)
 accepted | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: the module of Main.local is not known)
-rejected | no axiom | ⊘ | Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build
-rejected | standard axioms only | ⊘ | Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build
-rejected | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not accepted: leanchecker (Lean 4.35.0) rejected this build
-rejected | an axiom only the replay found | ⊘ | Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build
-rejected | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); not accepted: leanchecker (Lean 4.35.0) rejected this build
+accepted (reproducible) | no axiom | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
+accepted (reproducible) | standard axioms only | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
+accepted (reproducible) | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved
+accepted (reproducible) | an axiom only the replay found | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved (the replay found it in the terms; the compiled files report none)
+accepted (reproducible) | native_decide | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on the result of compiled code (P.native._native.native_decide.ax_1_1), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved
+accepted (reproducible) | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
+accepted (reproducible) | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: P.other is not among the declarations that were checked)
+accepted (reproducible) | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: the module of Main.local is not known)
+rejected | no axiom | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | standard axioms only | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | an axiom only the replay found | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
 rejected | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
-rejected | not checked by the replay | ⊘ | Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build
-rejected | module not known | ⊘ | Lean proof not accepted: leanchecker (Lean 4.35.0) rejected this build
-timed out | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-timed out | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-timed out | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-timed out | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-timed out | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
+rejected | not checked by the replay | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | module not known | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+disagreed | no axiom | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | standard axioms only | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | an axiom only the replay found | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
+disagreed | not checked by the replay | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | module not known | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+declined | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
+declined | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+no answer | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
+no answer | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+timed out | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
 timed out | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
-timed out | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-timed out | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with leanchecker (Lean 4.35.0) did not finish within 900 s)
-over memory | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-over memory | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-over memory | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-over memory | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-over memory | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
+timed out | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+over memory | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
 over memory | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
-over memory | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-over memory | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB)
-failed | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
-failed | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-failed | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: no export was written)
-no checker | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)
-no checker | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)
-no checker | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (no kernel checker was found)
-no checker | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)
-no checker | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); not replayed by a kernel (no kernel checker was found)
-no checker | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
-no checker | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)
-no checker | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (no kernel checker was found)
+over memory | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+no checker shipped | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | an axiom only the replay found | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | native_decide | ⚠ | Lean proof without sorry, as the compiled files report, resting on the result of compiled code (P.native._native.native_decide.ax_1_1); not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
+no checker shipped | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
 export over its limit | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
 export over its limit | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
 export over its limit | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
@@ -208,14 +257,17 @@ private def sites : List (String × Replay.SiteState) :=
 /--
 info: accepted, every node | accepted | - | - | -
 accepted, a node not covered | none | the kernel replay accepted the build; on this site 1 node with Lean code is not part of the replay | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node with Lean code is not part of the replay. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node with Lean code is not part of the replay.
-accepted, a node on an axiom | none | the kernel replay accepted the build; on this site 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node without sorry rests on the axiom Demo.ax, which a kernel accepts without a proof, so it is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node without sorry rests on the axiom Demo.ax, which a kernel accepts without a proof, so it is not shown as proved.
-accepted, two nodes on axioms | none | the kernel replay accepted the build; on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code) | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), which a kernel accepts without a proof, so they are not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), which a kernel accepts without a proof, so they are not shown as proved.
-accepted, both | none | the kernel replay accepted the build; on this site 2 nodes with Lean code are not part of the replay, and 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, which a kernel accepts without a proof, so it is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, which a kernel accepts without a proof, so it is not shown as proved.
-rejected | rejected | this build was rejected by the kernel checker | The kernel checker rejected this build. | This build was rejected by the kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
-timed out | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.
-over memory | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB.
-failed | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay could not run to a verdict: no export was written.
-no checker | none | as the compiled files report, not replayed by a kernel | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: no kernel checker was found.
+accepted, a node on an axiom | none | the kernel replay accepted the build; on this site 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved.
+accepted, two nodes on axioms | none | the kernel replay accepted the build; on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code) | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), so they were not checked and are not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), so they were not checked and are not shown as proved.
+accepted, both | none | the kernel replay accepted the build; on this site 2 nodes with Lean code are not part of the replay, and 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved.
+accepted (reproducible) | none | the kernel replay accepted the build; on this site 1 node with Lean code is not part of the replay, and 1 node without sorry rests on an axiom outside Lean's standard three | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved.
+rejected | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
+disagreed | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
+declined | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax].
+no answer | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted).
+timed out | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s.
+over memory | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB.
+no checker shipped | none | as the compiled files report, not replayed by a kernel | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: this project's Lean (v4.34.0) ships no con-leche or con-ron.
 export over its limit | none | as the compiled files report, not replayed by a kernel | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run.
 switched off | none | as the compiled files report, not replayed by a kernel | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: the kernel replay was switched off for this build.
 not run | none | as the compiled files report, not replayed by a kernel | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: this site was generated without a kernel replay.
@@ -227,12 +279,15 @@ not run | none | as the compiled files report, not replayed by a kernel | Counte
 
 -- The replay band's first sentence, per state.
 /--
-info: accepted | Accepted: leanchecker (Lean 4.35.0) checked 7 declarations and everything they depend on, 120 constants in all again in Lean's kernel, starting from an empty environment.
-rejected | Rejected: leanchecker (Lean 4.35.0) found a problem in what this site's declarations depend on. Nothing on this site counts as checked by a kernel.
-timed out | No verdict of a kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s. The marks on this site say what the compiled files report.
-over memory | No verdict of a kernel replay: the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB. The marks on this site say what the compiled files report.
-failed | No verdict of a kernel replay: the replay could not run to a verdict: no export was written. The marks on this site say what the compiled files report.
-no checker | Not replayed by a kernel: no kernel checker was found. The marks on this site say what the compiled files report.
+info: accepted | Accepted: con-leche and con-ron (Lean 4.35.0) each checked 3 declarations and everything they depend on, 120 constants in all, starting from its own built-in prelude, and both accepted them.
+accepted (reproducible) | Accepted: con-leche and con-ron (Lean 4.35.0) both accepted this build's export, in this run or, for an identical export, in an earlier one: 3 declarations and everything they depend on, 120 constants in all, each starting from its own built-in prelude.
+rejected | Rejected: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build (the export of this site's declarations and what they depend on). Nothing on this site counts as checked by a kernel.
+disagreed | Rejected: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it. Nothing on this site counts as checked by a kernel.
+declined | No verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax]. The marks on this site say what the compiled files report.
+no answer | No verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted). The marks on this site say what the compiled files report.
+timed out | No verdict of a kernel replay: the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s. The marks on this site say what the compiled files report.
+over memory | No verdict of a kernel replay: the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB. The marks on this site say what the compiled files report.
+no checker shipped | Not replayed by a kernel: this project's Lean (v4.34.0) ships no con-leche or con-ron. The marks on this site say what the compiled files report.
 export over its limit | Not replayed by a kernel: the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run. The marks on this site say what the compiled files report.
 switched off | Not replayed by a kernel: the kernel replay was switched off for this build. The marks on this site say what the compiled files report.
 not run | Not replayed by a kernel: this site was generated without a kernel replay. The marks on this site say what the compiled files report.
@@ -254,18 +309,21 @@ private def headline : Headline :=
 private def headlineRows (h : Headline) (t : HeadlineTheorem) : List String :=
   replays.map fun (state, replay?) =>
     let standing := headlineStanding replay? h t
-    let (token, verdict) := headlineVerdict t standing
+    let (token, verdict) := headlineVerdict t standing replay?
     row [state, token, verdict, replayNoteText replay? standing]
 
 -- A theorem that meets the comparison's conditions and that the replay checks: the state, the
 -- verdict's token, the verdict, the line under it.
 /--
-info: accepted | proved | Lean statement proved | Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment.
-rejected | rejected | Not accepted: the kernel checker rejected this build | Kernel replay: leanchecker (Lean 4.35.0) rejected this build: (kernel) declaration type mismatch
-timed out | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.
-over memory | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB.
-failed | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay could not run to a verdict: no export was written.
-no checker | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: no kernel checker was found.
+info: accepted | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it.
+accepted (reproducible) | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it (in this run, or in an earlier one for an export identical to this build's).
+rejected | rejected | Not accepted: a kernel checker rejected this build | Kernel replay: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build: invalid: type mismatch in theorem P.bad
+disagreed | rejected | Not accepted: the two kernel checkers disagree on this build | Kernel replay: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it: rejected: type mismatch in theorem
+declined | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax].
+no answer | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted).
+timed out | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s.
+over memory | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB.
+no checker shipped | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: this project's Lean (v4.34.0) ships no con-leche or con-ron.
 export over its limit | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run.
 switched off | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: the kernel replay was switched off for this build.
 not run | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: this site was generated without a kernel replay.
@@ -275,12 +333,15 @@ not run | not-replayed | Same Lean statement as the challenge; no sorry; permitt
 
 -- The same for a theorem under which the replay found an axiom the verdict does not allow.
 /--
-info: accepted | axioms | Same Lean statement as the challenge; replayed and accepted by a kernel; it rests on an axiom outside Lean's standard three (Demo.ax), which a kernel accepts without a proof, so it is not shown as proved | Kernel replay: leanchecker (Lean 4.35.0) accepted this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment; the replay found under it an axiom the verdict does not allow (Demo.ax), which a kernel accepts without a proof.
-rejected | rejected | Not accepted: the kernel checker rejected this build | Kernel replay: leanchecker (Lean 4.35.0) rejected this build: (kernel) declaration type mismatch
-timed out | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay with leanchecker (Lean 4.35.0) did not finish within 900 s.
-over memory | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay was stopped: leanchecker (Lean 4.35.0) went over its memory limit of 64 MiB.
-failed | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay could not run to a verdict: no export was written.
-no checker | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: no kernel checker was found.
+info: accepted | axioms | Same Lean statement as the challenge; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on the standard three alone, so it is not shown as proved | Kernel replay: not checked: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on the standard three alone.
+accepted (reproducible) | axioms | Same Lean statement as the challenge; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on the standard three alone, so it is not shown as proved | Kernel replay: not checked: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on the standard three alone.
+rejected | rejected | Not accepted: a kernel checker rejected this build | Kernel replay: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build: invalid: type mismatch in theorem P.bad
+disagreed | rejected | Not accepted: the two kernel checkers disagree on this build | Kernel replay: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it: rejected: type mismatch in theorem
+declined | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax].
+no answer | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted).
+timed out | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s.
+over memory | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB.
+no checker shipped | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: this project's Lean (v4.34.0) ships no con-leche or con-ron.
 export over its limit | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run.
 switched off | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: the kernel replay was switched off for this build.
 not run | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: this site was generated without a kernel replay.
@@ -288,14 +349,14 @@ not run | not-replayed | Same Lean statement as the challenge; no sorry; permitt
 #guard_msgs in
 #eval for r in headlineRows headline (met `P.assumed) do IO.println r
 
--- A challenge that permits the axiom: the same theorem is proved.
+-- A challenge that permits the axiom: the theorem is still not checked, and not proved, since
+-- both checkers decline an export that uses an axiom outside the standard three.
 /-- info: true -/
 #guard_msgs in
 #eval
   let h := { headline with permittedAxioms := some #[`Demo.ax] }
   let t := { met `P.assumed with axiomsPermitted := some true }
-  headlineVerdict t (headlineStanding (some (result .accepted)) h t) ==
-    ("proved", "Lean statement proved")
+  (headlineVerdict t (headlineStanding (some (result .accepted)) h t)).1 == "axioms"
 
 /-! ## No sentence is false in its state -/
 
@@ -308,7 +369,7 @@ private def falseWords (replay? : Option Replay.Result) (covered : Bool) (text :
     says "not replayed" ++ says "no verdict" ++ says "as the compiled files report, not"
   else if acceptedState replay? then
     says "accepted by" ++ says "checked again" ++ says "proof complete"
-  else if replay?.any (·.outcome == .rejected) then
+  else if replay?.any (·.outcome.isRejection) then
     says "accepted by" ++ says "checked again" ++ says "proof complete" ++ says "not replayed" ++
       says "no verdict"
   else if stoppedState replay? then
@@ -337,7 +398,7 @@ private def falseWords (replay? : Option Replay.Result) (covered : Bool) (text :
 #eval
   replays.flatMap fun (state, replay?) => [`P.main, `P.assumed].filterMap fun name =>
     let standing := headlineStanding replay? headline (met name)
-    let (token, verdict) := headlineVerdict (met name) standing
+    let (token, verdict) := headlineVerdict (met name) standing replay?
     let text := verdict ++ " " ++ replayNoteText replay? standing
     let wrong := falseWords replay? true text ++
       (if (token == "proved") != (acceptedState replay? && name == `P.main) then ["proved"] else [])

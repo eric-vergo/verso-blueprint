@@ -839,10 +839,13 @@ async function loadEgoDrawing(previewUtils, graphBlock, variant, options) {
   const size = Array.isArray(index.sizes) ? index.sizes[set] : variant.egoSize;
   if (!direction) {
     const most = typeof index.nodeLimit === "number" ? index.nodeLimit : 0;
+    // a neighbourhood the generator stopped counting past the limit
+    const over = Array.isArray(index.over) && index.over[set] === true;
+    const count = over ? "more than " + most : String(size);
     return {
       svg: null,
-      note: "This neighbourhood has " + size + " nodes and is not drawn" +
-        (most > 0 && size > most ? ": the site draws neighbourhoods of up to " + most + " nodes." : ": the site's neighbourhood drawings stop at a size limit.") +
+      note: "This neighbourhood has " + count + " nodes and is not drawn" +
+        (most > 0 && (over || size > most) ? ": the site draws neighbourhoods of up to " + most + " nodes." : ": the site's neighbourhood drawings stop at a size limit.") +
         (variant.egoHops > 1 ? " Try fewer hops." : "")
     };
   }

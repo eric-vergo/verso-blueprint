@@ -216,7 +216,7 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
     stats.layout.projectRoot == none
 
 -- JSON round trip, and the schema version.
-/-- info: (true, 6) -/
+/-- info: (true, 7) -/
 #guard_msgs in
 #eval
   match fromJson? (α := ProjectStats) (toJson stats) with

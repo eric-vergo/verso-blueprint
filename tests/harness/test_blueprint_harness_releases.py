@@ -52,6 +52,19 @@ class BlueprintHarnessReleaseHelperTests(unittest.TestCase):
             versions,
         )
 
+    def test_patch_suffixed_release_refs_share_the_family_of_the_release(self) -> None:
+        self.assertEqual(releases_mod.lean_release_family("v4.35.0"), (4, 35))
+        self.assertEqual(releases_mod.lean_release_family("v4.35.0-patch1"), (4, 35))
+        self.assertEqual(releases_mod.release_branch_version("v4.35.0-patch12"), (4, 35, 0))
+        self.assertEqual(
+            releases_mod.lean_release_subversion("v4.35.0-patch1"),
+            releases_mod.lean_release_subversion("v4.35.0"),
+        )
+        for rejected in ("v4.35.0-patch", "v4.35.0-patchx", "v4.35.0-patch1-rc1", "v4.35-patch1"):
+            with self.subTest(ref=rejected):
+                with self.assertRaises(SystemExit):
+                    releases_mod.lean_release_family(rejected)
+
     def test_rewrite_lean_toolchain_preserves_existing_final_newline_style(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

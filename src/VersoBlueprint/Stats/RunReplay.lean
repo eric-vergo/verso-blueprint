@@ -15,7 +15,7 @@ import VersoBlueprint.Replay
 Running the kernel replay of a build (`Informal.Replay`).
 
 A replay checks the Lean declarations a site reports on, and everything they depend on, again
-in Lean's kernel. It has two halves.
+by two kernel checkers. It has two halves.
 
 The first half (`prepareExport`, after `loadModules`) runs in a worker process:
 
@@ -27,11 +27,19 @@ The first half (`prepareExport`, after `loadModules`) runs in a worker process:
    of the Lean toolchain (`LeanExport`). The dependencies are followed wherever they lead: into
    the project's other modules, its dependencies and Lean's own library.
 
-The second half (`checkExport`) runs the toolchain's `leanchecker --from-export` on the file, at
-a lower priority, in one process, with a memory limit and a time limit. The checker adds every
-constant of the file to an empty environment through Lean's kernel. Only its own statement that
-it accepted counts (`parseVerdict`); a run that is stopped at a limit is reported as such, never
-as accepted.
+Only declarations that rest on Lean's standard three axioms at most are exported: both checkers
+decline a whole export that uses another axiom (`sorryAx` among them), so a declaration that
+rests on one is left out, with its axioms (`Prepared.axioms`), and the others are still checked.
+
+The second half (`checkExport`) runs the two checkers that ship with the Lean toolchain, first
+`con-leche` and then `con-ron`, each as `--verified --jobs=N FILE`, at a lower priority, with a
+memory limit and under one time limit for the whole replay. Each adds every declaration of the
+file to an empty environment. Its answer is read from its exit status first and its words second
+(`parseAnswer`): an acceptance needs status 0, its line `accepted N declarations` and `N` at
+least the declaration records the generator counts in the file (`exportCensus`), which must also
+be exactly the file the worker wrote and end with a complete line; both checkers accept an empty
+or cut-off file with status 0. The replay accepts only when both checkers accept
+(`combineRuns`); a run stopped at a limit is reported as such, never as accepted.
 
 ## The worker
 
@@ -70,25 +78,36 @@ The whole replay has a time limit (`replayLimitVar`), the worker and the checker
 limit (`replayMemoryVar`: a process's memory is sampled while it runs, as its physical footprint
 on macOS, its anonymous and swapped memory on Linux, its resident size elsewhere), and the
 export a size limit (`replayExportVar`). By default a process may use a quarter of the
-machine's physical memory (`defaultMemoryLimit`).
+machine's physical memory (`defaultMemoryLimit`). The limits are enforced by polling: a process's
+memory is read every `sampleMs` from its process id, so a peak between two readings is not seen,
+and a reading that cannot be made is skipped; a process over a limit is stopped (the immediate
+child; a checker starts no process of its own). What a process writes is kept up to
+`outputLimit` bytes per stream, the rest read and dropped.
 
 ## The record
 
 An export is not checked twice. The key of an accepted export is written to a record: the file
 `VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD` names (empty for none), or else
-`verso-blueprint/kernel-replay.json` in the user's cache directory (`defaultRecordFile?`). The
-record is never looked for inside the project: a record says that a checker accepted something,
-and a project must not be able to bring such a statement with it. The key is the SHA-256 of the
-export's contents (`ExportKey`) together with the checker (path, size, modification time, Lean
+`verso-blueprint/kernel-replay-checkers.json` in the user's cache directory
+(`defaultRecordFile?`). The
+record is never looked for inside the project by default: a record says that the checkers
+accepted something, and a project must not be able to bring such a statement with it. A record
+named by the environment variable is where that variable says; the environment is the user's.
+The key is the SHA-256 of the export's contents (`ExportKey`) and of its count of declaration
+records, together with both checkers (each program's name, the SHA-256 of its file and its Lean
 version). The export is written and hashed on every run, from the environment in memory, so an
-accepted key stands for exactly the constants that were checked.
+accepted key stands for exactly the constants that were checked, by exactly those programs. Two
+generators that write the record at once can lose an entry, which only means a second check:
+the record is read again and merged just before it is replaced.
 
-## Finding the checker
+## Finding the checkers
 
-`VERSO_BLUEPRINT_KERNEL_CHECKER` names the program, or is `off`; otherwise `leanchecker` is
-looked for in `LEAN_SYSROOT` (Lake sets it) and beside the running program (a generator run by
-`lean --run`). No toolchain is asked for by name on the `PATH`. Without a checker the result
-says so.
+`VERSO_BLUEPRINT_CON_LECHE` and `VERSO_BLUEPRINT_CON_RON` name the programs; otherwise each is
+looked for in `LEAN_SYSROOT`'s `bin` (Lake sets it) and beside the running program (a generator
+run by `lean --run`). No toolchain is asked for by name on the `PATH`.
+`VERSO_BLUEPRINT_KERNEL_CHECKER=off` switches the replay off; any other value of that variable
+gives no verdict and says why. A toolchain that ships neither checker (Lean before 4.35) gives no
+verdict either, and the result names the Lean version.
 -/
 
 namespace Informal.Stats
@@ -96,8 +115,14 @@ namespace Informal.Stats
 open Lean System
 open Informal.Replay
 
-/-- Names the checker program, or is `off`. -/
+/-- `off` switches the replay off. -/
 def replayCheckerVar : String := "VERSO_BLUEPRINT_KERNEL_CHECKER"
+
+/-- Names the `con-leche` program. -/
+def conLecheVar : String := "VERSO_BLUEPRINT_CON_LECHE"
+
+/-- Names the `con-ron` program. -/
+def conRonVar : String := "VERSO_BLUEPRINT_CON_RON"
 
 /-- The time limit of a replay, in seconds. -/
 def replayLimitVar : String := "VERSO_BLUEPRINT_KERNEL_REPLAY_SECONDS"
@@ -124,7 +149,8 @@ def defaultExportLimit : Nat := 4 * 1024 * 1024 * 1024
 
 /-- The record's file in the user's cache directory, from what the environment says: on macOS
 `Library/Caches` in `home`, on Windows `localAppData`, elsewhere `xdgCache` or `.cache` in
-`home`; then `verso-blueprint/kernel-replay.json`. `none` when the directory is not known. -/
+`home`; then `verso-blueprint/kernel-replay-checkers.json`. `none` when the directory is not
+known. -/
 def recordFileIn (home xdgCache localAppData : Option String) (macOS windows : Bool) :
     Option FilePath :=
   let present (value : Option String) : Option FilePath :=
@@ -133,7 +159,7 @@ def recordFileIn (home xdgCache localAppData : Option String) (macOS windows : B
     if windows then present localAppData
     else if macOS then (present home).map (· / "Library" / "Caches")
     else present xdgCache <|> (present home).map (· / ".cache")
-  cache.map (· / "verso-blueprint" / "kernel-replay.json")
+  cache.map (· / "verso-blueprint" / "kernel-replay-checkers.json")
 
 /-- The record when `replayRecordVar` names none: `recordFileIn` of this process's
 environment. -/
@@ -149,10 +175,24 @@ def defaultMemoryLimit (physical : Nat) : Nat := physical / 4
 4 GiB. -/
 def fallbackMemoryLimit : Nat := 4 * 1024 * 1024 * 1024
 
+/-- The worker threads each checker runs with on a machine of `threads` hardware threads: half
+of them, at most 8 and at least 2. -/
+def jobsFor (threads : Nat) : Nat := max 2 (min 8 (threads / 2))
+
+/-- `jobsFor` this machine. -/
+def defaultJobs : IO Nat :=
+  return jobsFor (System.Platform.Internal.getHardwareConcurrency ()).toNat
+
 /-- How a replay is run. -/
 structure ReplayConfig where
-  /-- The checker program; `none` when none was found. -/
-  checker? : Option FilePath := none
+  /-- The checker programs by name, in the order they run (`Replay.checkerNames`); a name
+  without a program is one that was not found. -/
+  checkers : Array (String × Option FilePath) := #[]
+  /-- Why the configuration of the checkers is not usable, when it is not (a value of
+  `replayCheckerVar` other than `off`). -/
+  setting? : Option String := none
+  /-- The worker threads of each checker. -/
+  jobs : Nat := 2
   /-- The root of the Lean toolchain the project was built with, whose own library the compiled
   modules are loaded on; `none` for the toolchain the checker is in. -/
   sysroot? : Option FilePath := none
@@ -212,19 +252,30 @@ def registerSelfAsReplayWorker : IO Unit := do
   if program.fileStem == some "lean" then return
   registerReplayWorker program
 
-private def checkerExe : String :=
-  if Platform.isWindows then "leanchecker.exe" else "leanchecker"
+private def exeName (name : String) : String :=
+  if Platform.isWindows then name ++ ".exe" else name
 
-/-- The toolchain's `leanchecker`: in `LEAN_SYSROOT`, else beside the running program. -/
-def findChecker? : IO (Option FilePath) := do
+/-- The toolchain's program `name` (`con-leche`, `con-ron`): in `LEAN_SYSROOT`, else beside the
+running program. -/
+def findChecker? (name : String) : IO (Option FilePath) := do
   let mut candidates : Array FilePath := #[]
   if let some root ← IO.getEnv "LEAN_SYSROOT" then
-    candidates := candidates.push (FilePath.mk root / "bin" / checkerExe)
+    candidates := candidates.push (FilePath.mk root / "bin" / exeName name)
   if let some dir := (← IO.appPath).parent then
-    candidates := candidates.push (dir / checkerExe)
+    candidates := candidates.push (dir / exeName name)
   for c in candidates do
     if ← c.pathExists then return some c
   return none
+
+/-- Both checkers, each from its variable (`conLecheVar`, `conRonVar`) when it is set, else
+`findChecker?`. A variable that names no file finds nothing. -/
+def findCheckers : IO (Array (String × Option FilePath)) :=
+  Replay.checkerNames.mapM fun name => do
+    let var := if name == "con-leche" then conLecheVar else conRonVar
+    match ((← IO.getEnv var).map (·.trimAscii.copy)).filter (!·.isEmpty) with
+    | some path =>
+      return (name, if ← (FilePath.mk path).pathExists then some (FilePath.mk path) else none)
+    | none => return (name, ← findChecker? name)
 
 private def realOr (path : FilePath) : IO FilePath :=
   try IO.FS.realPath path catch _ => pure path
@@ -333,10 +384,18 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
   let searchPath ← dedupDirs dirs
   let choice := ((← IO.getEnv replayCheckerVar).map (·.trimAscii.copy)).filter (!·.isEmpty)
   let off := choice == some "off"
-  let checker? ← match choice with
-    | some path => if off then pure none else
-        pure (if ← (FilePath.mk path).pathExists then some (FilePath.mk path) else none)
-    | none => findChecker?
+  let checkers ← findCheckers
+  -- a variable that names a program that is not there is a setting to correct, not a toolchain
+  -- without the checker
+  let mut misnamed : Option String := none
+  for (name, var) in [("con-leche", conLecheVar), ("con-ron", conRonVar)] do
+    if let some path := ((← IO.getEnv var).map (·.trimAscii.copy)).filter (!·.isEmpty) then
+      if (checkers.find? (·.1 == name)).any (·.2.isNone) && misnamed.isNone then
+        misnamed := some s!"{var} names {path}, which does not exist"
+  let setting? := (choice.bind fun value => if value == "off" then none else
+    some s!"{replayCheckerVar} is set to '{value}', and it takes only 'off': the checkers are \
+      named by {conLecheVar} and {conRonVar}") <|> misnamed
+  let jobs ← defaultJobs
   let number (var : String) : IO (Option Nat) :=
     return (← IO.getEnv var).bind (·.trimAscii.copy.toNat?)
   let limitSeconds := (← number replayLimitVar).getD defaultReplayLimit
@@ -353,8 +412,8 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
     | none => defaultRecordFile?
   let sysroot? := (← IO.getEnv "LEAN_SYSROOT").map FilePath.mk
   let worker? := (workerOfLines ((← IO.getEnv replayWorkerVar).getD "")) <|> (← replayWorkerRef.get)
-  return { checker?, sysroot?, off, limitSeconds, memoryLimit?, exportLimit?, searchPath,
-           projectDirs, record?, worker?, progress := true }
+  return { checkers, setting?, jobs, sysroot?, off, limitSeconds, memoryLimit?, exportLimit?,
+           searchPath, projectDirs, record?, worker?, progress := true }
 
 /-! ## Loading the compiled modules -/
 
@@ -655,25 +714,34 @@ private def writeExport (env : Environment) (roots : Array Name) (file : FilePat
 /-- How many accepted exports a record keeps: the newest. -/
 private def recordSize : Nat := 256
 
+/-- The version of a record's format; a record of another version holds nothing. -/
+private def recordVersion : Nat := 3
+
 private def readRecord (file? : Option FilePath) : IO (Array String) := do
   let some file := file? | return #[]
   try
     let json ← IO.ofExcept (Json.parse (← IO.FS.readFile file))
-    let .ok 2 := json.getObjValAs? Nat "version" | return #[]
+    let .ok v := json.getObjValAs? Nat "version" | return #[]
+    if v != recordVersion then return #[]
     IO.ofExcept (json.getObjValAs? (Array String) "accepted")
   catch _ => return #[]
 
-private def writeRecord (file? : Option FilePath) (keys : Array String) : IO Unit := do
+/-- Add `key` to the record, merged with what the record holds now (another generator may have
+written it since it was read), and replace the file in one rename. -/
+private def addToRecord (file? : Option FilePath) (key : String) : IO Unit := do
   let some file := file? | return
   try
+    let now ← readRecord file?
+    let keys := (now.filter (· != key)).push key
     if let some dir := file.parent then IO.FS.createDirAll dir
     let tmp := file.addExtension s!"tmp{← IO.monoNanosNow}"
     let keys := keys.extract (keys.size - recordSize) keys.size
-    IO.FS.writeFile tmp (Json.mkObj [("version", 2), ("accepted", toJson keys)]).compress
+    IO.FS.writeFile tmp
+      (Json.mkObj [("version", toJson recordVersion), ("accepted", toJson keys)]).compress
     IO.FS.rename tmp file
   catch _ => return
 
-/-! ## Running the checker -/
+/-! ## Running the checkers -/
 
 /-- The Lean version a toolchain's `lean --version` prints (`4.35.0`). -/
 def leanVersionOf (lean : FilePath) : IO (Option String) := do
@@ -693,15 +761,33 @@ private inductive RunEnd where
   | overMemory
   | notStarted (error : String)
 
-/-- How often the checker process's memory is looked at, in milliseconds. -/
-private def sampleMs : Nat := 500
+/-- How often a process's memory is looked at, in milliseconds. -/
+def sampleMs : Nat := 500
+
+/-- The most bytes of each of a process's output streams that are kept; the rest is read and
+dropped, so that the process is never held up by a full pipe. -/
+def outputLimit : Nat := 1024 * 1024
+
+/-- Read `stream` to its end, keeping its first `limit` bytes. -/
+private partial def readCapped (stream : IO.FS.Handle) (limit : Nat) : IO String := do
+  let rec go (acc : ByteArray) : IO ByteArray := do
+    let chunk ← stream.read 65536
+    if chunk.isEmpty then return acc
+    if acc.size ≥ limit then go acc
+    else go (acc ++ chunk.extract 0 (limit - acc.size))
+  let bytes ← go (ByteArray.emptyWithCapacity 0)
+  -- the cut may fall inside a character: drop its first bytes, else keep the ASCII only
+  let valid := [0, 1, 2, 3].findSome? fun k =>
+    if k ≤ bytes.size then String.fromUTF8? (bytes.extract 0 (bytes.size - k)) else none
+  return valid.getD (String.ofList (bytes.toList.filterMap fun b =>
+    if b < 128 then some (Char.ofNat b.toNat) else none))
 
 /-- Run `cmd` with `args` and `env` at a lower priority (through `nice`, when there is one),
 killing it when the clock passes `deadline` (`IO.monoMsNow`) or when its memory passes
 `memoryLimit?` (`processMemory?`, looked at every `sampleMs`). The process stays in this
 process's process group, so that
 whatever stops the generator's group (an interrupt at the terminal, the program that started the
-generator) stops the checker too. -/
+generator) stops it too. -/
 private def runLimited (cmd : String) (args : Array String)
     (env : Array (String × Option String)) (deadline : Nat) (memoryLimit? : Option Nat) :
     IO RunEnd := do
@@ -710,8 +796,8 @@ private def runLimited (cmd : String) (args : Array String)
     IO.Process.spawn { cmd, args, env, stdin := .null, stdout := .piped, stderr := .piped }
   let child ← try spawn "nice" (#["-n", "10", cmd] ++ args) catch _ =>
     try spawn cmd args catch e => return .notStarted (toString e)
-  let stdout ← IO.asTask child.stdout.readToEnd Task.Priority.dedicated
-  let stderr ← IO.asTask child.stderr.readToEnd Task.Priority.dedicated
+  let stdout ← IO.asTask (readCapped child.stdout outputLimit) Task.Priority.dedicated
+  let stderr ← IO.asTask (readCapped child.stderr outputLimit) Task.Priority.dedicated
   let finish (r : RunEnd) : IO RunEnd := do
     try child.kill catch _ => pure ()
     discard <| child.wait
@@ -743,35 +829,143 @@ private def clip (text : String) : String :=
   let text := text.trimAscii.copy
   if text.length ≤ messageLimit then text else (text.take messageLimit).copy ++ " …"
 
-/-- The line `leanchecker --from-export` prints when the kernel accepted every constant. -/
-def acceptedLine : String := "Lean default kernel accepts the solution"
+/-- `text` without the run times a checker adds to its lines (` t=0.021s`), which differ from
+run to run. -/
+def withoutTimes (text : String) : String :=
+  "\n".intercalate ((text.splitOn "\n").map fun line =>
+    match line.splitOn " t=" with
+    | [] | [_] => line
+    | parts =>
+      let last := parts.getLast!
+      let isTime := !last.isEmpty && last.endsWith "s" &&
+        (last.dropEnd 1).all fun c => c.isDigit || c == '.'
+      if isTime then " t=".intercalate parts.dropLast else line)
 
-/-- What `leanchecker --from-export` prints before the kernel's error, or before the reason its
-check of the quotient constants failed. -/
-def rejectedMarkers : List String :=
-  ["Lean default kernel rejects the solution: ", "Quotient post-check rejects the solution: "]
+/-- The number `N` of a line `<program>: accepted N declarations …`, when `text` has one. -/
+def acceptedCount? (text : String) : Option Nat :=
+  (text.splitOn "\n").findSome? fun line =>
+    match line.splitOn ": accepted " with
+    | [_, rest] =>
+      match rest.splitOn " " with
+      | n :: "declarations" :: _ | n :: "declaration" :: _ => n.toNat?
+      | _ => none
+    | _ => none
 
-/-- What `leanchecker --from-export` said: accepted (exit status 0 and the line that says so),
-rejected with the kernel's message, or neither. -/
-inductive CheckerVerdict where
-  | accepted
-  | rejected (message : String)
-  | none (message : String)
+/-- The number `N` of a 4.36 decline `declined (N declarations checked, …)`, when there is one. -/
+def declinedCount? (text : String) : Option Nat :=
+  (text.splitOn "declined (")[1]? |>.bind fun rest => ((rest.splitOn " ")[0]?).bind (·.toNat?)
+
+/-- The words with which a checker rejects: `con-leche` writes `invalid: …`, `con-ron`
+`rejected: …`. -/
+def rejectionMarkers : List String := [": invalid: ", ": rejected: "]
+
+/-- A checker's answer from its exit status first and its words second, for an export of
+`records` declaration records: 0 is an acceptance only with its line `accepted N declarations`
+and `N ≥ records`; 1 is a rejection only with its words of rejection, and an error with an
+uncaught exception; 2 is a decline; 3 (a usage or parse error, a reduction out of fuel) and any
+other status are no answer. Gives the answer, the count it stated and what it said. -/
+def parseAnswer (code : UInt32) (stdout stderr : String) (records : Nat) :
+    Replay.Answer × Option Nat × Option String :=
+  let said := clip (withoutTimes (if stderr.trimAscii.isEmpty then stdout else stderr))
+  let all := withoutTimes (stdout ++ "\n" ++ stderr)
+  let saidOr (fallback : String) := if said.isEmpty then fallback else said
+  match code with
+  | 0 =>
+    match acceptedCount? stdout with
+    | some n =>
+      if n ≥ records then (.accepted, some n, none)
+      else (.noAnswer, some n, some s!"status 0, and it said it accepted {n} declarations, but \
+        the export holds {records}")
+    | none => (.noAnswer, none, some s!"status 0 without its line that it accepted the export: \
+        {saidOr "it wrote nothing"}")
+  | 1 =>
+    if (all.splitOn "uncaught exception").length > 1 then
+      (.error, none, some (saidOr "an uncaught exception"))
+    else
+      let rejection := rejectionMarkers.findSome? fun marker =>
+        match all.splitOn marker with
+        | _ :: rest@(_ :: _) => some (clip ((marker.drop 2).copy ++ marker.intercalate rest))
+        | _ => none
+      match rejection with
+      | some message => (.rejected, none, some message)
+      | none => (.noAnswer, none, some s!"status 1 without its words of rejection: \
+          {saidOr "it wrote nothing"}")
+  | 2 => (.declined, declinedCount? all, some (saidOr "it declined without saying why"))
+  | 3 => (.noAnswer, none, some s!"status 3: {saidOr "it wrote nothing"}")
+  | n => (.noAnswer, none, some s!"status {n}: {saidOr "it wrote nothing"}")
+
+/-- The verdict of a replay from its checkers' runs, in order: accepted only when every one
+accepted (and there is one); disagreed when one accepted and another rejected; rejected when one
+rejected; otherwise a stop at a limit, a decline, or no answer, with what the first such
+checker said. -/
+def combineRuns (runs : Array Replay.CheckerRun) : Replay.Outcome × Option String :=
+  let first (a : Replay.Answer) := runs.find? (·.answer == a)
+  if !runs.isEmpty && runs.all (·.answer == .accepted) then (.accepted, none)
+  else match first .rejected with
+  | some r => (if (first .accepted).isSome then .disagreed else .rejected, r.message)
+  | none =>
+    if let some c := first .timedOut then (.timedOut, some c.label)
+    else if let some c := first .overMemory then (.overMemory, some c.label)
+    else if let some c := first .declined then (.declined, c.message)
+    else match runs.find? (·.answer != .accepted) with
+      | some c =>
+        let what := match c.answer with
+          | .error => "ended with an error"
+          | .notStarted => "could not be started"
+          | _ => "gave no answer"
+        (.failed, some s!"{c.label} {what}{(c.message.map (s!" ({·})")).getD ""}")
+      | none => (.failed, some "no checker ran")
+
+/-- What the generator finds in an export file: its size, its declaration records (lines that
+start with `{"def":`, `{"thm":`, `{"opaque":`, `{"axiom":`, `{"inductive":` or `{"quot":`) and
+whether its last line is complete. -/
+structure ExportCensus where
+  bytes : Nat
+  records : Nat
+  endsWithNewline : Bool
 deriving Repr, Inhabited, DecidableEq
 
-/-- Read the checker's exit status and output. Only its own statement counts as acceptance: an
-exit status of 0 without the line is no verdict. -/
-def parseVerdict (code : UInt32) (stdout stderr : String) : CheckerVerdict :=
-  let lines := stdout.splitOn "\n"
-  let rejection := rejectedMarkers.findSome? fun marker =>
-    match stdout.splitOn marker with
-    | _ :: rest@(_ :: _) => some (clip (marker.intercalate rest))
-    | _ => Option.none
-  match rejection with
-  | some message => .rejected message
-  | Option.none =>
-    if code == 0 && lines.any (·.trimAscii.copy == acceptedLine) then .accepted
-    else .none (clip (if stderr.trimAscii.isEmpty then stdout else stderr))
+private def recordPrefixes : Array ByteArray :=
+  #["{\"def\":", "{\"thm\":", "{\"opaque\":", "{\"axiom\":", "{\"inductive\":", "{\"quot\":"].map
+    (·.toUTF8)
+
+private def startsWithAt (bytes : ByteArray) (at_ : Nat) (pre : ByteArray) : Bool := Id.run do
+  if at_ + pre.size > bytes.size then return false
+  for i in [0:pre.size] do
+    if bytes.get! (at_ + i) != pre.get! i then return false
+  return true
+
+/-- `ExportCensus` of the bytes `bytes`. -/
+def censusOf (bytes : ByteArray) : ExportCensus := Id.run do
+  let mut records := 0
+  let mut lineStart := true
+  for i in [0:bytes.size] do
+    if lineStart then
+      if recordPrefixes.any (startsWithAt bytes i ·) then records := records + 1
+    lineStart := bytes.get! i == 10
+  return { bytes := bytes.size, records, endsWithNewline := bytes.size > 0 && lineStart }
+
+/-- `ExportCensus` of the file `file`, read in pieces (a line's start is never cut: a piece is
+cut after a newline). -/
+def exportCensus (file : FilePath) : IO ExportCensus := do
+  let handle ← IO.FS.Handle.mk file .read
+  let mut bytes := 0
+  let mut records := 0
+  let mut carry := ByteArray.emptyWithCapacity 0
+  let mut last : Option UInt8 := none
+  repeat
+    let chunk ← handle.read (4 * 1024 * 1024)
+    if chunk.isEmpty then break
+    bytes := bytes + chunk.size
+    last := some (chunk.get! (chunk.size - 1))
+    let data := carry ++ chunk
+    -- count the complete lines; keep the rest for the next piece
+    let mut cut := data.size
+    while cut > 0 && data.get! (cut - 1) != 10 do cut := cut - 1
+    records := records + (censusOf (data.extract 0 cut)).records
+    carry := data.extract cut data.size
+  records := records + (censusOf carry).records
+  return { bytes, records, endsWithNewline := last == some 10 }
 
 /-! ## The replay -/
 
@@ -818,18 +1012,41 @@ private def originsOf (loaded : LoadedModules) (projectDirs : Array FilePath)
     out := out.push { kind := .toolchain, name := joined toolchainNames, constants := toolchain }
   return out
 
-/-- The checker program of `config`, the root of the Lean toolchain the modules are loaded on
-(`ReplayConfig.sysroot?`, else the toolchain the checker is in) and the Lean version of the
-checker's toolchain; the outcome to report when there is no checker. -/
+/-- The checkers of a replay: each program by name, the root of the Lean toolchain the modules
+are loaded on (`ReplayConfig.sysroot?`, else the toolchain the first checker is in) and that
+toolchain's Lean version. -/
+structure Toolchain where
+  checkers : Array (String × FilePath)
+  sysroot : FilePath
+  version : Option String
+
+/-- The toolchain of `config`, or how the replay ends without one (`off`; `failed` for an
+unusable setting; `noChecker` when a checker is missing, with the message that names the Lean
+version and what it lacks). -/
 def ReplayConfig.toolchain (config : ReplayConfig) :
-    IO (Except Replay.Outcome (FilePath × FilePath × Option String)) := do
-  if config.off then return .error .off
-  let some checker := config.checker? | return .error .noChecker
-  let checker ← realOr checker
-  let some binDir := checker.parent | return .error .noChecker
-  let sysroot := config.sysroot?.getD (binDir.parent.getD binDir)
+    IO (Except (Replay.Outcome × Option String × Option String) Toolchain) := do
+  if config.off then return .error (.off, none, none)
+  if let some why := config.setting? then return .error (.failed, some why, none)
+  let leanIn (root : FilePath) : FilePath :=
+    root / "bin" / (if Platform.isWindows then "lean.exe" else "lean")
+  let sysroot? := config.sysroot? <|> (← IO.getEnv "LEAN_SYSROOT").map FilePath.mk
+  let missing := (config.checkers.filter (·.2.isNone)).map (·.1)
+  let missing := if config.checkers.isEmpty then Replay.checkerNames else missing
+  if !missing.isEmpty then
+    let version ← match sysroot? with
+      | some root => leanVersionOf (leanIn root)
+      | none => pure none
+    let lean := (version.map (s!"Lean (v{·})")).getD "Lean toolchain"
+    let what := " or ".intercalate missing.toList
+    return .error (.noChecker, some s!"this project's {lean} ships no {what}", version)
+  let mut found := #[]
+  for (name, path?) in config.checkers do
+    if let some path := path? then found := found.push (name, ← realOr path)
+  let some (_, first) := found[0]? | return .error (.noChecker, none, none)
+  let some binDir := first.parent | return .error (.noChecker, none, none)
+  let sysroot := sysroot?.getD (binDir.parent.getD binDir)
   let version ← leanVersionOf (binDir / (if Platform.isWindows then "lean.exe" else "lean"))
-  return .ok (checker, sysroot, version)
+  return .ok { checkers := found, sysroot, version }
 
 /-- `names`, each once, in the order `Replay.Result.declarations` keeps. -/
 def replayOrder (names : Array Name) : Array Name :=
@@ -844,7 +1061,8 @@ structure Prepared where
   declarations : Array Name := #[]
   /-- `Replay.Result.notCovered`. -/
   notCovered : Array (Name × String) := #[]
-  /-- `Replay.Result.axioms`. -/
+  /-- `Replay.Result.axioms`: the declarations left out of the export because they rest on an
+  axiom outside Lean's standard three, with those axioms. -/
   axioms : Array (Name × Array Name) := #[]
   /-- The number of constants in the export. -/
   constants : Nat := 0
@@ -858,8 +1076,10 @@ structure Prepared where
 deriving Inhabited, Repr, ToJson, FromJson
 
 /-- The first half of a replay: take the declarations `targets` from the loaded modules
-`loaded`, walk what they depend on for the axioms, and write them with everything they depend
-on to `file` (the module docstring says how). -/
+`loaded`, walk what they depend on for the axioms, and write those that rest on Lean's standard
+three axioms at most, with everything they depend on, to `file` (the module docstring says how).
+A declaration that rests on another axiom is left out of the export (`Prepared.axioms`): both
+checkers decline a whole export that uses one. -/
 def prepareExport (loaded : LoadedModules) (projectDirs : Array FilePath)
     (targets : Array ReplayTarget) (file : FilePath) (exportLimit? : Option Nat)
     (deadline : Nat) : IO Prepared := do
@@ -889,20 +1109,26 @@ def prepareExport (loaded : LoadedModules) (projectDirs : Array FilePath)
         notCovered := leaveOut s!"is in module {(module?.map toString).getD "?"} in the \
           compiled modules that were loaded, not in {(target.module?.map toString).getD "?"}"
       else roots := roots.push target.name
-  let base : Prepared := {
-    declarations := replayOrder roots
-    notCovered := notCovered.qsort (·.1.toString < ·.1.toString) }
-  let failed (message : String) : Prepared :=
+  let sorted := notCovered.qsort (·.1.toString < ·.1.toString)
+  let failed (base : Prepared) (message : String) : Prepared :=
     { base with stop? := some .failed, message := some message }
   if roots.isEmpty then
-    return failed "none of the site's Lean declarations is in the compiled modules that were \
-      loaded"
+    return failed { declarations := #[], notCovered := sorted }
+      "none of the site's Lean declarations is \
+      in the compiled modules that were loaded"
   let axioms ← match restingAxioms env roots with
     | .ok axioms => pure (axioms.qsort (·.1.toString < ·.1.toString))
-    | .error message => return failed message
-  let base := { base with axioms }
+    | .error message =>
+      return failed { declarations := replayOrder roots, notCovered := sorted } message
+  -- what rests on another axiom is not exported: the checkers would decline the whole export
+  let resting : NameHashSet := axioms.foldl (init := {}) fun set (d, _) => set.insert d
+  let checkable := roots.filter (!resting.contains ·)
+  let base : Prepared := { declarations := replayOrder checkable, notCovered := sorted, axioms }
+  if checkable.isEmpty then
+    return failed base "every Lean declaration of the site that was found rests on an axiom \
+      outside Lean's standard three, so none was exported"
   -- the export, written and hashed from the environment in memory
-  let exported ← try writeExport env roots file exportLimit? deadline
+  let exported ← try writeExport env checkable file exportLimit? deadline
     catch e => return { base with stop? := some .failed, message := some s!"the export failed: {e}" }
   let (constants, key) ← match exported with
     | .ok written => pure written
@@ -910,29 +1136,38 @@ def prepareExport (loaded : LoadedModules) (projectDirs : Array FilePath)
     | .error .timedOut => return { base with stop? := some .timedOut }
   -- the exporter leaves out what it cannot export; a root it left out was not checked
   let exportedSet : NameHashSet := constants.foldl (init := {}) fun set c => set.insert c
-  if let some missing := roots.find? (!exportedSet.contains ·) then
-    return { base with stop? := some .failed, message := some s!"the export does not hold {missing}" }
+  if let some missing := checkable.find? (!exportedSet.contains ·) then
+    return failed base s!"the export does not hold {missing}"
   return { base with
     constants := constants.size, origins := originsOf loaded projectDirs constants
     key? := some key }
 
-/-- The second half of a replay: have `checker` check the export `file` that `prepared`
-describes, unless the record has it as accepted, and give the replay's result. `version` is the
-Lean version of the checker's toolchain. -/
-def checkExport (config : ReplayConfig) (checker : FilePath) (version : Option String)
-    (prepared : Prepared) (file : FilePath) (deadline : Nat) : IO Replay.Result := do
+/-- The identity of a checker program in the record's key: its name, the SHA-256 of its file
+and its Lean version. -/
+def checkerIdentity (name : String) (program : FilePath) (version : Option String) :
+    IO (String × Option String) := do
+  let sha? ← try some <$> (Sha256.hex <$> IO.FS.readBinFile program) catch _ => pure none
+  return (s!"{name} {sha?.getD "?"} {version.getD "?"}", sha?)
+
+/-- The second half of a replay: have both checkers of `toolchain` check the export `file` that
+`prepared` describes, one after the other, unless the record has it as accepted by both, and give
+the replay's result. Before a checker runs, the file must be the one the worker wrote (its size)
+and end with a complete line; its declaration records are counted (`exportCensus`) for the
+checkers' counts to be held to. -/
+def checkExport (config : ReplayConfig) (toolchain : Toolchain) (prepared : Prepared)
+    (file : FilePath) (deadline : Nat) : IO Replay.Result := do
   let say (line : String) : IO Unit := do
     if config.progress then IO.eprintln s!"Kernel replay: {line}"
+  let version := toolchain.version
   let base : Replay.Result := {
     outcome := .failed, version, declarations := prepared.declarations
-    -- the program that was run, by its own name
-    checker := (checker.fileStem.filter (!·.isEmpty)).getD "leanchecker"
+    checker := " and ".intercalate (toolchain.checkers.map (·.1)).toList
     notCovered := prepared.notCovered, axioms := prepared.axioms
     constants := prepared.constants, origins := prepared.origins }
   let finish (result : Replay.Result) : IO Replay.Result := do
     say (match result.outcome with
-      | .accepted => s!"accepted, {counted result.constants "constant"}"
-      | .rejected => "rejected"
+      | .accepted => s!"accepted by both checkers, {counted result.constants "constant"}"
+      | .rejected | .disagreed => result.rejectionText
       | _ => result.whyNot)
     return result
   let key ← match prepared.key?, prepared.stop? with
@@ -943,39 +1178,58 @@ def checkExport (config : ReplayConfig) (checker : FilePath) (version : Option S
       return ← finish { base with outcome := .timedOut, limitSeconds := some config.limitSeconds }
     | _, _ =>
       return ← finish { base with message := prepared.message <|> some "no export was written" }
-  let checkerId ← try
-      let md ← checker.metadata
-      pure s!"{checker} {md.byteSize} {md.modified.sec}.{md.modified.nsec} {version}"
-    catch _ => pure s!"{checker} {version}"
-  let recordKey := Sha256.hexOfString s!"export 1\n{checkerId}\n{key.bytes}\n{key.hash}"
+  let census ← try exportCensus file catch e =>
+    return ← finish { base with message := some s!"the export could not be read: {e}" }
+  if census.bytes != key.bytes || !census.endsWithNewline then
+    return ← finish { base with message := some s!"the export file is not the one that was \
+      written ({census.bytes} bytes, {key.bytes} written{if census.endsWithNewline then "" else
+        ", and its last line is not complete"})" }
+  -- both checkers accept an export without a declaration with status 0: that is no acceptance
+  if census.records == 0 then
+    return ← finish { base with message := some "the export holds no declaration record" }
+  let base := { base with records := census.records }
+  let mut ids := #[]
+  let mut shas := #[]
+  for (name, program) in toolchain.checkers do
+    let (id, sha?) ← checkerIdentity name program version
+    ids := ids.push id
+    shas := shas.push sha?
+  let recordKey := Sha256.hexOfString
+    s!"export 2\n{"\n".intercalate ids.toList}\n{key.bytes}\n{key.hash}\n{census.records}"
   let recorded ← readRecord config.record?
   if recorded.contains recordKey then
-    say s!"an identical export ({mebibytes key.bytes} MiB) was accepted before"
-    return ← finish { base with outcome := .accepted, recorded := true }
-  say s!"checking {counted prepared.constants "constant"} ({mebibytes key.bytes} MiB) with \
-    {checker.fileName.getD "the checker"}"
-  let sysroot := (checker.parent.bind (·.parent)).getD "."
-  let start ← IO.monoMsNow
-  let ending ← runLimited checker.toString #["--from-export", file.toString]
-    #[("LEAN_SYSROOT", some sysroot.toString)] deadline config.memoryLimit?
-  if let .exited _ _ _ peak := ending then
-    say s!"the checker ran for {usedText ((← IO.monoMsNow) - start) peak}"
-  match ending with
-  | .notStarted error =>
-    finish { base with message := some s!"the checker could not be started: {clip error}" }
-  | .timedOut => finish { base with outcome := .timedOut, limitSeconds := some config.limitSeconds }
-  | .overMemory => finish { base with outcome := .overMemory, memoryLimit := config.memoryLimit? }
-  | .exited code stdout stderr _ =>
-    match parseVerdict code stdout stderr with
-    | .accepted =>
-      writeRecord config.record? ((recorded.filter (· != recordKey)).push recordKey)
-      finish { base with outcome := .accepted }
-    | .rejected message => finish { base with outcome := .rejected, message := some message }
-    | .none message =>
-      let said := if message.trimAscii.isEmpty then
-          s!"the checker ended with status {code} and wrote nothing"
-        else s!"the checker said: {message}"
-      finish { base with message := some said }
+    say s!"an identical export ({mebibytes key.bytes} MiB) was accepted by both checkers before"
+    let checkers := (toolchain.checkers.zip shas).map fun ((name, _), sha256) =>
+      ({ name, version, sha256, answer := .accepted } : Replay.CheckerRun)
+    return ← finish { base with outcome := .accepted, recorded := true, checkers }
+  let mut runs : Array Replay.CheckerRun := #[]
+  for ((name, program), sha256) in toolchain.checkers.zip shas do
+    say s!"checking {counted prepared.constants "constant"} ({mebibytes key.bytes} MiB, \
+      {counted census.records "declaration record"}) with {name}"
+    let start ← IO.monoMsNow
+    let ending ← runLimited program.toString
+      #["--verified", s!"--jobs={config.jobs}", file.toString] #[] deadline config.memoryLimit?
+    let ms := (← IO.monoMsNow) - start
+    let run : Replay.CheckerRun := { name, version, sha256, answer := .noAnswer, ms := some ms }
+    let run ← match ending with
+      | .notStarted error =>
+        pure { run with answer := .notStarted, message := some (clip error) }
+      | .timedOut => pure { run with answer := .timedOut }
+      | .overMemory => pure { run with answer := .overMemory }
+      | .exited code stdout stderr peak =>
+        let (answer, declarations, message) := parseAnswer code stdout stderr census.records
+        say s!"{name} ran for {usedText ms peak}"
+        pure { run with answer, declarations, message
+                        peakBytes := if peak == 0 then none else some peak }
+    runs := runs.push run
+  let (outcome, message) := combineRuns runs
+  let result := { base with outcome, message, checkers := runs }
+  let result := match outcome with
+    | .timedOut => { result with limitSeconds := some config.limitSeconds }
+    | .overMemory => { result with memoryLimit := config.memoryLimit? }
+    | _ => result
+  if outcome == .accepted then addToRecord config.record? recordKey
+  finish result
 
 /-- How a worker process ended (`runWorker`). -/
 inductive WorkerEnd where
@@ -990,12 +1244,15 @@ inductive WorkerEnd where
 deriving Repr, Inhabited, DecidableEq
 
 /-- Run the worker of `config` on the request file `request`, for the reply file `reply`, under
-the time limit `deadline` and the memory limit of `config`. -/
-def runWorker (config : ReplayConfig) (request reply : FilePath) (deadline : Nat) :
-    IO WorkerEnd := do
+the time limit `deadline` and the memory limit of `config`, with `LEAN_SYSROOT` set to `sysroot`,
+the toolchain whose library the modules are loaded on. -/
+def runWorker (config : ReplayConfig) (sysroot : FilePath) (request reply : FilePath)
+    (deadline : Nat) : IO WorkerEnd := do
   let some (program, args) := config.worker? | return .failed "no worker program is known"
   let start ← IO.monoMsNow
-  let ending ← runLimited program.toString (args ++ #[request.toString, reply.toString]) #[]
+  -- the exporter's toolchain: without `LEAN_SYSROOT` Lean would look for one by running `lean`
+  let env := #[("LEAN_SYSROOT", some sysroot.toString)]
+  let ending ← runLimited program.toString (args ++ #[request.toString, reply.toString]) env
     deadline config.memoryLimit?
   match ending with
   | .timedOut => return .timedOut

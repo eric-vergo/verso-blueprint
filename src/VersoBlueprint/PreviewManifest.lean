@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import VersoBlueprint.StaticMath
+import VersoBlueprint.OutputPrune
 import Lean
 import Lean.Elab.Command
 import Std.Data.HashMap
@@ -2893,6 +2894,10 @@ private def emitBlueprintHtml
       document.save path
     return
   let prepared := PreparedRendererState.prepare document
+  -- what this build writes into the folder; what an earlier build wrote and this one does not is
+  -- removed at the end (`Informal.OutputPrune`)
+  let outDir := outDirForMode prepared.config.toConfig prepared.mode
+  let started ← Informal.OutputPrune.begin outDir
   -- Before the preview data: the dependency graph's node views show the same source.
   if sideBySide then
     let modules := declarationSourceModules prepared.state
@@ -2927,6 +2932,10 @@ private def emitBlueprintHtml
     Verso.reportError s!"Blueprint math: {finished.clashes} glyph outlines share an id"
   for step in extraSteps do
     step prepared
+  let removed ← Informal.OutputPrune.finish outDir started
+  unless removed.isEmpty do
+    logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
+      build that this build did not write"
 
 /-- Extract `--no-stats-page`: it turns the automatic Project Stats page off. -/
 def parseStatsPageFlag (statsPage? : Option Informal.Commands.StatsPageData) (args : List String) :
@@ -3009,6 +3018,16 @@ def takeReplayWorker (args : List String) : IO (List String) := do
   | none => Informal.Stats.registerSelfAsReplayWorker
   return args
 
+/-- `model` with its replay as a reproducible build shows it (`Replay.Result.forReproducible`)
+when the options or `reproducibility` leave the build time out: the Project Stats page then reads
+the same whether the record of accepted exports held this build's export or not. -/
+def withReproducibleReplay (reproducibility : ReproducibilityOptions) (options : List String)
+    (model : RenderModel) : RenderModel :=
+  if (parseReproducibilityOptions reproducibility options).1.omitBuildTime then
+    { model with stats := { model.stats with
+        replay := model.stats.replay.map (·.forReproducible) } }
+  else model
+
 /-- Generate a document using semantic data captured after all generator imports.
 
 The HTML site gets a Project Stats page at the end of its table of contents
@@ -3038,6 +3057,7 @@ def blueprintMain (text : Part Manual)
   let (text, model) ← Informal.Resident.apply text model
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
+  let model := withReproducibleReplay reproducibility options model
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
@@ -3066,6 +3086,7 @@ def blueprintMainWithPreviewData
   let (text, model) ← Informal.Resident.apply text model
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
+  let model := withReproducibleReplay reproducibility options model
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options

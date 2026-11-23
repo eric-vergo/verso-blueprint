@@ -262,48 +262,77 @@ def drawing (key : String) (view : View) (direction : GraphDirection) (pack : Bo
 /-- The most steps of a neighbourhood view. -/
 def egoMaxHops : Nat := 3
 
-/-- The node sets of the neighbourhood views of a graph: the distinct sets (each in node order)
-and, for every node, the set of its neighbourhood of one, two and three steps along edges in
-either direction. -/
-def egoSets (graph : Graph Ref) : Array (Array Nat) × Array (Array Nat) := Id.run do
+/-- The node sets of the neighbourhood views of a graph, up to `limit` nodes each: the distinct
+sets (each in node order), for every node the set of its neighbourhood of one, two and three
+steps along edges in either direction, and for every set whether it stands for neighbourhoods of
+more than `limit` nodes; with the number of steps of the search. A search stops as soon as a
+neighbourhood has more than `limit` nodes, and every such neighbourhood is the one set marked as
+too large (it is never drawn), so the work for one node is at most about `3 * (limit + 1)²`
+steps, whatever the graph: a hub does not make every node's search visit the whole graph. -/
+def egoSetsWithin (graph : Graph Ref) (limit : Nat) :
+    Array (Array Nat) × Array (Array Nat) × Array Bool × Nat := Id.run do
   let n := graph.size
   let index : NameMap Nat := Id.run do
     let mut m : NameMap Nat := {}
     for i in [0:n] do
       if !m.contains graph[i]!.label then m := m.insert graph[i]!.label i
     return m
-  let mut adjacent : Array (Array Nat) := Array.replicate n #[]
+  let mut neighbours : Array (Std.HashSet Nat) := Array.replicate n {}
   for i in [0:n] do
     for dep in graph[i]!.deps ++ graph[i]!.proofDeps do
       if let some j := index.get? dep then
         if j != i then
-          adjacent := adjacent.modify i (·.push j)
-          adjacent := adjacent.modify j (·.push i)
+          neighbours := neighbours.modify i (·.insert j)
+          neighbours := neighbours.modify j (·.insert i)
+  let adjacent := neighbours.map fun set => set.toArray.qsort (· < ·)
   let mut sets : Array (Array Nat) := #[]
+  let mut over : Array Bool := #[]
   let mut seenSets : Std.HashMap (Array Nat) Nat := {}
+  let mut overId : Option Nat := none
   let mut perNode : Array (Array Nat) := Array.mkEmpty n
+  let mut steps := 0
   for v in [0:n] do
     let mut inside : Std.HashSet Nat := {}
     inside := inside.insert v
     let mut frontier : Array Nat := #[v]
     let mut ids : Array Nat := #[]
+    let mut tooLarge := false
     for _ in [0:egoMaxHops] do
-      let mut next : Array Nat := #[]
-      for u in frontier do
-        for w in adjacent[u]! do
-          if !inside.contains w then
-            inside := inside.insert w
-            next := next.push w
-      frontier := next
-      let set := inside.toArray.qsort (· < ·)
-      match seenSets.get? set with
-      | some id => ids := ids.push id
-      | none =>
-        seenSets := seenSets.insert set sets.size
-        ids := ids.push sets.size
-        sets := sets.push set
+      if !tooLarge then
+        let mut next : Array Nat := #[]
+        for u in frontier do
+          if tooLarge then break
+          for w in adjacent[u]! do
+            steps := steps + 1
+            if !inside.contains w then
+              inside := inside.insert w
+              next := next.push w
+              if inside.size > limit then
+                tooLarge := true
+                break
+        frontier := next
+      if tooLarge then
+        if overId.isNone then
+          overId := some sets.size
+          sets := sets.push #[]
+          over := over.push true
+        ids := ids.push (overId.getD 0)
+      else
+        let set := inside.toArray.qsort (· < ·)
+        match seenSets.get? set with
+        | some id => ids := ids.push id
+        | none =>
+          seenSets := seenSets.insert set sets.size
+          ids := ids.push sets.size
+          sets := sets.push set
+          over := over.push false
     perNode := perNode.push ids
-  return (sets, perNode)
+  return (sets, perNode, over, steps)
+
+/-- `egoSetsWithin` without a limit: every neighbourhood with all its nodes. -/
+def egoSets (graph : Graph Ref) : Array (Array Nat) × Array (Array Nat) :=
+  let (sets, perNode, _, _) := egoSetsWithin graph graph.size
+  (sets, perNode)
 
 /-- The bit of a direction in the index's record of what is drawn. -/
 def directionBit : GraphDirection → Nat
@@ -331,7 +360,9 @@ def drawingsFolder (graphKey : String) : String :=
   across; a set of more than `nodeLimit` nodes is not drawn, nor is a drawing that would take
   the neighbourhood drawings past `limit` bytes in all;
 * `index.json`: for every variant key its file stem and packings; for every node the sets of its
-  one, two and three step neighbourhoods; for every set its size and the directions drawn; how
+  one, two and three step neighbourhoods; for every set its size, whether it stands for
+  neighbourhoods of more than `nodeLimit` nodes (`over`, whose size is then not counted) and the
+  directions drawn; how
   many drawings were left out, and the two limits.
 
 Returns the number of neighbourhood drawings written and left out. -/
@@ -348,8 +379,8 @@ def writeDrawings (dir : System.FilePath) (views : Array (String × View))
     let packs := (all.map (packToken ·.pack)).foldl
       (fun acc p => if acc.contains p then acc else acc.push p) #[]
     variants := variants.push (key, Json.mkObj [("file", s!"v{i}"), ("packs", toJson packs)])
-  let (sets, perNode) := egoSets graph
-  let small := (Array.range sets.size).filter fun id => sets[id]!.size ≤ nodeLimit
+  let (sets, perNode, over, _) := egoSetsWithin graph nodeLimit
+  let small := (Array.range sets.size).filter fun id => !over[id]! && sets[id]!.size ≤ nodeLimit
   let bySize := small.qsort fun a b =>
     sets[a]!.size < sets[b]!.size || (sets[a]!.size == sets[b]!.size && a < b)
   let defaultAcross := direction == .LR || direction == .RL
@@ -385,7 +416,8 @@ def writeDrawings (dir : System.FilePath) (views : Array (String × View))
     (toString graph[v]!.label, toJson perNode[v]!)
   let index := Json.mkObj [("version", toJson (1 : Nat)), ("variants", Json.mkObj variants.toList),
     ("hops", toJson egoMaxHops), ("nodes", nodes), ("sizes", toJson (sets.map (·.size))),
-    ("drawn", toJson drawn), ("omitted", toJson omitted), ("limit", toJson limit),
+    ("over", toJson over), ("drawn", toJson drawn), ("omitted", toJson omitted),
+    ("limit", toJson limit),
     ("nodeLimit", toJson nodeLimit)]
   IO.FS.writeFile (dir / "index.json") index.compress
   return (written, omitted)

@@ -182,12 +182,28 @@ private def write (path : System.FilePath) (text : String) : IO Unit := do
   if let some parent := path.parent then IO.FS.createDirAll parent
   IO.FS.writeFile path text
 
--- A compiled challenge is read when its theorems are where its source has them, however old
--- the source file looks; when they are not, it is out of date.
+/-- Lake's build record of a compiled challenge at `olean`, as Lake writes it: its compiled file
+by its hash, and the source file `source` (an absolute path) by the hash of `text`. -/
+private def writeTrace (olean : System.FilePath) (source : System.FilePath) (text : String) :
+    IO Unit := do
+  let oleanHash := lakeBytesHash (← IO.FS.readBinFile olean)
+  IO.FS.writeFile (olean.withExtension "trace") <| Json.compress <| Json.mkObj [
+    ("schemaVersion", "2025-09-10"),
+    ("outputs", Json.mkObj [("o", Json.arr #[toJson s!"{oleanHash}.olean"])]),
+    ("inputs", Json.arr #[Json.arr #[toJson source.toString, toJson (lakeTextHash text)]])]
+
+-- The statements shown are cut from the challenge's source, and the verdict is about its
+-- compiled module, so the source must be the one the module was compiled from, by Lake's build
+-- record of it. The source it was compiled from is read. An edit inside a statement that moves no
+-- name (`n + n + n` to `n * n + n`), not built again, makes the challenge out of date, as does
+-- one that moves a theorem; without a usable build record nothing is compared either.
 /--
 info: [["unavailable: some (Informal.Stats.Unavailable.solutionNotImported) Comparator.Solution",
     "theorem triple_eq: Informal.Stats.Correspondence.notCompared, sorry-free none, axioms [], permitted none, conditions met false, node none"],
-  ["unavailable: some (Informal.Stats.Unavailable.challengeOutOfDate) Comparator/Challenge.lean"]]
+  ["unavailable: some (Informal.Stats.Unavailable.challengeOutOfDate) Comparator/Challenge.lean"],
+  ["unavailable: some (Informal.Stats.Unavailable.challengeOutOfDate) Comparator/Challenge.lean"],
+  ["unavailable: some (Informal.Stats.Unavailable.challengeProvenanceUnknown) Lake's build record Challenge.trace of the compiled challenge is missing or cannot be read"],
+  ["unavailable: some (Informal.Stats.Unavailable.challengeProvenanceUnknown) Lake's build record of the compiled challenge describes other compiled files than Challenge.olean"]]
 -/
 #guard_msgs in
 #eval show CoreM _ from do
@@ -196,17 +212,71 @@ info: [["unavailable: some (Informal.Stats.Unavailable.solutionNotImported) Comp
     ".lake/build/lib/lean/VersoBlueprintTests/ComparatorFixtures/Sorry"
   withScratch fun root => do
     IO.FS.createDirAll (root / "lib/Comparator")
-    IO.FS.writeBinFile (root / "lib/Comparator/Challenge.olean")
-      (← IO.FS.readBinFile (compiled / "Challenge.olean"))
+    let olean := root / "lib/Comparator/Challenge.olean"
+    IO.FS.writeBinFile olean (← IO.FS.readBinFile (compiled / "Challenge.olean"))
     let layout : WorkspaceLayout := { sourceDirs := #["."], libraryDirs := #["lib"] }
+    let original ← IO.FS.readFile (fixtures / "Challenge.lean")
+    let source := root / "Comparator/Challenge.lean"
+    let edited := original.replace "triple n = n + n + n" "triple n = n * n + n"
     let mut out := #[]
-    for text in [← IO.FS.readFile (fixtures / "Challenge.lean"),
-        "theorem triple_eq : True := trivial\n"] do
-      write (root / "Comparator/Challenge.lean") text
+    for (text, trace) in [(original, true), (edited, true),
+        ("theorem triple_eq : True := trivial\n", true), (original, false), (original, true)] do
+      write source text
+      try IO.FS.removeFile (olean.withExtension "trace") catch _ => pure ()
+      if trace then writeTrace olean source original
+      -- the last case: the record describes another compiled file
+      if out.size == 4 then
+        let json ← IO.ofExcept (Json.parse (← IO.FS.readFile (olean.withExtension "trace")))
+        IO.FS.writeFile (olean.withExtension "trace")
+          (json.setObjVal! "outputs" (Json.mkObj [("o", Json.arr #["0000000000000000.olean"])])).compress
       let h ← Headline.compute {} root layout []
       out := out.push <| describe { h with unavailableDetail := h.unavailableDetail.map fun d =>
         (relativeTo? root (d : String)).getD d }
     return out.toList
+
+-- A judged name must be a theorem of the challenge: a definition named in `theorem_names` is
+-- never judged as proved, however its solution compares.
+/--
+info: ["unavailable: none ",
+  "theorem double: Informal.Stats.Correspondence.notTheorem, sorry-free none, axioms [], permitted none, conditions met false, node (some «def:cmp.double»)"]
+("not-theorem",
+ "Not a theorem in the challenge: the challenge declares a definition; only a theorem is judged as proved")
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  let h ← headline { fixture "Match" with theoremNames := some #[`CmpMatch.double] }
+  IO.println (repr (describe { h with definitions := #[] }))
+  let some t := h.theorems[0]? | throwError "no theorem"
+  IO.println (repr (Informal.Commands.headlineVerdict t .accepted))
+
+-- Without `theorem_names` every theorem written in the challenge is judged, also one whose name
+-- starts with `_`; a theorem with no position in the source is listed as not judged, with why.
+/--
+info: ["_hidden", "shown"]
+[("noRange",
+  "it has no position in the source, so it was not written as a theorem of the challenge; name it in theorem_names to judge it")]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show CoreM Unit from do
+  withScratch fun root => do
+    IO.FS.createDirAll (root / "lib/Comparator")
+    let text := "import Lean.Elab.Command\ntheorem _hidden : True := sorry\n\
+      theorem shown : True := sorry\n\
+      open Lean Elab Command in\n\
+      run_cmd liftTermElabM do addDecl (.thmDecl { name := `noRange, levelParams := [], \
+        type := mkConst ``True, value := mkConst ``True.intro })\n"
+    let source := root / "Comparator/Challenge.lean"
+    write source text
+    let olean := root / "lib/Comparator/Challenge.olean"
+    let lean ← IO.appPath
+    let args := #[s!"--root={root}", "-o", olean.toString, source.toString]
+    let out ← IO.Process.output { cmd := lean.toString, args }
+    if out.exitCode != 0 then throwError ("lean: " ++ out.stderr ++ out.stdout)
+    writeTrace olean source text
+    let layout : WorkspaceLayout := { sourceDirs := #["."], libraryDirs := #["lib"] }
+    let h ← Headline.compute {} root layout []
+    IO.println (repr (h.theorems.toList.map (short ·.name)))
+    IO.println (repr (h.unjudged.toList.map fun (n, why) => (n.toString, why)))
 
 -- Where the challenge comes from: `comparator.json`, else `Comparator/Challenge.lean` in a
 -- source directory, else there is none.

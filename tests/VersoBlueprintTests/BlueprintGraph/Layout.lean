@@ -442,24 +442,25 @@ private def packsOf (index : Json) (key : String) : Array String :=
     tinyWritten.1 == 0 && tinyWritten.2 == fullWritten && tinyFiles.isEmpty
 
 -- A neighbourhood of more than `nodeLimit` nodes is not drawn, and the index says so with the
--- limit.
+-- limit: all such neighbourhoods are the one set marked `over`, whose search stopped at the limit.
 /-- info: true -/
 #guard_msgs in
 #eval IO.FS.withTempDir fun tmp => do
   let views := #[("full", sampleView)]
-  let sets : Array (Array Nat) := (egoSets sample).1
-  let big := sets.filter fun (set : Array Nat) => set.size > 3
+  let big := (egoSets sample).1.filter fun (set : Array Nat) => set.size > 3
+  let (sets, _, over, _) := egoSetsWithin sample 3
   let (written, omitted) ← writeDrawings (tmp / "d") views sample .TB (nodeLimit := 3)
   let some index := (Json.parse (← IO.FS.readFile (tmp / "d" / "index.json"))).toOption
     | return false
   let drawn := (index.getObjValAs? (Array Nat) "drawn").toOption.getD #[]
-  return !big.isEmpty && omitted == 2 * big.size && written == 2 * (sets.size - big.size) &&
+  let overs := (index.getObjValAs? (Array Bool) "over").toOption.getD #[]
+  let overCount := (over.filter id).size
+  return !big.isEmpty && overCount == 1 && overs == over &&
+    omitted == 2 * overCount && written == 2 * (sets.size - overCount) &&
     (index.getObjValAs? Nat "nodeLimit").toOption == some 3 &&
     (index.getObjValAs? Nat "omitted").toOption == some omitted &&
     (Array.range sets.size).all fun id =>
-      (drawn[id]! == 0) == decide (sets[id]!.size > 3) &&
-      (sets[id]!.size > 3 ||
-        drawn[id]! == 5)
+      (drawn[id]! == 0) == over[id]! && (over[id]! || (sets[id]!.size ≤ 3 && drawn[id]! == 5))
 
 -- The folder of a graph is named from its key with every character that is not a letter or a
 -- digit replaced.
@@ -468,5 +469,22 @@ private def packsOf (index : Json) (key : String) : Array String :=
 #eval
   drawingsFolder "graph:a/b c" == "blueprint-graph/graph-a-b-c" &&
   drawingsFolder "Plain1" == "blueprint-graph/Plain1"
+
+-- The neighbourhood search is bounded by the size of what can be drawn: on a star of 10,000
+-- leaves every leaf's two-step neighbourhood is the whole graph, and the search stops at the
+-- node limit instead of visiting it, for every leaf. Those neighbourhoods are one set marked as
+-- too large, and the small ones are as before.
+/-- info: (true, true, true, true) -/
+#guard_msgs in
+#eval
+  let leaves := 10000
+  let star : Graph String := #[mk `hub] ++
+    (Array.range leaves).map fun i => mk (.mkSimple s!"leaf{i}") #[`hub]
+  let (sets, perNode, over, steps) := egoSetsWithin star 150
+  let overIds := (Array.range sets.size).filter (over[·]!)
+  (decide (steps < (leaves + 1) * 3 * 160), overIds.size == 1,
+   -- a leaf: itself and the hub after one step, then too large
+   (perNode[1]!.extract 1 3).all (overIds.contains ·) && sets[perNode[1]![0]!]!.size == 2,
+   (egoSetsWithin pathGraph 150).1 == (egoSets pathGraph).1)
 
 end Verso.VersoBlueprintTests.BlueprintGraph.Layout

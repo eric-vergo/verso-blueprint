@@ -9,6 +9,7 @@ NUMERIC_LEAN_RELEASE_PATTERN = re.compile(r"^v?\d+\.\d+\.\d+$")
 LEAN_RELEASE_CANDIDATE_PATTERN = re.compile(
     r"^v?(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?-rc(?P<rc>\d+)$"
 )
+NUMERIC_LEAN_PATCH_RELEASE_PATTERN = re.compile(r"^(?P<release>v?\d+\.\d+\.\d+)-patch\d+$")
 
 
 def clean_lean_ref(raw_ref: str) -> str:
@@ -67,6 +68,9 @@ def release_branch_from_lean_ref(raw_ref: str) -> str:
     if match is not None:
         patch = match.group("patch") or "0"
         return f"v{match.group('major')}.{match.group('minor')}.{patch}"
+    patch_match = NUMERIC_LEAN_PATCH_RELEASE_PATTERN.fullmatch(ref)
+    if patch_match is not None:
+        return patch_match.group("release")
     return ref
 
 
@@ -80,7 +84,7 @@ def release_branch_version(raw_ref: str) -> tuple[int, int, int]:
 
 
 def lean_release_family(raw_ref: str) -> tuple[int, int]:
-    """Return the Lean major/minor release family for a stable or RC ref."""
+    """Return the Lean major/minor release family for a stable, RC or `-patchN` ref."""
     major, minor, _patch = release_branch_version(raw_ref)
     return major, minor
 
@@ -89,9 +93,14 @@ def lean_release_subversion(raw_ref: str) -> tuple[int, int, int]:
     """Order versions within one Lean release family.
 
     The first component is the patch version. Within one patch, release
-    candidates precede the final release and are ordered by RC number.
+    candidates precede the final release and are ordered by RC number. A
+    `-patchN` suffix names a packaging patch of the same release and does not
+    change the order.
     """
     ref = normalize_lean_release_ref(raw_ref)
+    patch_match = NUMERIC_LEAN_PATCH_RELEASE_PATTERN.fullmatch(ref)
+    if patch_match is not None:
+        ref = patch_match.group("release")
     rc_match = LEAN_RELEASE_CANDIDATE_PATTERN.fullmatch(ref)
     if rc_match is not None:
         return int(rc_match.group("patch") or "0"), 0, int(rc_match.group("rc"))

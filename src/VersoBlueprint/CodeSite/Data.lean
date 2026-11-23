@@ -146,7 +146,7 @@ instance : FromJson Declaration where
       display := ← fieldO j "display", isPrivate := ← fieldD j "isPrivate" false
       range := ← fieldO j "range", selection := ← fieldO j "selection"
       signature := ← fieldD j "signature" "", doc := ← fieldO j "doc"
-      status := ← fieldD j "status" "proved", axioms := ← fieldD j "axioms" #[]
+      status := ← fieldD j "status" "unverified", axioms := ← fieldD j "axioms" #[]
       attrs := ← fieldD j "attrs" #[], uses := ← fieldD j "uses" #[]
       external := ← fieldD j "external" #[], occurrences := ← fieldD j "occurrences" #[]
       statement := ← fieldO j "statement" }

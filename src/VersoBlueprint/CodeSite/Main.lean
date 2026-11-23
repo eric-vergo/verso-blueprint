@@ -78,17 +78,61 @@ partial def parseOptions : List String → Options → Except String Options
       parseOptions args { opts with rest := opts.rest.push flag }
     else .error s!"unknown code-site option '{flag}'"
 
-/-- Read the data and each module's source file under `root`. -/
+/-- The largest source file a site reads, in bytes. -/
+def sourceLimit : Nat := 16 * 1024 * 1024
+
+/-- Whether `source` is written as a path inside a project root: relative, without a `..` or
+an empty component, and without a NUL character. -/
+def isProjectRelative (source : String) : Bool :=
+  let parts := source.splitOn "/"
+  !source.isEmpty && !(FilePath.mk source).isAbsolute && !source.startsWith "/" &&
+    !source.startsWith "\\" && !source.contains '\x00' && !source.contains '\\' &&
+    parts.all fun part => part != ".." && part != ""
+
+/-- The file a module's `source` names under `root`, when it is one the site may read: written
+as a path inside the project (`isProjectRelative`), a regular file whose real path (every
+symbolic link resolved) lies under the real path of `root`, of at most `sourceLimit` bytes.
+`none` otherwise, with the reason. -/
+def projectSourceFile (root : FilePath) (source : String) : IO (Except String FilePath) := do
+  unless isProjectRelative source do
+    return .error "it is not a relative path inside the project"
+  let some realRoot ← (try some <$> IO.FS.realPath root catch _ => pure none)
+    | return .error "the project root cannot be resolved"
+  let some real ← (try some <$> IO.FS.realPath (realRoot / source) catch _ => pure none)
+    | return .error "it does not exist"
+  let rootText := realRoot.toString
+  let prefix_ := if rootText.endsWith "/" then rootText else rootText ++ "/"
+  unless real.toString.startsWith prefix_ do
+    return .error "it resolves to a file outside the project"
+  let some md ← (try some <$> real.metadata catch _ => pure none)
+    | return .error "it cannot be read"
+  unless md.type == .file do return .error "it is not a regular file"
+  if md.byteSize.toNat > sourceLimit then
+    return .error s!"it is larger than {sourceLimit / (1024 * 1024)} MiB"
+  return .ok real
+
+/-- Read the data and each module's source file under `root`. A module whose `source` is not a
+file inside the project (`projectSourceFile`) keeps no source: nothing of it is read, the site
+links to no file for it, and a warning names the module. -/
 def load (data root : FilePath) : IO (Project × Std.HashMap Lean.Name String) := do
   let project ← match Project.parse (← IO.FS.readFile data) with
     | .ok p => pure p
     | .error e => throw <| IO.userError s!"{data}: {e}"
   let mut sources : Std.HashMap Lean.Name String := {}
+  let mut modules := #[]
   for m in project.modules do
-    unless m.source.isEmpty do
-      if let some text ← (try some <$> IO.FS.readFile (root / m.source) catch _ => pure none) then
+    if m.source.isEmpty then
+      modules := modules.push m
+      continue
+    match ← projectSourceFile root m.source with
+    | .error why =>
+      IO.eprintln s!"warning: the source of module {m.module} ({m.source}) is not read: {why}"
+      modules := modules.push { m with source := "" }
+    | .ok file =>
+      modules := modules.push m
+      if let some text ← (try some <$> IO.FS.readFile file catch _ => pure none) then
         sources := sources.insert m.module text
-  return (project, sources)
+  return ({ project with modules }, sources)
 
 /-- Generate the site of the data at `data` for the project at `root`; `args` are the
 generator's own flags. Without `compare` the headline's comparison is left out; with

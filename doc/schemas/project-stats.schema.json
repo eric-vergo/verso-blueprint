@@ -9,7 +9,7 @@
     "claims", "replay"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 6 },
+    "schemaVersion": { "const": 7 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -176,79 +176,260 @@
     "replay": {
       "description": "The kernel replay made while the site was generated, of the Lean declarations the site reports on and every constant they depend on; null when the generator ran none. A page says \"proved\" only with an accepted replay that covers the declarations concerned.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
-          "required": ["outcome", "checker", "version", "declarations", "notCovered", "axioms",
-            "constants", "origins", "recorded", "message", "limitSeconds", "memoryLimit",
-            "exportLimit"],
+          "required": [
+            "outcome",
+            "checker",
+            "version",
+            "declarations",
+            "notCovered",
+            "axioms",
+            "constants",
+            "origins",
+            "recorded",
+            "message",
+            "limitSeconds",
+            "memoryLimit",
+            "exportLimit",
+            "checkers",
+            "records",
+            "reproducible"
+          ],
           "additionalProperties": false,
           "properties": {
             "outcome": {
-              "description": "accepted: the checker accepted the export, every declaration of declarations with every constant it depends on. rejected: it rejected the export (message). noChecker: none was found. timedOut: the replay was stopped at limitSeconds. overMemory: a process of the replay went over memoryLimit and was stopped. overExport: the export went over exportLimit and was not checked. failed: the replay could not run to a verdict (message). off: the replay was switched off.",
-              "enum": ["accepted", "rejected", "noChecker", "timedOut", "overMemory", "overExport", "failed", "off"]
+              "description": "accepted: both checkers accepted the export, every declaration of declarations with every constant it depends on. rejected: a checker rejected it and neither accepted it (message, checkers). disagreed: one accepted and the other rejected it. declined: a checker declined to check it and neither rejected it. noChecker: the project's toolchain ships no con-leche or no con-ron (message). timedOut: the replay was stopped at limitSeconds. overMemory: a process of the replay went over memoryLimit and was stopped. overExport: the export went over exportLimit and was not checked. failed: the replay could not run to a verdict (message). off: the replay was switched off.",
+              "enum": [
+                "accepted",
+                "rejected",
+                "disagreed",
+                "declined",
+                "noChecker",
+                "timedOut",
+                "overMemory",
+                "overExport",
+                "failed",
+                "off"
+              ]
             },
-            "checker": { "description": "The checker's name.", "type": "string" },
-            "version": { "description": "The Lean version of the checker's toolchain.", "$ref": "#/$defs/nullableString" },
+            "checker": {
+              "description": "The checkers' names, for a sentence: con-leche and con-ron.",
+              "type": "string"
+            },
+            "version": {
+              "description": "The Lean version of the toolchain the checkers ship with.",
+              "$ref": "#/$defs/nullableString"
+            },
             "declarations": {
-              "description": "The declarations the replay covers: with accepted, each was exported with every constant it depends on and accepted; otherwise the declarations that were to be checked. In the order of Lean's Name.quickLt.",
+              "description": "The declarations the replay covers: with accepted, each was exported with every constant it depends on and both checkers accepted the export; otherwise the declarations that were to be checked. In the order of Lean's Name.quickLt.",
               "type": "array",
-              "items": { "$ref": "#/$defs/name" }
+              "items": {
+                "$ref": "#/$defs/name"
+              }
             },
             "notCovered": {
               "description": "Declarations the replay was asked for and does not cover, each with the reason.",
               "type": "array",
               "items": {
                 "type": "array",
-                "prefixItems": [{ "$ref": "#/$defs/name" }, { "type": "string" }],
-                "minItems": 2,
-                "maxItems": 2
-              }
-            },
-            "axioms": {
-              "description": "For each covered declaration that depends on an axiom outside Lean's standard three: those axioms, as found by walking the terms of the loaded modules.",
-              "type": "array",
-              "items": {
-                "type": "array",
                 "prefixItems": [
-                  { "$ref": "#/$defs/name" },
-                  { "type": "array", "items": { "$ref": "#/$defs/name" } }
+                  {
+                    "$ref": "#/$defs/name"
+                  },
+                  {
+                    "type": "string"
+                  }
                 ],
                 "minItems": 2,
                 "maxItems": 2
               }
             },
-            "constants": { "description": "The number of constants in the export.", "$ref": "#/$defs/count" },
+            "axioms": {
+              "description": "Declarations the replay was asked for that rest on an axiom outside Lean's standard three, with those axioms, as found by walking the terms of the loaded modules. They are not exported and not checked: both checkers decline an export that uses such an axiom.",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "$ref": "#/$defs/name"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/name"
+                    }
+                  }
+                ],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "constants": {
+              "description": "The number of constants in the export.",
+              "$ref": "#/$defs/count"
+            },
             "origins": {
               "description": "Where the exported constants come from: the project, each dependency, Lean's own library.",
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["kind", "name", "constants"],
+                "required": [
+                  "kind",
+                  "name",
+                  "constants"
+                ],
                 "additionalProperties": false,
                 "properties": {
-                  "kind": { "enum": ["project", "dependency", "toolchain"] },
+                  "kind": {
+                    "enum": [
+                      "project",
+                      "dependency",
+                      "toolchain"
+                    ]
+                  },
                   "name": {
                     "description": "The first component of the modules' names; for the project and for Lean's own library, every such component joined by commas.",
                     "type": "string"
                   },
-                  "constants": { "$ref": "#/$defs/count" }
+                  "constants": {
+                    "$ref": "#/$defs/count"
+                  }
                 }
               }
             },
             "recorded": {
-              "description": "With accepted: the checker accepted an identical export in an earlier run and was not run again.",
+              "description": "With accepted: both checkers accepted an identical export in an earlier run and were not run again (always false with reproducible).",
               "type": "boolean"
             },
-            "message": { "description": "With rejected or failed: what the checker, or the generator, said. With overMemory: what went over the limit, when it was not the checker.", "$ref": "#/$defs/nullableString" },
-            "limitSeconds": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }] },
+            "message": {
+              "description": "With rejected, disagreed, declined or failed: what the checker, or the generator, said. With overMemory: what went over the limit. With noChecker: what the toolchain lacks.",
+              "$ref": "#/$defs/nullableString"
+            },
+            "limitSeconds": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/count"
+                }
+              ]
+            },
             "memoryLimit": {
               "description": "With overMemory: the memory limit of the process, in bytes.",
-              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }]
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/count"
+                }
+              ]
             },
             "exportLimit": {
               "description": "With overExport: the size limit of the export, in bytes.",
-              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/count" }]
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/count"
+                }
+              ]
+            },
+            "records": {
+              "$ref": "#/$defs/count",
+              "description": "The declaration records of the export (def, thm, opaque, axiom, inductive, quot), as the generator counted them in the file."
+            },
+            "reproducible": {
+              "type": "boolean",
+              "description": "The site is built to be reproducible: recorded is false, and the checkers carry no time, memory or count of an acceptance."
+            },
+            "checkers": {
+              "description": "What each checker answered, in the order they ran (con-leche, then con-ron); empty when none ran.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "version",
+                  "sha256",
+                  "answer",
+                  "declarations",
+                  "message",
+                  "ms",
+                  "peakBytes"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "The program's name: con-leche or con-ron."
+                  },
+                  "version": {
+                    "$ref": "#/$defs/nullableString",
+                    "description": "The Lean version of the toolchain the program ships with."
+                  },
+                  "sha256": {
+                    "$ref": "#/$defs/nullableString",
+                    "description": "The SHA-256 of the program's file, in hexadecimal."
+                  },
+                  "answer": {
+                    "enum": [
+                      "accepted",
+                      "rejected",
+                      "declined",
+                      "error",
+                      "noAnswer",
+                      "timedOut",
+                      "overMemory",
+                      "notStarted"
+                    ],
+                    "description": "Its answer by exit status first and words second: accepted (status 0, its line accepted N declarations and N at least records), rejected (status 1 with its words of rejection), declined (status 2), error (status 1 with an uncaught exception), noAnswer (anything else, also status 0 with too short a count), timedOut, overMemory, notStarted."
+                  },
+                  "declarations": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/count"
+                      }
+                    ],
+                    "description": "The declaration records it said it accepted, or checked before it declined."
+                  },
+                  "message": {
+                    "$ref": "#/$defs/nullableString",
+                    "description": "What it said, when it did not accept."
+                  },
+                  "ms": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/count"
+                      }
+                    ],
+                    "description": "How long it ran, in milliseconds; null in a reproducible build."
+                  },
+                  "peakBytes": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/count"
+                      }
+                    ],
+                    "description": "The most memory it was seen to hold (sampled), in bytes; null when never read or in a reproducible build."
+                  }
+                }
+              }
             }
           }
         }
@@ -313,13 +494,13 @@
     "count": { "type": "integer", "minimum": 0 },
     "correspondence": {
       "description": "How a declaration of the challenge compares with the solution's declaration of the same name: the same (for a theorem the same statement, for anything else the same declaration including its value, and the same for every declaration of the challenge its statement uses), a definition hole whose value the solution supplies, differs, missing from the solution, or not compared (headline.unavailable says why).",
-      "enum": ["same", "hole", "differs", "missing", "notCompared"]
+      "enum": ["same", "hole", "differs", "missing", "notCompared", "notTheorem"]
     },
     "headline": {
       "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
       "type": "object",
       "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
-        "permittedAxioms", "unavailable", "unavailableDetail", "theorems",
+        "permittedAxioms", "unavailable", "unavailableDetail", "theorems", "unjudged",
         "definitions"],
       "additionalProperties": false,
       "properties": {
@@ -336,10 +517,10 @@
           "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
         },
         "unavailable": {
-          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source, or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay. Null when the comparison was made.",
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source (also by Lake's build record of it), is not known to come from its source (challengeProvenanceUnknown: no usable build record), or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay. Null when the comparison was made.",
           "oneOf": [
             { "type": "null" },
-            { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate",
+            { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate", "challengeProvenanceUnknown",
                 "challengeUnreadable", "solutionNotImported", "importsNotAvailable",
                 "modulesNotLoaded"] }
           ]
@@ -348,8 +529,14 @@
           "description": "The module, file or error message behind unavailable.",
           "$ref": "#/$defs/nullableString"
         },
+        "unjudged": {
+          "description": "Without theorem_names: theorems of the challenge module that carry no source position and that Lean did not generate on its own, each with the reason it is not judged.",
+          "type": "array",
+          "items": { "type": "array", "minItems": 2, "maxItems": 2,
+            "prefixItems": [{ "$ref": "#/$defs/name" }, { "type": "string" }] }
+        },
         "theorems": {
-          "description": "The theorems judged (theorem_names, or every theorem of the challenge), in source order.",
+          "description": "The theorems judged (theorem_names, or every theorem of the challenge with a source position), in source order.",
           "type": "array",
           "items": {
             "type": "object",
@@ -374,7 +561,7 @@
                 "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/name" }]
               },
               "difference": {
-                "description": "When solution is differs: how, in a few words.",
+                "description": "When solution is differs: how, in a few words. When it is notTheorem: what the challenge declares instead.",
                 "$ref": "#/$defs/nullableString"
               },
               "sorryFree": {
