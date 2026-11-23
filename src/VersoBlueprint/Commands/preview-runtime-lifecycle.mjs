@@ -196,6 +196,8 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
     if (!rect) return;
     const safeMargin = Number.isFinite(margin) ? margin : 12;
     const safeOffset = Number.isFinite(offset) ? offset : 10;
+    // never wider than the viewport, so that the clamping below keeps it whole on screen
+    panel.style.maxWidth = Math.max(0, window.innerWidth - safeMargin * 2) + "px";
     const panelRect = panel.getBoundingClientRect();
     const panelWidth = panelRect.width || Math.min(520, window.innerWidth - safeMargin * 2);
     const panelHeight = panelRect.height || Math.min(420, window.innerHeight - safeMargin * 2);
@@ -211,6 +213,63 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
     top = Math.max(safeMargin, top);
     panel.style.left = left + "px";
     panel.style.top = top + "px";
+  }
+
+  // The left edge a popover inside the page may use: the page's main column, when a table of
+  // contents beside it would cover the popover, else the viewport's edge.
+  function contentLeftEdge(margin) {
+    const main = document.querySelector("main");
+    if (!(main instanceof Element)) return margin;
+    const left = main.getBoundingClientRect().left;
+    return left > margin && left < window.innerWidth / 2 ? left + margin : margin;
+  }
+
+  /**
+   * Shift a popover that its stylesheet places beside its trigger (`position: absolute`, anchored
+   * by `right` or `left`) so that it lies inside the viewport and right of a table of contents,
+   * and is never wider than the viewport. Clears the shift when the panel is not shown.
+   * @param {unknown} panel
+   * @param {number} [margin]
+   */
+  export function keepPanelInView(panel, margin) {
+    if (!(panel instanceof HTMLElement)) return;
+    const safeMargin = Number.isFinite(margin) ? Number(margin) : 8;
+    panel.style.translate = "";
+    panel.style.maxWidth = Math.max(0, window.innerWidth - safeMargin * 2) + "px";
+    const rect = panel.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const minLeft = Math.min(contentLeftEdge(safeMargin), Math.max(safeMargin, window.innerWidth - safeMargin - rect.width));
+    const maxRight = window.innerWidth - safeMargin;
+    let shift = 0;
+    if (rect.right > maxRight) shift = maxRight - rect.right;
+    if (rect.left + shift < minLeft) shift = minLeft - rect.left;
+    if (shift !== 0) panel.style.translate = Math.round(shift) + "px 0";
+  }
+
+  // Hover previews with an open panel. Opening one closes the others, except those whose panel or
+  // trigger holds the new trigger (a preview opened from inside another): hover previews do not
+  // pile up as the pointer or the keyboard focus moves on. Pinned previews stay open.
+  const openHoverPreviews = new Set();
+
+  function claimOpenPreview(entry, trigger) {
+    openHoverPreviews.forEach(function (other) {
+      if (other === entry) return;
+      if (trigger instanceof Node) {
+        if (other.panel instanceof Element && other.panel.contains(trigger)) return;
+        const otherTrigger = other.trigger();
+        if (otherTrigger instanceof Element && otherTrigger.contains(trigger)) return;
+      }
+      openHoverPreviews.delete(other);
+      other.close();
+    });
+    if (entry.isHover()) openHoverPreviews.add(entry);
+    else openHoverPreviews.delete(entry);
+  }
+
+  // Focus that moved to another element of the page (Tab, Shift+Tab): a hover preview closes at
+  // once, without the delay that lets a pointer travel from the trigger to the panel.
+  function focusMovedAway(ev) {
+    return !!ev && ev.type === "focusout" && ev.relatedTarget instanceof Element;
   }
 
   export function bindPanelRepositioner(options) {
@@ -313,6 +372,7 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
 
     function hideNow() {
       cancelHide();
+      openHoverPreviews.delete(openEntry);
       hide();
     }
 
@@ -325,9 +385,20 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
       }
       hideTimer = window.setTimeout(function () {
         hideTimer = null;
+        openHoverPreviews.delete(openEntry);
         hide();
       }, hideDelay);
     }
+
+    const openEntry = {
+      panel: panel,
+      trigger: function () { return getActiveAnchor(); },
+      isHover: function () { return behavior().isHover; },
+      close: function () {
+        cancelHide();
+        hide();
+      }
+    };
 
     const controls = {
       cancelHide: cancelHide,
@@ -364,6 +435,7 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
       if (!filterTrigger(trigger, ev, controls)) return;
       if (!force && enterRequiresHover && !behavior().isHover) return;
       cancelHide();
+      claimOpenPreview(openEntry, trigger);
       show(trigger, ev, controls);
     }
 
@@ -374,7 +446,8 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
       if (!current.isHover) return;
       if (onLeave && onLeave(trigger, ev, controls)) return;
       if (keepOpen(trigger, ev)) return;
-      scheduleHide();
+      if (focusMovedAway(ev)) hideNow();
+      else scheduleHide();
     }
 
     function activateTrigger(trigger, ev) {
@@ -462,7 +535,8 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
         if (!current.isHover) return;
         if (onPanelLeave && onPanelLeave(panel, ev, controls)) return;
         if (shouldKeepOpen(ev && ev.relatedTarget, getActiveAnchor(), panel)) return;
-        scheduleHide();
+        if (focusMovedAway(ev)) hideNow();
+        else scheduleHide();
       };
       panel.addEventListener("mouseenter", enterPanel);
       panel.addEventListener("focusin", enterPanel);
@@ -515,6 +589,7 @@ import { normalizePanelBehavior, readElementOption, readFunctionOption, readNumb
     bindAnchoredPopover,
     readAnchorRect,
     positionAnchoredPanel,
+    keepPanelInView,
     bindPanelRepositioner,
     shouldKeepOpen,
     bindPreviewTriggers
