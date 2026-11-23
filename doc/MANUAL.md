@@ -1747,10 +1747,13 @@ The rendered graph page is interactive:
   keys `+` and `-` zoom in and out, `0` goes back to the first view (and, pressed
   there, shows the whole drawing), and the arrow
   keys pan; nothing is animated
-- the first view shows the whole drawing whenever it fits at a scale of at
-  least 0.36 (labels of about four pixels, legible at a glance); a graph too
-  large for that starts at the smallest readable size (scale 0.5, labels of
-  about six pixels) with its first layer in view
+- the first view shows the whole drawing when its node labels are at least 9
+  CSS pixels high there; a graph too large for that opens at the scale where
+  they are 9 pixels high, on its roots (the first layer in the current
+  direction), and a `Show whole graph` button beside `Graph options` (offered
+  while part of the drawing is out of view) and the key `0` show all of it;
+  this holds for every view, and a page read without scripts shows the
+  drawing as it was written, fitted
 - when grouped metadata produces multiple children for the same parent, the
   selector includes a synthetic group overview plus one subgraph view per group
 
@@ -1858,7 +1861,10 @@ join one stem that ends in a single arrowhead, so a node has one arrowhead
 however many edges reach it. Between two layers the horizontal runs of the
 edges are given tracks of a routing channel (the channel routing of circuit
 layout), long edges run as parallel vertical lanes beside the nodes they pass,
-and a bundle of lanes that turns does so with concentric corners. The look is
+in the free places nearest the stretch between their two ends (a lane goes
+round the drawing only where nothing nearer is free), keeping 16 pixels from
+any group box they do not enter, and a bundle of lanes that turns does so with
+concentric corners. The look is
 fixed: neighbouring lanes 8 pixels apart, the innermost corner of a turning
 bundle of radius 10, stems of 14 pixels, and at least 16 pixels between two runs
 on one track. Stems are solid and one pixel wide in the edges' colour; the edges
@@ -1882,24 +1888,31 @@ curves even when bundled lanes are asked for, and the page says so under the
 graph controls ("A node of this view has 70 edges, so the view is drawn with
 curved edges: …"). The limits come from measurements of the layouts of real
 graphs (the time of the layout and of the drawing, the size of the SVG and its
-area; Apple M2 Ultra, a load average of 5 to 16):
+area; Apple M2 Ultra, a load average of 3 to 9):
 
 | Graph | Nodes | Edges | Largest degree | Bundled: ms, KiB, Mpx² | Curves: ms, KiB, Mpx² |
 |---|---|---|---|---|---|
-| a blueprint | 67 | 171 | 16 | 58, 89, 5.8 | 55, 70, 3.2 |
-| the same, by chapter | 67 | 171 | 16 | 269, 100, 8.9 | 275, 85, 5.4 |
-| a code site's modules | 85 | 159 | 16 | 110, 96, 7.9 | 112, 78, 3.6 |
-| a neighbourhood | 150 | 468 | 51 | 898, 260, 29.0 | 907, 207, 17.8 |
-| a neighbourhood | 290 | 793 | 45 | 2,341, 477, 84.2 | 2,346, 384, 33.6 |
-| a code site's largest module | 561 | 422 | 400 | 1,347, 445, 55.8 | 1,507, 484, 27.3 |
-| a node with 400 neighbours | 401 | 400 | 400 | 769, 358, 60.7 | 580, 401, 30.5 |
-| a code site, by module | 2,866 | 5,516 | 400 | 12,406, 3,939, 11,237 | 13,318, 3,800, 4,049 |
+| a blueprint | 67 | 171 | 16 | 120, 66, 5.5 | 78, 57, 3.2 |
+| the same, by chapter | 67 | 171 | 16 | 392, 75, 8.6 | 297, 72, 5.4 |
+| a code site's modules | 85 | 159 | 16 | 195, 73, 7.9 | 140, 65, 3.6 |
+| a neighbourhood | 150 | 468 | 51 | 1,808, 198, 28.6 | 931, 173, 17.8 |
+| a neighbourhood | 290 | 793 | 45 | 4,246, 372, 83.8 | 2,439, 322, 33.6 |
+| a code site's largest module | 561 | 422 | 400 | 1,640, 370, 55.7 | 1,591, 430, 27.3 |
+| a node with 400 neighbours | 401 | 400 | 400 | 1,062, 294, 60.7 | 611, 356, 30.5 |
+| a random module graph | 800 | 1,077 | 9 | 2,376, 637, 43.9 | 1,498, 553, 21.9 |
+| a random module graph | 3,000 | 4,019 | 11 | 8,726, 2,416, 847 | 2,394, 2,142, 317 |
+| a code site, by module | 2,866 | 5,516 | 400 | 18,545, 3,097, 11,335 | 12,703, 3,287, 4,049 |
 
-The time is about the same for both; bundled drawings are up to a third larger
-as SVG for ordinary graphs, and their area is 1.6 to 2.5 times that of curves,
-growing fastest with a node of hundreds of edges and on the largest graphs
-(the layout gives up the constraints between the runs of a channel of more than
-4,000 runs, and its promises about them then lapse).
+Bundled drawings take up to about twice as long as curves (placing the lanes
+of long edges near their ends is most of the difference) and are up to a sixth
+larger as SVG for ordinary graphs; their area is 1.6 to 2.5 times that of
+curves up to about a thousand edges, and grows faster beyond (2.7 times at
+4,000 edges, with three and a half times the time), hence the limit of 2,000
+edges (the layout also gives up the constraints between the runs of a channel
+of more than 4,000 runs, and its promises about them then lapse). The blueprint
+above with one more node joined to 20 to 200 of the others keeps its area at
+1.7 to 2.2 times that of curves, but from about 60 edges at one node that
+node's lanes fill a band as wide as the drawing, hence the limit of 60.
 
 **Following a route.** Pointing at an edge, or pointing at or focusing a node
 (the nodes that open a view are reached with the Tab key), highlights the whole
