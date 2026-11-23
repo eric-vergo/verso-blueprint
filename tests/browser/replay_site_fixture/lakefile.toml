@@ -1,13 +1,9 @@
 name = "replaydemo"
-defaultTargets = ["Demo", "ComparatorChallenge", "ComparatorSolution"]
+defaultTargets = ["Demo", "Comparator"]
 
 [[lean_lib]]
 name = "Demo"
 
 [[lean_lib]]
-name = "ComparatorChallenge"
-roots = ["Comparator.Challenge"]
-
-[[lean_lib]]
-name = "ComparatorSolution"
-roots = ["Comparator.Solution"]
+name = "Comparator"
+globs = ["Comparator.+"]

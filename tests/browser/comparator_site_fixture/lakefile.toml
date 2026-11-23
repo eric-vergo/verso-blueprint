@@ -1,0 +1,16 @@
+name = "comparatordemo"
+defaultTargets = ["Demo", "Comparator"]
+
+[[lean_lib]]
+name = "Demo"
+
+# The challenges and solutions that are built.
+[[lean_lib]]
+name = "Comparator"
+roots = ["Comparator.Double.Challenge", "Comparator.Double.Solution",
+         "Comparator.Differs.Challenge", "Comparator.Differs.Solution"]
+
+# A challenge the project has but does not build: its pages say it was not compared.
+[[lean_lib]]
+name = "ComparatorPending"
+roots = ["Comparator.Pending.Challenge", "Comparator.Pending.Solution"]

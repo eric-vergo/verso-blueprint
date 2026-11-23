@@ -7,6 +7,7 @@ Author: Eric Vergo
 import Lean.Util.FoldConsts
 import VersoBlueprint.Axioms
 import VersoBlueprint.Stats.Collect
+import VersoBlueprint.Stats.ComparatorLayout
 
 /-!
 The headline of the project statistics: the theorems the project's Comparator challenge states,
@@ -14,12 +15,12 @@ compared with its solution.
 
 A Comparator challenge follows `lake comparator`: a challenge module states theorems (proved by
 `sorry`) together with every definition their statements need, and a solution module declares the
-same theorems with the same statements and proves them. `comparator.json` at the project root
-names the two modules (`challenge_module`, `solution_module`), the theorems to judge
+same theorems with the same statements and proves them. A project has one folder per challenge,
+`Comparator/<Name>/` (`Informal.Stats.ComparatorLayout`, which checks the layout): the two
+modules `Comparator.<Name>.Challenge` and `Comparator.<Name>.Solution`, and `comparator.json`,
+which names them (`challenge_module`, `solution_module`), the theorems to judge
 (`theorem_names`), definition holes the solution fills in (`definition_names`) and the axioms a
-proof may use (`permitted_axioms`). Without that file the modules are `Comparator.Challenge` and
-`Comparator.Solution`, every theorem the challenge states is judged, and no axiom list is
-stated.
+proof may use (`permitted_axioms`). Each challenge gets a headline of its own.
 
 The two modules declare the same names, so they cannot be imported into one environment. The
 solution is taken from the environment the site is generated from, which must import it. The
@@ -56,58 +57,6 @@ namespace Informal.Stats
 open Lean
 open Informal Data
 
-/-! ## Configuration -/
-
-/-- The file at the project root that configures a Comparator challenge. -/
-def comparatorConfigFile : String := "comparator.json"
-
-/-- A Comparator challenge as `lake comparator` reads it from `comparator.json`. -/
-structure ChallengeConfig where
-  challengeModule : Name := `Comparator.Challenge
-  solutionModule : Name := `Comparator.Solution
-  /-- The theorems to judge; none means every theorem the challenge states. -/
-  theoremNames : Option (Array Name) := none
-  /-- Definitions of the challenge whose value the solution supplies. -/
-  definitionNames : Array Name := #[]
-  /-- The axioms a proof may use; none when no list is stated. -/
-  permittedAxioms : Option (Array Name) := none
-  /-- The file the configuration was read from, relative to the project root. -/
-  configFile : Option String := none
-deriving Repr, Inhabited, ToJson, FromJson
-
-/-- Read `comparator.json` text. The fields `lake comparator` requires must be there:
-`challenge_module`, `solution_module`, `theorem_names` and `permitted_axioms`. -/
-def ChallengeConfig.parse (text : String) : Except String ChallengeConfig := do
-  let json ← Json.parse text
-  let field (α : Type) [FromJson α] (name : String) (optional := false) :
-      Except String (Option α) :=
-    match json.getObjVal? name with
-    | .ok .null | .error _ => if optional then pure none else throw s!"`{name}` is missing"
-    | .ok value => (fromJson? value).map some |>.mapError fun e => s!"`{name}`: {e}"
-  let moduleName (name : String) : Except String Name := do
-    let module := ((← field String name).getD "").toName
-    if module.isAnonymous then throw s!"`{name}` is not a module name" else pure module
-  let names (name : String) (optional := false) : Except String (Option (Array Name)) := do
-    return (← field (Array String) name optional).map (·.map String.toName)
-  return {
-    challengeModule := ← moduleName "challenge_module"
-    solutionModule := ← moduleName "solution_module"
-    theoremNames := ← names "theorem_names"
-    definitionNames := (← names "definition_names" (optional := true)).getD #[]
-    permittedAxioms := ← names "permitted_axioms"
-    configFile := some comparatorConfigFile
-  }
-
-/-- The configuration in `comparator.json` at `root`, when the file is there. -/
-def ChallengeConfig.atRoot? (root : System.FilePath) :
-    IO (Option (Except String ChallengeConfig)) := do
-  let file := root / comparatorConfigFile
-  unless ← file.pathExists do return none
-  try
-    return some (ChallengeConfig.parse (← IO.FS.readFile file))
-  catch e =>
-    return some (.error (toString e))
-
 /-- The source file of `module` in the first of `sourceDirs` (relative to `root`) that has it. -/
 def moduleSource? (root : System.FilePath) (sourceDirs : Array String) (module : Name) :
     IO (Option String) := do
@@ -115,16 +64,6 @@ def moduleSource? (root : System.FilePath) (sourceDirs : Array String) (module :
   for dir in sourceDirs do
     let path := if dir == "." then rel else dir ++ "/" ++ rel
     if ← (root / path).pathExists then return some path
-  return none
-
-/-- The project's Comparator challenge: the one `comparator.json` configures, or else the default
-modules when the source of `Comparator.Challenge` is in one of `sourceDirs`. -/
-def ChallengeConfig.find? (root : System.FilePath) (sourceDirs : Array String) :
-    IO (Option (Except String ChallengeConfig)) := do
-  if let some config ← ChallengeConfig.atRoot? root then return some config
-  let config : ChallengeConfig := {}
-  if (← moduleSource? root sourceDirs config.challengeModule).isSome then
-    return some (.ok config)
   return none
 
 /-! ## The compiled challenge -/
@@ -563,6 +502,7 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   let challengeFile ← moduleSource? root layout.sourceDirs config.challengeModule
   let solutionFile ← moduleSource? root layout.sourceDirs config.solutionModule
   let base : Headline := {
+    name := config.name
     challengeModule := config.challengeModule, solutionModule := config.solutionModule
     challengeFile, solutionFile, config := config.configFile
     permittedAxioms := config.permittedAxioms
@@ -594,6 +534,16 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   for imp in challenge.imports do
     unless env.header.moduleNames.contains imp do
       return { unavailable .importsNotAvailable (some imp.toString) theorems with unjudged }
+  -- the solution's file a page shows must be the one its compiled module was compiled from
+  if let some file := solutionFile then
+    if let some olean ← findCompiledModule? path config.solutionModule then
+      let text ← try IO.FS.readFile (root / file) catch _ => pure ""
+      match ← provenanceOf olean file text with
+      | .same => pure ()
+      | .differs =>
+        return { unavailable .solutionOutOfDate (some file) theorems with unjudged }
+      | .unknown why =>
+        return { unavailable .solutionProvenanceUnknown (some why) theorems with unjudged }
   let some scope := importClosure env config.solutionModule
     | return { unavailable .solutionNotImported (some config.solutionModule.toString) theorems
                with unjudged }
@@ -642,28 +592,33 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
     ({ name := info.name, solution := correspondenceOf ctx info } : HeadlineDefinition)
   return { base with theorems := judged, definitions, unjudged }
 
-/-- The project's headline, when it has a Comparator challenge (`ChallengeConfig.find?`). -/
-def Headline.capture (root : System.FilePath) (layout : WorkspaceLayout) :
-    CoreM (Option Headline) := do
-  let some found ← ChallengeConfig.find? root layout.sourceDirs | return none
-  match found with
-  | .error msg =>
-    return some {
-      challengeModule := .anonymous, solutionModule := .anonymous
-      config := some comparatorConfigFile, unavailable := some .configInvalid
-      unavailableDetail := some msg }
-  | .ok config =>
-    let libraryPath := (← searchPathRef.get) ++
-      ((← IO.getEnv "LEAN_PATH").map System.SearchPath.parse |>.getD [])
-    some <$> Headline.compute config root layout libraryPath
+/-- The headline of a challenge that was not compared, with why: its modules, files and permitted
+axioms, and no theorem. -/
+def Headline.uncompared (config : ChallengeConfig) (root : System.FilePath)
+    (layout : WorkspaceLayout) (why : Unavailable) (detail : Option String) : IO Headline := do
+  return {
+    name := config.name
+    challengeModule := config.challengeModule, solutionModule := config.solutionModule
+    challengeFile := ← moduleSource? root layout.sourceDirs config.challengeModule
+    solutionFile := ← moduleSource? root layout.sourceDirs config.solutionModule
+    config := config.configFile, permittedAxioms := config.permittedAxioms
+    unavailable := some why, unavailableDetail := detail }
 
-/-- The statistics with the headline of the project's Comparator challenge, looked for in the
-workspace's source directories. -/
+/-- The headlines of the project's Comparator challenges (`ComparatorLayout.challengesAt`, which
+throws when the project does not follow the layout), in the order of their names. -/
+def Headline.captureAll (root : System.FilePath) (layout : WorkspaceLayout) :
+    CoreM (Array Headline) := do
+  let challenges ← ComparatorLayout.challengesAt root
+  let libraryPath := (← searchPathRef.get) ++
+    ((← IO.getEnv "LEAN_PATH").map System.SearchPath.parse |>.getD [])
+  challenges.mapM fun config => Headline.compute config root layout libraryPath
+
+/-- The statistics with a headline for each of the project's Comparator challenges. -/
 def ProjectStats.withHeadline (stats : ProjectStats) : CoreM ProjectStats := do
   let root ← projectRoot stats.layout.projectRoot
   let layout ← WorkspaceLayout.current root
-  let headline ← Headline.capture root layout
-  return { stats with headline, hasComparatorChallenge := headline.isSome }
+  let challenges ← Headline.captureAll root layout
+  return { stats with challenges, hasComparatorChallenge := !challenges.isEmpty }
 
 /-! ## The kernel replay -/
 
@@ -719,8 +674,8 @@ structure ReplayRequest where
   /-- The project root. -/
   root : String
   layout : WorkspaceLayout
-  /-- The project's Comparator challenge, when it is to be compared. -/
-  challenge? : Option ChallengeConfig := none
+  /-- The project's Comparator challenges, when they are to be compared. -/
+  challenges : Array ChallengeConfig := #[]
   /-- The file the export is written to. -/
   exportFile : String
   /-- The size limit of the export, in bytes. -/
@@ -734,9 +689,9 @@ structure ReplayReply where
   /-- Why the compiled modules could not be loaded or compared, when that is so; nothing else
   is there then. -/
   notLoaded? : Option String := none
-  /-- The headline computed in the loaded environment, with the axioms walked from its terms,
-  when the request has a challenge. -/
-  headline? : Option Headline := none
+  /-- The headlines computed in the loaded environment, with the axioms walked from their terms,
+  one for each challenge of the request. -/
+  headlines : Array Headline := #[]
   /-- What was exported. -/
   prepared? : Option Prepared := none
 deriving ToJson, FromJson
@@ -752,37 +707,53 @@ def ReplayRequest.run (request : ReplayRequest) : IO ReplayReply := do
   let libraryPath : System.SearchPath :=
     config.searchPath.toList ++ [sysroot / "lib" / "lean"]
   let mut modules := request.targets.filterMap (·.module?)
-  if let some challenge := request.challenge? then
+  -- a challenge or a solution that is not built is not compared, and the others still are
+  let mut compared : Array ChallengeConfig := #[]
+  let mut skipped : Array Headline := #[]
+  for challenge in request.challenges do
+    if (← findCompiledModule? libraryPath challenge.challengeModule).isNone then
+      skipped := skipped.push (← Headline.uncompared challenge root request.layout
+        .challengeNotBuilt (some challenge.challengeModule.toString))
+      continue
+    if (← findCompiledModule? libraryPath challenge.solutionModule).isNone then
+      skipped := skipped.push (← Headline.uncompared challenge root request.layout
+        .solutionNotImported (some s!"{challenge.solutionModule} is not built"))
+      continue
     -- the challenge is read from its compiled file, which must be the only one of its name
     if let some message ← duplicateModule? config sysroot challenge.challengeModule then
       return { notLoaded? := some message }
     modules := modules ++ (← challenge.modulesToLoad root request.layout libraryPath)
+    compared := compared.push challenge
   let loaded ← match ← loadModules config sysroot modules with
     | .ok loaded => pure loaded
     | .error message => return { notLoaded? := some message }
   -- the headline, from the environment that is exported
-  let mut headline? : Option Headline := none
+  let mut headlines : Array Headline := skipped
   let mut judged : Array ReplayTarget := #[]
-  if let some challenge := request.challenge? then
+  for challenge in compared do
     let computed ← (Headline.computeIn loaded.env challenge root request.layout
       libraryPath).toBaseIO
     let headline ← match computed with
       | .ok headline => pure headline
       | .error e =>
-        return { notLoaded? := some s!"the Comparator challenge could not be compared: {e}" }
+        return { notLoaded? := some s!"the Comparator challenge {challenge.name} could not be \
+          compared: {e}" }
     let names := (headline.theorems.filter (·.sorryFree.isSome)).map (·.name)
     match restingAxioms loaded.env names (standard := true) with
-    | .ok walked => headline? := some (headline.withWalkedAxioms walked)
+    | .ok walked => headlines := headlines.push (headline.withWalkedAxioms walked)
     | .error message => return { notLoaded? := some message }
-    judged := names.map fun name => ({ name } : ReplayTarget)
+    judged := judged ++ (names.filter fun n => !judged.any (·.name == n)).map fun name =>
+      ({ name } : ReplayTarget)
   let targets := request.targets ++ judged
+  -- in the order of the challenges' names, as the layout lists them
+  headlines := request.challenges.filterMap fun c => headlines.find? (·.name == c.name)
   if targets.isEmpty then
     let nothing : Prepared :=
       { stop? := some .failed, message := some "this site has no Lean declaration to check" }
-    return { headline?, prepared? := some nothing }
+    return { headlines, prepared? := some nothing }
   let prepared ← prepareExport loaded config.projectDirs targets request.exportFile
     request.exportLimit? deadline
-  return { headline?, prepared? := some prepared }
+  return { headlines, prepared? := some prepared }
 
 /-- The `main` of a worker process: read the request file, do what it asks, write the reply
 file (`ReplayRequest.run`). A program whose `main` calls this for `replayWorkerFlag` can be the
@@ -818,10 +789,12 @@ challenge (and `compare`), its headline is computed again in that environment an
 captured one: the comparison, the axioms (walked from the terms, not read from the tables the
 modules record) and the export that is checked then all come from the same loaded modules.
 `nodeOf` gives the node of a judged theorem where the new headline has none. `config?` replaces
-the configuration read from the environment (`ReplayConfig.fromEnv`). -/
+the configuration read from the environment (`ReplayConfig.fromEnv`), and `challenges?` the
+challenges found under `root` (`ComparatorLayout.challengesAt`). -/
 def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePath)
     (targets : Array ReplayTarget) (config? : Option ReplayConfig := none)
-    (compare : Bool := true) (nodeOf : Name → Option Name := fun _ => none) :
+    (compare : Bool := true) (nodeOf : Name → Option Name := fun _ => none)
+    (challenges? : Option (Array ChallengeConfig) := none) :
     IO ProjectStats := do
   let config ← match config? with
     | some config => pure config
@@ -849,25 +822,25 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     | return noVerdict stats .failed (some "the Lean toolchain of the checkers was not found")
   let start ← IO.monoMsNow
   let deadline := start + config.limitSeconds * 1000
-  let challenge? ← if compare then
-      match ← ChallengeConfig.find? root stats.layout.sourceDirs with
-      | some (.ok challenge) => pure (some challenge)
-      | _ => pure none
-    else pure none
-  if targets.isEmpty && challenge?.isNone then
+  let challenges ← if !compare then pure #[]
+    else match challenges? with
+      | some challenges => pure challenges
+      | none => ComparatorLayout.challengesAt root
+  if targets.isEmpty && challenges.isEmpty then
     return noVerdict stats .failed (some "this site has no Lean declaration to check")
   -- when the modules are not loaded, nothing is compared here either, and a headline captured
   -- with the site's data in another environment is not shown beside that: the headline says why
   let uncompared (stats : ProjectStats) (why : String) : ProjectStats :=
-    match challenge? with
-    | some challenge =>
-      let headline : Headline := {
-        challengeModule := challenge.challengeModule
-        solutionModule := challenge.solutionModule
-        config := challenge.configFile, permittedAxioms := challenge.permittedAxioms
-        unavailable := some .modulesNotLoaded, unavailableDetail := some why }
-      { stats with headline := some headline }
-    | none => stats
+    if challenges.isEmpty then stats else
+    { stats with challenges := challenges.map fun challenge =>
+        let earlier := stats.challenges.find? (·.name == challenge.name)
+        { name := challenge.name
+          challengeModule := challenge.challengeModule
+          solutionModule := challenge.solutionModule
+          challengeFile := earlier.bind (·.challengeFile)
+          solutionFile := earlier.bind (·.solutionFile)
+          config := challenge.configFile, permittedAxioms := challenge.permittedAxioms
+          unavailable := some .modulesNotLoaded, unavailableDetail := some why } }
   let notLoaded (message : String) : ProjectStats :=
     uncompared (noVerdict stats .failed (some message)) message
   let work ← IO.FS.createTempDir
@@ -876,7 +849,7 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     sysroot := sysroot.toString
     searchPath := config.searchPath.map (·.toString)
     projectDirs := config.projectDirs.map (·.toString)
-    targets, root := root.toString, layout := stats.layout, challenge?
+    targets, root := root.toString, layout := stats.layout, challenges
     exportFile := exportFile.toString, exportLimit? := config.exportLimit?
     limitMs := config.limitSeconds * 1000 }
   -- the first half, in a worker process: this process may have the modules loaded already
@@ -885,7 +858,7 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     | some _ => do
       say s!"loading the compiled modules and exporting \
         {Replay.counted asked.size "declaration"}\
-        {if challenge?.isSome then " and the judged theorems" else ""} with what they depend on"
+        {if challenges.isEmpty then "" else " and the judged theorems"} with what they depend on"
       let requestFile := work / "request.json"
       let replyFile := work / "reply.json"
       IO.FS.writeFile requestFile (toJson request).compress
@@ -917,12 +890,13 @@ def ProjectStats.withKernelReplayAt (stats : ProjectStats) (root : System.FilePa
     return notLoaded message
   -- the headline of the loaded environment replaces the captured one
   let mut stats := stats
-  if let some headline := reply.headline? then
+  if !reply.headlines.isEmpty then
     let earlier (name : Name) : Option Name :=
-      (stats.headline.bind (·.theorems.find? (·.name == name))).bind (·.node)
-    let headline := { headline with theorems := headline.theorems.map fun t =>
-      { t with node := t.node <|> earlier t.name <|> nodeOf t.name } }
-    stats := { stats with headline := some headline, hasComparatorChallenge := true }
+      (stats.challenges.findSome? (·.theorems.find? (·.name == name))).bind (·.node)
+    let headlines := reply.headlines.map fun headline =>
+      { headline with theorems := headline.theorems.map fun t =>
+        { t with node := t.node <|> earlier t.name <|> nodeOf t.name } }
+    stats := { stats with challenges := headlines, hasComparatorChallenge := true }
   let result ← match toolchain, reply.prepared? with
     | .error (outcome, message, _), prepared? =>
       -- nothing was checked: the last line says so, as it does after a check

@@ -146,7 +146,7 @@ def load (data root : FilePath) : IO (Project × Std.HashMap Lean.Name String) :
 
 /-- Generate the site of the data at `data` for the project at `root`; `args` are the
 generator's own flags. Without `compare` the headline's comparison is left out; with
-`challengeNotBuilt?` too, and the headline says why (`headlineOf?`). With `kernelReplay` the
+`challengeNotBuilt?` too, and every headline says why (`headlinesOf`). With `kernelReplay` the
 site's declarations and the judged theorems are checked again in a kernel with everything they
 depend on (`Informal.Replay`), and the comparison is made in the environment that is exported
 for it (`Stats.ProjectStats.withKernelReplayAt`). -/
@@ -163,11 +163,11 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
   let known : Lean.NameSet := project.modules.foldl (init := {}) fun acc m =>
     m.declarations.foldl (fun acc d => acc.insert d.name) acc
   let compare := compare && challengeNotBuilt?.isNone
-  let headline? ← match challengeNotBuilt? with
-    | some why => headlineOf? root project known (notBuilt? := some why)
+  let headlines ← match challengeNotBuilt? with
+    | some why => headlinesOf root project known (notBuilt? := some why)
     -- with a replay the comparison is made in the replay's environment, below
-    | none => if compare && !kernelReplay then headlineOf? root project known else pure none
-  let model ← modelOf root project state headline?
+    | none => if compare && !kernelReplay then headlinesOf root project known else pure #[]
+  let model ← modelOf root project state headlines
   -- the replay is of the project at `root`, which need not be the working directory
   let model ← if kernelReplay then
       let config ← replayConfigOf root model.stats.layout
@@ -182,6 +182,12 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
     -- side-by-side cards without highlighted declaration sources: the excerpts come from the data
     (config := Informal.PreviewManifest.withSideBySideDefaultStyle {})
     (sidebar? := some { homeLabel := "Home" })
+    -- the Comparator pages' files highlighted as the cards are, from the data's occurrences
+    (comparatorCode? := some fun mod text =>
+      let occurrences := (project.modules.find? (·.module == mod)).map
+        (·.declarations.flatMap (·.occurrences))
+      some (Highlight.highlight text ⟨0, 0⟩ (occurrences.getD #[]) hovers))
+    (projectRoot? := some root)
 
 /-- `vbp code-site` (see the module docstring). -/
 def main (args : List String) : IO UInt32 := do

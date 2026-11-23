@@ -1,0 +1,7 @@
+{
+  "source": { "title": "Notes on doubling", "version": "1" },
+  "claims": [
+    { "declaration": "Cmp.double_even", "reference": "Lemma 1",
+      "statement": "For every natural number n, the number 2n is even." }
+  ]
+}

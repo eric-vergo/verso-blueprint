@@ -81,7 +81,7 @@ private def rokickiLike : ProjectStats := {
   sources := {
     files := #[
       { path := "A.lean", status := .imported },
-      { path := "Comparator/Challenge.lean", status := .compiled },
+      { path := "Comparator/Main/Challenge.lean", status := .compiled },
       { path := "scripts/Probe.lean", status := .notBuilt }]
     lines := { blank := 378, comment := 402, code := 1353 }
   }
@@ -91,11 +91,12 @@ private def rokickiLike : ProjectStats := {
     definitions := { total := 10, leanComplete := 10, leanCompleteWithDependencies := 10, informal := 9 } }
   graph := { nodes := 58, statementEdges := 62, proofEdges := 84, edges := 146,
              byKind := #[("definition", 10), ("lemma", 40), ("theorem", 8)] }
-  headline := some {
-    challengeModule := `Comparator.Challenge
-    solutionModule := `Comparator.Solution
-    challengeFile := some "Comparator/Challenge.lean"
-    solutionFile := some "Comparator/Solution.lean"
+  challenges := #[{
+    name := "Main"
+    challengeModule := `Comparator.Main.Challenge
+    solutionModule := `Comparator.Main.Solution
+    challengeFile := some "Comparator/Main/Challenge.lean"
+    solutionFile := some "Comparator/Main/Solution.lean"
     theorems := #[{
       name := `rho_irrational
       docstring := some "Rokicki's constant is irrational."
@@ -104,7 +105,7 @@ private def rokickiLike : ProjectStats := {
       axioms := #[``Classical.choice, ``Quot.sound, ``propext]
       node := some `main }]
     definitions := #[{ name := `rho, solution := .same }]
-  }
+  }]
   hasComparatorChallenge := true
   replay := some { outcome := .accepted, version := some "4.35.0", declarations := #[`rho_irrational] }
 }
@@ -155,7 +156,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
       and the package revisions above. No other toolchain or revision was checked." &&
     hasSubstr html "theorem rho_irrational : Irrational rho" &&
     hasSubstr html "the standard axioms of Lean's logic only" &&
-    hasSubstr html "<code>Comparator/Challenge.lean</code>" &&
+    hasSubstr html "<code>Comparator/Main/Challenge.lean</code>" &&
     hasSubstr html "<code>rho</code> (same in the solution)" &&
     !hasSubstr html headlineHintText &&
     -- progress: counts as text, a segment per non-empty status, the per-chapter table
@@ -198,7 +199,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
 #guard_msgs in
 #eval
   let stats := { rokickiLike with
-    headline := none, hasComparatorChallenge := false
+    challenges := #[], hasComparatorChallenge := false
     identity := { rokickiLike.identity with license := none } }
   let html := (statsPageHtml (view stats)).render
   hasSubstr html "class=\"bp_stats_headline_hint\"" && hasSubstr html headlineHintText &&
@@ -215,9 +216,9 @@ private def view (stats : ProjectStats) : StatsPageView := {
       { label := `main, declaration := `main_other, axioms := #[``sorryAx] }]
     compilerTrusted := #[{ label := `lem, declaration := `lem_decl, axioms := #[`lem_decl._native.native_decide.ax_1_1] }]
   }
-  let headline := rokickiLike.headline.map fun h => { h with theorems := h.theorems.map fun t =>
+  let challenges := rokickiLike.challenges.map fun h => { h with theorems := h.theorems.map fun t =>
     { t with conditionsMet := false, sorryFree := some false, axioms := t.axioms.push ``sorryAx } }
-  let html := (statsPageHtml (view { rokickiLike with trust, headline })).render
+  let html := (statsPageHtml (view { rokickiLike with trust, challenges })).render
   hasSubstr html "1 Lean declaration of nodes with a sorry of its own." &&
     hasSubstr html "data-bp-trust=\"sorry-direct\" data-bp-count=\"1\"" &&
     hasSubstr html "<a href=\"/Sums/#lem\">Lemma 3.2</a>" &&

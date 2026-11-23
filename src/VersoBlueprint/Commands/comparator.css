@@ -1,0 +1,98 @@
+/* The Comparator pages (`Informal.Commands.Comparator`): the list of challenges and each
+   challenge's page. The verdict bands are the Project Stats page's (`stats.css`). */
+.bp_comparator_page,
+.bp_comparator_index {
+  max-width: 72rem;
+}
+
+.bp_comparator_intro {
+  color: var(--bp-color-text-muted);
+  max-width: 48rem;
+}
+
+.bp_comparator_file,
+.bp_comparator_links,
+.bp_comparator_trusted,
+.bp_comparator_index_item {
+  margin: 1.4rem 0;
+}
+
+.bp_comparator_file_title,
+.bp_comparator_index_title {
+  font-size: 1.15rem;
+  margin: 0 0 0.35rem;
+}
+
+.bp_comparator_file_path {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.bp_comparator_code,
+.bp_comparator_config {
+  border: 1px solid var(--bp-color-border, #e2e8f0);
+  border-radius: var(--bp-radius-sm, 0.35rem);
+  background: var(--bp-color-code-bg, var(--bp-color-surface, transparent));
+  padding: 0.6rem 0.8rem;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.bp_comparator_config {
+  margin: 0;
+  white-space: pre;
+  font-size: 0.85rem;
+}
+
+.bp_comparator_code code.bp_comparator_source {
+  display: block;
+  font-size: 0.85rem;
+}
+
+.bp_comparator_plain_note,
+.bp_comparator_missing {
+  font-size: 0.85rem;
+  color: var(--bp-color-text-muted);
+}
+
+.bp_comparator_verdicts {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0;
+}
+
+.bp_comparator_verdict {
+  margin: 0.25rem 0;
+}
+
+.bp_comparator_link_list {
+  padding-left: 1.2rem;
+}
+
+.bp_comparator_link_list a:focus-visible,
+.bp_comparator_index_link:focus-visible,
+.bp_stats_challenge_link:focus-visible {
+  outline: 2px solid var(--bp-color-accent, #0f766e);
+  outline-offset: 2px;
+}
+
+/* A file in full: one block per source line, wrapped lines with a hanging indent of four columns
+   beyond the line's own leading whitespace (--bp-indent, set per line), as in the Lean column. */
+.bp_comparator_code code.hl.lean.block {
+  display: block;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--verso-code-font-family);
+  font-size: var(--bp-code-text-size, 0.85rem);
+  line-height: 1.6;
+  background: transparent;
+}
+
+.bp_comparator_code code.hl.lean.block .bp_code_line {
+  display: block;
+  min-height: 1.6em;
+  padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
+  text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
+}

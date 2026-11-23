@@ -2247,9 +2247,10 @@ form is described in `doc/schemas/project-stats.schema.json`.
   with axioms outside Lean's standard three, or with proofs that rest on the
   result of compiled code (`native_decide`), plus Lean names that are missing
   and labels nobody defines.
-- **Headline**: the theorems of the project's Comparator challenge, compared
-  with its solution (see below). A project without a challenge has no
-  headline, and `hasComparatorChallenge` is false.
+- **Headlines** (`challenges`): for each of the project's Comparator
+  challenges, the theorems it states, compared with its solution (see below and
+  "Comparator challenges"). A project without a challenge has none, and
+  `hasComparatorChallenge` is false.
 - **Claims**: what the project's author says its Lean declarations state, from
   `informal-claims.json` (see "Author's claims" below).
 
@@ -2278,38 +2279,27 @@ A Comparator challenge states a project's main results in a module of their
 own, the way `lake comparator` judges them: a challenge module states each
 theorem with `sorry`, together with every definition its statement needs, and a
 solution module declares the same theorems with the same statements and proves
-them. The two modules are named in `comparator.json` at the project root, the
-file `lake comparator` reads:
+them. A project may have several challenges, each in a folder of its own,
+`Comparator/<Name>/`, with `Challenge.lean`, `Solution.lean` and the
+`comparator.json` that `lake comparator` reads (the layout and its rules are in
+"Comparator challenges" below):
 
 ```json
 {
-  "challenge_module": "Comparator.Challenge",
-  "solution_module": "Comparator.Solution",
+  "challenge_module": "Comparator.Main.Challenge",
+  "solution_module": "Comparator.Main.Solution",
   "theorem_names": ["main_theorem"],
-  "definition_names": [],
   "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
 }
 ```
 
-Without that file, a project whose sources contain `Comparator/Challenge.lean`
-has the challenge `Comparator.Challenge` and the solution `Comparator.Solution`;
-every theorem the challenge states is judged (every theorem with a position in
-its source, whatever its name; one without, made by a command rather than
-written, is listed as not judged, with that reason), and the axioms a proof may use
-are Lean's standard three (`propext`, `Classical.choice`, `Quot.sound`). The
-challenge needs a library of its own in the Lake configuration, since nothing
-imports it (it declares the same names as the solution):
-
-```toml
-[[lean_lib]]
-name = "ComparatorChallenge"
-roots = ["Comparator.Challenge"]
-```
-
-The solution must be imported by the Blueprint (a chapter that presents the
-main theorem can import it), so that the environment the site is generated from
-has its declarations. The challenge is read from its compiled module without
-importing it; `lake exe vbp build` builds it first.
+Each challenge gets a headline of its own. The solutions must be imported by
+the Blueprint (a chapter that presents the main theorem can import its
+solution), so that the environment the site is generated from has their
+declarations; two solutions that declare the same name cannot both be imported,
+and the second's headline then says that its solution is not imported. A
+challenge is read from its compiled module without importing it; `lake exe vbp
+build` builds every challenge first.
 
 For each theorem the headline records its name, its docstring and its
 statement as the challenge writes them (from the keyword to the end of the
@@ -2340,13 +2330,18 @@ signature), and:
 
 The other declarations the challenge introduces (its definitions) are listed
 with the same comparison. When no comparison can be made, `unavailable` says
-why and the theorems are listed without a verdict: `comparator.json` is
-invalid, the challenge has no compiled module or one that does not match its
-source, the module cannot be read, or the site's environment lacks the
-solution module or a module the challenge imports.
+why and the theorems are listed without a verdict: the challenge has no
+compiled module or one that does not match its source, the module cannot be
+read, the solution's source differs from the one its compiled module was
+compiled from (`solutionOutOfDate`) or that is not known
+(`solutionProvenanceUnknown`), or the site's environment lacks the solution
+module or a module the challenge imports. A configuration that does not follow
+the layout stops the build, so `configInvalid` is not reported.
 
 The statements the headline shows are cut from the challenge's source, while
-the verdict is about its compiled module, so the two must be the same text. The
+the verdict is about its compiled module, so the two must be the same text; the
+Comparator pages show the solution's source in full too, so the solution's
+compiled module is held to its source by the same build record. The
 challenge is out of date when a theorem is not where the module was compiled
 from, and when the source differs from the one Lake's build record of the
 compiled module (`<module>.trace` beside the `.olean`) names: Lake's hash of the
@@ -2403,6 +2398,210 @@ in the node view of the declaration's node, and, for other declarations, in an
 "Author's claims" band of the Project Stats page. No status, count or colour
 depends on it.
 
+### Comparator challenges
+
+A project's Comparator challenges follow one layout, which a site build
+enforces: a build of a project whose Comparator files do not follow it fails,
+naming each file, the rule and the change needed. A project with no
+`Comparator` folder and no `comparator.json` has no challenge and is not
+affected.
+
+#### The layout
+
+Each challenge has a folder `Comparator/<Name>/` at the project root; a project
+with one challenge has one such folder:
+
+```
+Comparator/
+  Main/
+    Challenge.lean      -- module Comparator.Main.Challenge
+    Solution.lean       -- module Comparator.Main.Solution
+    comparator.json
+  SecondResult/
+    ...
+```
+
+The rules, as the messages number them:
+
+- **L1** One folder per challenge. `Comparator/Challenge.lean`,
+  `Comparator/Solution.lean` and a `comparator.json` at the project root (the
+  layout of a single challenge) are not accepted; the message gives the moves
+  (see "Moving a single challenge" below).
+- **L2** `Comparator` is a folder, not a file or a symbolic link.
+- **L3** Every entry of `Comparator/` is a challenge's folder whose name starts
+  with an ASCII capital letter and has only ASCII letters and digits, at most 64
+  characters, so that `Comparator.<Name>` is a module name without escapes.
+  Entries whose names start with `.` are ignored.
+- **L4** At most 64 challenges.
+- **L5** No `comparator.json` outside the challenges' folders. Folders whose
+  names start with `.`, `_out`, `build`, and folders that hold a lakefile of
+  their own (other Lake projects, such as test fixtures) are not searched; the
+  search looks at no more than 50,000 entries.
+- **F1** A challenge's folder holds exactly `Challenge.lean`, `Solution.lean` and
+  `comparator.json`, as regular files (not symbolic links), and nothing else
+  (entries starting with `.` aside).
+- **F2** `Challenge.lean` and `Solution.lean` are UTF-8 text of at most 1 MiB
+  each.
+- **J1** `comparator.json` is a JSON object of at most 64 KiB, with arrays and
+  objects nested at most 8 deep.
+- **J2** It has the keys `challenge_module`, `solution_module`, `theorem_names`
+  and `permitted_axioms`; it may have `definition_names` and
+  `external_kernels`; no other key (in particular not `enable_nanoda`, which
+  `lake comparator` still accepts; name the checker in `external_kernels`).
+- **J3** `challenge_module` is `Comparator.<Name>.Challenge` and
+  `solution_module` is `Comparator.<Name>.Solution`, for the folder's name.
+- **J4** `theorem_names` is a non-empty list of distinct Lean names, at most
+  256, each written as Lean prints it (`Foo.bar`); these are the theorems
+  judged.
+- **J5** `permitted_axioms` is a list (possibly empty) of distinct Lean names,
+  at most 64.
+- **J6** `definition_names`, when present, is a list of distinct Lean names, at
+  most 256, none of them in `theorem_names`.
+- **J7** `external_kernels`, when present, maps a checker's name to a non-empty
+  list of strings (its command). The site does not run these checkers; the
+  site's verdict rests on its own kernel replay.
+- **C1** `Challenge.lean` imports no module under `Comparator` (not its
+  solution, not another challenge's module).
+- **C2** `Challenge.lean` states its theorems with `sorry`: the word `sorry`
+  occurs in its code (comments and strings aside).
+- **C3** Every name of `theorem_names` is declared with `theorem` in
+  `Challenge.lean`, and **S2** in `Solution.lean`. Names are read from the
+  source text, with `namespace` and `end` followed, and a name written in full
+  (`theorem Foo.bar`, `theorem _root_.bar`) taken as written.
+- **S1** `Solution.lean` imports no module under `Comparator`. It may import
+  the project's library.
+- **K1** The project's Lake workspace can build both modules: a library holds
+  them. `lake exe vbp build` checks this with the workspace it loads anyway;
+  `vbp check` and `vbp comparator-check` check the files only, since loading
+  a workspace whose packages are missing makes Lake fetch them. For example, in
+  `lakefile.toml`:
+
+  ```toml
+  [[lean_lib]]
+  name = "Comparator"
+  globs = ["Comparator.+"]
+  ```
+
+The files are the project's data: they are read with the limits above, never
+followed through a symbolic link, and never run; `comparator.json` is parsed
+only after its size and nesting were checked.
+
+**Why this layout works with `lake comparator`.** The layout is a strict subset
+of what `lake comparator` accepts: a configuration file per challenge with the
+four keys it requires (it accepts `definition_names`, `external_kernels` and
+`enable_nanoda` besides; the layout leaves out the last), modules it builds by
+name from the project's workspace, and a `theorem_names` it judges. So a
+project that follows the layout can run, from its root, for each challenge:
+
+```bash
+lake comparator --config Comparator/<Name>/comparator.json
+```
+
+`lake comparator` rebuilds and judges the challenge in a sandbox (Linux only);
+the site's verdict is its own comparison of the compiled modules and its own
+kernel replay (see "The headline" above and "Kernel replay" below).
+
+#### Checking the layout
+
+- `lake exe vbp build` checks the layout, rule K1 included, before it builds
+  anything; a project that does not follow it stops with exit code 1 and the
+  messages, one per line.
+- The generators check it too: a generator run (`lake exe vbp build`,
+  `vbp code-site`, or a document's own `main`) of a project that does not follow
+  it fails with the messages, and the render model captured while the Blueprint
+  is elaborated fails its elaboration with them.
+- `lake exe vbp check` adds every violation to the errors it reports for a site.
+- `lake exe vbp comparator-check` reports the violations of the files' rules
+  (every rule but K1) alone, with exit code 1 when there is one and 0 otherwise,
+  for continuous integration. Neither it nor `vbp check` loads the Lake
+  workspace.
+
+A message reads:
+
+```
+Comparator/Main/comparator.json: rule J3 (module names): "challenge_module" is "Comparator.Challenge"; set it to "Comparator.Main.Challenge"
+```
+
+#### Moving a single challenge
+
+`lake exe vbp comparator-migrate [--name <Name>] [--dry-run]` moves the layout
+of a single challenge into `Comparator/<Name>/` (the name `Main` by default)
+and prints every change; with `--dry-run` it prints them and changes nothing:
+
+- `git mv Comparator/Challenge.lean Comparator/<Name>/Challenge.lean` and the
+  same for `Solution.lean` (a plain rename outside a Git checkout);
+- a `comparator.json` at the root is moved into the folder and given the new
+  module names; without one, the folder gets one that judges every theorem the
+  challenge declares and permits Lean's standard three axioms, which is what
+  the single-challenge layout judged without the file (in a Git checkout it is
+  added with `git add`);
+- the module names `Comparator.Challenge` and `Comparator.Solution` and the paths
+  `Comparator/Challenge.lean` and `Comparator/Solution.lean` are replaced in the
+  project's Lean files, `lakefile.toml` and Markdown files (whole words only).
+  A `lakefile.lean` is not edited: change its library's roots by hand.
+
+It then checks the layout again and says what is left to change (rule K1, a
+library for the challenges, for instance).
+
+#### The Comparator pages
+
+A site of a project with challenges has an unnumbered page "Comparator" at the
+end of its table of contents, and below it one page per challenge, titled with
+the challenge's name. The Project Stats page links each headline to its
+challenge's page.
+
+The page "Comparator" lists every challenge: a link to its page, its two
+modules, and the verdict of each judged theorem, or "Not compared: …" with the
+reason.
+
+A challenge's page shows:
+
+- what the challenge is, in one paragraph;
+- the challenge's headline exactly as the Project Stats page shows it: each
+  judged theorem with its verdict and the line under it, its Lean statement as
+  the challenge writes it, the axioms the solution's proof rests on, the
+  challenge's docstring and the author's claim (`informal-claims.json`) under
+  their own captions, the challenge's definitions and what the comparison is
+  and is not;
+- what a verdict of the kernel replay leaves trusted (the sentence of the
+  replay band);
+- the challenge file in full and the solution file in full, highlighted as the
+  side-by-side Lean column is, with hovers: on a Blueprint site from the
+  modules' highlighted build (Lake's `highlighted` facet), on a site generated
+  from compiled-code data from the data's constants. When no highlighted build
+  matches the file, the file is shown with its syntax colours only, and a line
+  says so; the text shown is always the file's;
+- `comparator.json` in full;
+- links: each file's source in the project's repository at the commit the site
+  is built from (a GitHub checkout), the dependency graph's neighbourhood of the
+  node of each judged theorem, the Project Stats page, and the
+  continuous-integration run that built the site, when it was built in GitHub
+  Actions (`GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and `GITHUB_RUN_ID`, each
+  checked for its form; none outside it).
+
+Every verdict on these pages is drawn by the same code from the same statistics
+as the Project Stats page's headline: a page never computes a verdict of its
+own. With several challenges, the Project Stats page shows one headline band per
+challenge, each titled with its challenge's name, so each verdict stays exactly
+what its own comparison and the replay establish.
+
+#### What each verdict means
+
+| Verdict | Meaning |
+|---|---|
+| Lean statement proved | The solution declares the theorem with the same Lean statement as the challenge (and every declaration of the challenge its statement uses is the same), its proof uses no `sorry` and no axiom the verdict does not allow, and the kernel replay's two checkers each checked the theorem with every constant it depends on and accepted it. |
+| Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | The comparison's conditions hold as the compiled files report; no kernel replay stands behind it. |
+| … with no verdict of a kernel replay | The same; a replay was started and stopped without a verdict. |
+| Same Lean statement as the challenge; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (X) … | The conditions hold, but the proof rests on an axiom outside the standard three (even one the challenge permits): a replay checks only what rests on the standard three, so it is not shown as proved. |
+| Not accepted: a kernel checker rejected this build | A checker rejected the build; nothing on the site is called proved. |
+| Not accepted: the two kernel checkers disagree on this build | One checker accepted and the other rejected the build. |
+| Same Lean statement as the challenge; the proof uses sorry | The statement is the same; the proof is not complete. |
+| Same Lean statement as the challenge; the proof rests on … | The proof uses an axiom the verdict does not allow. |
+| Lean statement differs from the challenge: … | The solution's statement, or a declaration it uses, differs; the first difference is named. |
+| Not in the solution | The solution does not declare the theorem. |
+| Not a theorem in the challenge: … | A name of `theorem_names` that the challenge declares as something else; never judged as proved. |
+| Not compared: … | No comparison was made, with the reason: the challenge module not built, out of date or not known to come from its source; the solution's source not the one its compiled module came from; the solution not imported or not built; a module the challenge imports missing; the compiled modules not loaded for the replay. |
+
 ### Project Stats page
 
 Every site that `blueprintMain` or `blueprintMainWithPreviewData` generates has
@@ -2417,7 +2616,9 @@ graph. It shows the project statistics on one page, in this order:
    and the locked commit, the sentence that the page reports on this one build
    ("No other toolchain or revision was checked."), and the generator's sidebar
    links.
-2. **Headline result**: a card per theorem of the Comparator challenge: the
+2. **Headline result**: a band per Comparator challenge (titled with the
+   challenge's name when there are several), with a link to its page, and in it
+   a card per judged theorem: the
    verdict, worded about the Lean statement ("Lean statement proved", "Same
    Lean statement as the challenge; the proof uses sorry", "…; the proof rests
    on an axiom …", "Lean statement differs from the challenge", "Not in the
@@ -3101,9 +3302,10 @@ lake exe vbp build --serve
 ```
 
 It discovers the generator, then uses Lake to build its imports and execute it;
-VBP can optionally serve the result. When the project has a Comparator
-challenge (see "Project statistics"), VBP builds the challenge module first; a
-challenge that fails to build is reported and the site is still generated. When a maintainer harness or advanced CI
+VBP can optionally serve the result. When the project has Comparator
+challenges (see "Comparator challenges"), VBP checks their layout first and
+stops when it does not hold, then builds every challenge module; a challenge
+that fails to build is reported and the site is still generated. When a maintainer harness or advanced CI
 job cannot use `vbp`, the equivalent lower-level command is:
 
 ```bash
@@ -3355,16 +3557,18 @@ The site is an ordinary Blueprint site:
 - the dependency graph, with one group per module, drawn at build time; above
   300 declarations it opens on the group view
   (`GraphBlockData.initialView`);
-- the summary page and the Project Stats page (the files, identity and
-  Comparator challenge of `--root`). When the project has a challenge, its
-  solution module and the challenge's imports are imported from the project's
+- the summary page, the Project Stats page (the files, identity and
+  Comparator challenges of `--root`) and the Comparator pages. When the project
+  has challenges, their solution modules and the challenges' imports are
+  imported from the project's
   build (`--root`'s `.lake` directories, with the Lean installation that
   `LEAN_SYSROOT` names or `lean` on the `PATH` finds) and the headline is
   compared as on a Blueprint site; when that is not possible the card says why.
   `--no-comparator` leaves the comparison out; `--challenge-not-built <reason>`
-  is for a caller that tried to build the challenge first and could not:
-  nothing is compared and the card says the challenge module was not built,
-  with the reason. Without a challenge there is no card;
+  is for a caller that tried to build the challenges first and could not:
+  nothing is compared and every card says its challenge module was not built,
+  with the reason. Without a challenge there is no card. A project whose
+  Comparator files do not follow the layout is not generated;
 - the left navigation bar and the side-by-side card style.
 
 What highlighting from data cannot give, compared with a Blueprint's

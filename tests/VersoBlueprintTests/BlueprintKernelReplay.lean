@@ -447,7 +447,7 @@ info: ("problem",
 
 private def stats (replay? : Option Replay.Result) : ProjectStats := {
   identity := { name := some "demo", toolchain := some "leanprover/lean4:v4.35.0" }
-  headline := some { headline with theorems := #[{ met with statement := "theorem main : True" }] }
+  challenges := #[{ headline with theorems := #[{ met with statement := "theorem main : True" }] }]
   hasComparatorChallenge := true
   replay := replay? }
 
@@ -1430,17 +1430,19 @@ info: ("Informal.Replay.Outcome.overMemory", true, true)
 
 /-! ## The headline, compared where the replay exports -/
 
-/-- A project root with a `comparator.json` for the Comparator fixture `scenario`. -/
+/-- A project root for the Comparator fixture `scenario`, with the challenge's configuration: the
+fixtures' modules are not named as a project's challenges are (`Comparator.<Name>.Challenge`), so
+the configuration is given to the replay rather than found under the root. -/
 private def challengeRoot (dir : System.FilePath) (scenario : String) (theorems : Array Name) :
-    IO System.FilePath := do
+    IO (System.FilePath × ChallengeConfig) := do
   let root := dir / scenario
   IO.FS.createDirAll root
-  IO.FS.writeFile (root / "comparator.json") (Json.mkObj [
-    ("challenge_module", toJson (comparatorFixture scenario "Challenge")),
-    ("solution_module", toJson (comparatorFixture scenario "Solution")),
-    ("theorem_names", toJson theorems),
-    ("permitted_axioms", toJson #[``propext, ``Quot.sound, ``Classical.choice])]).compress
-  return root
+  return (root, {
+    name := scenario
+    challengeModule := comparatorFixture scenario "Challenge"
+    solutionModule := comparatorFixture scenario "Solution"
+    theoremNames := some theorems
+    permittedAxioms := some #[``propext, ``Quot.sound, ``Classical.choice] })
 
 -- A site's generator with a Comparator challenge: the solution is loaded once, the headline is
 -- computed in that environment with the axioms walked from its terms, and the judged theorems
@@ -1456,9 +1458,10 @@ info: [("CmpMatch.double_eq", true, [], "proved"),
   let dir ← IO.FS.createTempDir
   let base ← config (dir / "record.json")
   let judge (scenario : String) (theorems : Array Name) : CoreM _ := do
-    let root ← challengeRoot dir scenario theorems
+    let (root, challenge) ← challengeRoot dir scenario theorems
     let stats ← ({} : ProjectStats).withKernelReplayAt root #[] (config? := some base)
-    let some h := stats.headline | throwError "no headline"
+      (challenges? := some #[challenge])
+    let some h := stats.challenges[0]? | throwError "no headline"
     return h.theorems.toList.map fun t =>
       (t.name.toString, t.conditionsMet, t.axioms.toList.map (·.toString),
         (headlineVerdict t (headlineStanding stats.replay h t)).1)

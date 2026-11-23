@@ -368,21 +368,55 @@ partial def pagesUnder (dir : System.FilePath) : IO (Array String) := do
     countSubstr chapter "<code class=\"bp_math inline\"" == 1 &&
     hasSubstr graph "katex/katex.js" && hasSubstr chapter "katex/katex.js"
 
+/-- The files of a challenge `Demo` that follows the layout (`Informal.Stats.ComparatorLayout`). -/
+private def writeDemoChallenge (root : System.FilePath) : IO Unit := do
+  IO.FS.createDirAll (root / "Comparator" / "Demo")
+  IO.FS.writeFile (root / "Comparator" / "Demo" / "Challenge.lean")
+    "namespace Demo\n\n/-- Doubling. -/\ntheorem double_eq : 2 * 3 = 3 + 3 := by\n  sorry\n\nend Demo\n"
+  IO.FS.writeFile (root / "Comparator" / "Demo" / "Solution.lean")
+    "namespace Demo\n\n/-- Doubling <b>here</b>. -/\ntheorem double_eq : 2 * 3 = 3 + 3 := rfl\n\nend Demo\n"
+  IO.FS.writeFile (root / "Comparator" / "Demo" / "comparator.json")
+    ("{\"challenge_module\": \"Comparator.Demo.Challenge\", " ++
+      "\"solution_module\": \"Comparator.Demo.Solution\", " ++
+      "\"theorem_names\": [\"Demo.double_eq\"], \"permitted_axioms\": [\"propext\"]}")
+
 -- `--challenge-not-built <reason>`: nothing is compared, and the headline says the challenge
--- module was not built, with the reason.
+-- module was not built, with the reason. The Comparator pages list the challenge with the same
+-- words, and its page shows its three files in full, escaped.
 /-- info: true -/
 #guard_msgs in
 #eval withProject fun root => do
-  IO.FS.writeFile (root / "comparator.json")
-    ("{\"challenge_module\": \"Demo.Challenge\", \"solution_module\": \"Demo.Basic\", " ++
-      "\"theorem_names\": [\"Demo.double_eq\"], \"permitted_axioms\": [\"propext\"]}")
+  writeDemoChallenge root
   let code ← generate (root / "code.json") root none
     ["--output", (root / "_out").toString, "--reproducible"]
-    (challengeNotBuilt? := some "Demo.Challenge: lake build failed: exit 1")
-  let stats ← IO.FS.readFile (root / "_out" / "html-multi" / "Project-Stats" / "index.html")
-  return code == 0 && hasSubstr stats "bp_stats_headline_unavailable" &&
-    hasSubstr stats "Not compared: The challenge module has not been built. \
-      (Demo.Challenge: lake build failed: exit 1)"
+    (challengeNotBuilt? := some "Comparator.Demo.Challenge: lake build failed: exit 1")
+  let site := root / "_out" / "html-multi"
+  let stats ← IO.FS.readFile (site / "Project-Stats" / "index.html")
+  let index ← IO.FS.readFile (site / "Comparator" / "index.html")
+  let page ← IO.FS.readFile (site / "Comparator" / "Demo" / "index.html")
+  let notBuilt := "Not compared: The challenge module has not been built. \
+      (Comparator.Demo.Challenge: lake build failed: exit 1)"
+  return code == 0 && hasSubstr stats "bp_stats_headline_unavailable" && hasSubstr stats notBuilt &&
+    hasSubstr stats "class=\"bp_stats_challenge_link\"" &&
+    hasSubstr index notBuilt && hasSubstr index "Comparator.Demo.Solution" &&
+    hasSubstr page notBuilt && hasSubstr page "Comparator/Demo/comparator.json" &&
+    hasSubstr page "Doubling &lt;b&gt;here&lt;/b&gt;." && !hasSubstr page "<b>here</b>" &&
+    hasSubstr page "\"theorem_names\": [\"Demo.double_eq\"]" &&
+    hasSubstr page (Informal.Commands.challengePageIntroText "Demo")
+
+-- A project whose Comparator files do not follow the layout is not generated: the generator
+-- fails and names the file, the rule and the change.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  writeDemoChallenge root
+  IO.FS.writeFile (root / "Comparator" / "Demo" / "notes.md") "x"
+  let failed ← try
+      let code ← generate (root / "code.json") root none
+        ["--output", (root / "_out").toString, "--reproducible", "--no-kernel-replay"]
+      pure (code != 0)
+    catch e => pure ((toString e).contains "Comparator/Demo/notes.md: rule F1")
+  return failed && !(← (root / "_out" / "html-multi" / "Comparator").pathExists)
 
 -- Module docstrings on a chapter page: raw HTML as text, Verso's display math as a formula.
 /-- info: true -/

@@ -193,7 +193,7 @@ private def proved : HeadlineTheorem :=
 private def stats (headline : Option Headline) (leanProgress : LeanProgress := {}) : ProjectStats :=
   { identity := { name := some "demo", toolchain := some "leanprover/lean4:v4.35.0"
                   packages := #[{ name := "mathlib", source := "git", rev := some "56a00585aa" }] }
-    headline, hasComparatorChallenge := headline.isSome, leanProgress
+    challenges := headline.toArray, hasComparatorChallenge := headline.isSome, leanProgress
     replay := some accepted
     progress := { formalizedWithAncestors := leanProgress.total } }
 

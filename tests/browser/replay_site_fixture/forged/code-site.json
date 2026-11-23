@@ -251,8 +251,8 @@
      ]
     }
    ],
-   "module": "Comparator.Solution",
-   "source": "Comparator/Solution.lean"
+   "module": "Comparator.Double.Solution",
+   "source": "Comparator/Double/Solution.lean"
   },
   {
    "declarations": [],
@@ -735,7 +735,7 @@
  ],
  "skipped": [
   {
-   "module": "Comparator.Challenge",
+   "module": "Comparator.Double.Challenge",
    "reason": "the Comparator challenge, sorry by design: declares Cmp.double as Comparator.Solution does"
   }
  ],

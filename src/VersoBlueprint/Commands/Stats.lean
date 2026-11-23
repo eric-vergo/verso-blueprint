@@ -120,6 +120,8 @@ structure StatsPageView where
   /-- The nodes whose Lean code an accepted replay covers, under which it found an axiom outside
   Lean's standard three, sorted (`ReplayView.Index.resting`). -/
   resting : Array Name := #[]
+  /-- The address of each challenge's page, by the challenge's name. -/
+  challengeHrefs : Array (String × String) := #[]
 deriving Inhabited
 
 /-- The title of the page `{blueprint_summary}` adds. -/
@@ -381,6 +383,11 @@ def unavailableText : Unavailable → String
   | .solutionNotImported => "The Blueprint does not import the solution module."
   | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
   | .modulesNotLoaded => "The compiled modules were not loaded for the comparison."
+  | .solutionOutOfDate =>
+    "The solution's source differs from the one its compiled module was compiled from: build it \
+      again after an edit."
+  | .solutionProvenanceUnknown =>
+    "It is not known that the compiled solution module was compiled from its source as shown."
 
 private def axiomChip (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
@@ -514,10 +521,11 @@ def headlineMethodText : String :=
     rebuild in a sandbox as lake comparator does. The comparison runs no kernel: a verdict says \
     \"proved\" only when a kernel replay accepted the theorem with everything it depends on."
 
-private def headlineHtml (view : StatsPageView) : Output.Html :=
-  match view.stats.headline with
-  | Option.none => el "p" "bp_stats_headline_hint" (txt headlineHintText)
-  | some h =>
+/-- The band of one challenge's headline: its verdicts, what was not judged, its definitions, its
+files, and a link to its page (`Informal.Commands.Comparator`). With several challenges the band
+names its challenge. -/
+def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
+    (pageLink : Bool := true) : Output.Html :=
     let source : Output.Html :=
       let challenge := code (h.challengeFile.getD h.challengeModule.toString)
       let solution := code (h.solutionFile.getD h.solutionModule.toString)
@@ -527,6 +535,11 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
         else .seq #[txt s!". {headlineMethodText}", meaningLink view]
       el "p" "bp_stats_headline_source" (.seq #[txt "Comparator challenge ", challenge,
         txt ", solution ", solution, method])
+    let page : Output.Html := match view.challengeHrefs.find? (·.1 == h.name) with
+      | some (_, href) => if !pageLink then .empty else el "p" "bp_stats_challenge_page" (.seq #[
+          .element "a" #[("href", href), ("class", "bp_stats_challenge_link")]
+            (txt s!"The challenge {h.name}: its files in full, its configuration and its verdict")])
+      | Option.none => .empty
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
         let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
@@ -550,8 +563,20 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
           ({formatCount h.unjudged.size})"),
         el "ul" "bp_stats_files" (.seq (h.unjudged.map fun (n, why) =>
           .element "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
-    band "bp_stats_headline" "Headline result"
-      #[unavailable, theorems, unjudged, definitions, source]
+    let title := if several then s!"Headline result: {h.name}" else "Headline result"
+    el "section" "bp_stats_band bp_stats_headline" (.seq #[
+      el "h2" "bp_stats_band_title" (txt title),
+      unavailable, theorems, unjudged, definitions, source, page])
+      #[("data-bp-challenge", h.name)]
+
+/-- The headline results: a band for each Comparator challenge, or the hint that a challenge would
+add one. Every band is drawn from that challenge's own headline, so with several challenges each
+verdict stays exactly what its own comparison and the replay establish. -/
+private def headlineHtml (view : StatsPageView) : Output.Html :=
+  if view.stats.challenges.isEmpty then el "p" "bp_stats_headline_hint" (txt headlineHintText)
+  else
+    let several := view.stats.challenges.size > 1
+    .seq (view.stats.challenges.map (challengeBandHtml view · several))
 
 /-! ## Kernel replay -/
 
@@ -663,7 +688,7 @@ private def claimsHtml (view : StatsPageView) : Output.Html :=
   match view.stats.claims with
   | Option.none => .empty
   | some claims =>
-    let judged : Array Name := (view.stats.headline.map (·.theorems.map (·.name))).getD #[]
+    let judged : Array Name := view.stats.challenges.flatMap (·.theorems.map (·.name))
     let rest := claims.claims.filter fun c => !judged.contains c.declaration
     let error : Output.Html := match claims.error with
       | some e => el "p" "bp_stats_claims_error" (txt s!"{claimsFile} could not be read: {e}")
@@ -1024,6 +1049,8 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
     workQueueSize := (workQueue graph).size
     summaryHref := (pageSection? sections summaryPageTitle).map (·.link.relativeLink)
     workQueueHref := (pageSection? sections workQueuePageTitle).map (·.link.relativeLink)
+    challengeHrefs := stats.challenges.filterMap fun h =>
+      (challengePageSection? sections h.name).map fun s => (h.name, s.link.relativeLink)
   }
 
 /-! ## The block and the page -/

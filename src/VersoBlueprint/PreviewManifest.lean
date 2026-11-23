@@ -36,6 +36,7 @@ import VersoBlueprint.RenderingResolution
 import VersoBlueprint.GraphApi
 import VersoBlueprint.Commands.Graph
 import VersoBlueprint.Commands.Stats
+import VersoBlueprint.Commands.Comparator
 import VersoBlueprint.Git
 import VersoBlueprint.Html
 import VersoBlueprint.HtmlDocument
@@ -2946,7 +2947,8 @@ private def blueprintMainCore (text : Part Manual)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config := none)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
-    (statsPage? : Option Informal.Commands.StatsPageData := some {}) : IO UInt32 :=
+    (statsPage? : Option Informal.Commands.StatsPageData := some {})
+    (comparatorPages : Array Informal.Commands.ChallengePageData := #[]) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
@@ -2959,6 +2961,8 @@ where
     let htmlText := match statsPage? with
       | some data => Informal.Commands.withStatsPage text data
       | none => text
+    -- the Comparator pages, when the project has challenges: also pages of the HTML site only
+    let htmlText := Informal.Commands.withComparatorPages htmlText comparatorPages
     let (sideBySideFlag, options) := parseSideBySideFlag options
     let sideBySide := sideBySide || sideBySideFlag
     let config := if sideBySide then withSideBySideDefaultStyle config else config
@@ -3018,6 +3022,26 @@ def withReproducibleReplay (reproducibility : ReproducibilityOptions) (options :
         replay := model.stats.replay.map (·.forReproducible) } }
   else model
 
+/-- The Comparator pages of a model's project (`Informal.Commands.challengePages`), after the
+project's Comparator files were checked against the layout (`Informal.Stats.ComparatorLayout`):
+an error naming every violation when they do not follow it. With `highlight`, the challenge and
+solution modules' highlighted sources are prepared for the pages (Lake's `highlighted` facet, in
+the working directory's workspace). The project is at `root?`, else where the statistics say. -/
+def comparatorPagesOf (model : RenderModel) (highlight : Bool := true)
+    (codeOf : Name → String → Option SubVerso.Highlighting.Highlighted := fun _ _ => none)
+    (root? : Option System.FilePath := none) :
+    IO (Array Informal.Commands.ChallengePageData) := do
+  let root ← match root? with
+    | some root => pure root
+    | none => Informal.Stats.projectRoot model.stats.layout.projectRoot
+  let _ ← Informal.Stats.ComparatorLayout.challengesAt root
+  if model.stats.challenges.isEmpty then return #[]
+  if highlight then
+    let modules := model.stats.challenges.flatMap fun h => #[h.challengeModule, h.solutionModule]
+    Informal.DeclarationSource.prepare (← IO.currentDir) modules
+      (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
+  Informal.Commands.challengePages model.stats root codeOf
+
 /-- Generate a document using semantic data captured after all generator imports.
 
 The HTML site gets a Project Stats page at the end of its table of contents
@@ -3048,13 +3072,15 @@ def blueprintMain (text : Part Manual)
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  let comparatorPages ← try comparatorPagesOf model
+    catch e => IO.eprintln s!"error: {e}"; return 1
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
   let config := match sidebar? with
     | some sidebar => Informal.Sidebar.withSidebar sidebar config
     | none => config
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
     (reproducibility := reproducibility) (sideBySide := sideBySide)
-    (statsPage? := statsPageData? statsPage sidebar?)
+    (statsPage? := statsPageData? statsPage sidebar?) (comparatorPages := comparatorPages)
 
 /-- `blueprintMain` with preview data files and the generator's command-line flags; it adds the
 Project Stats page the same way. -/
@@ -3069,7 +3095,10 @@ def blueprintMainWithPreviewData
     (sideBySide : Bool := false)
     (sidebar? : Option Informal.Sidebar.Config := none)
     (statsPage : Bool := true)
-    (kernelReplay : Bool := false) : IO UInt32 := do
+    (kernelReplay : Bool := false)
+    (comparatorCode? : Option (Name → String → Option SubVerso.Highlighting.Highlighted) := none)
+    (projectRoot? : Option System.FilePath := none) :
+    IO UInt32 := do
   if let flag :: rest := options then
     if flag == Informal.Stats.replayWorkerFlag then return ← Informal.Stats.replayWorkerMain rest
   let options ← takeReplayWorker options
@@ -3077,6 +3106,11 @@ def blueprintMainWithPreviewData
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  -- a generator that highlights the code itself gives `comparatorCode?`; others take Lake's
+  let comparatorPages ← try
+      comparatorPagesOf model (highlight := comparatorCode?.isNone)
+        (codeOf := comparatorCode?.getD fun _ _ => none) (root? := projectRoot?)
+    catch e => IO.eprintln s!"error: {e}"; return 1
   let extensionImpls := model.withExtensions extensionImpls
   let config := withBlueprintAssets config
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
@@ -3096,5 +3130,6 @@ def blueprintMainWithPreviewData
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
     (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
     (sideBySide := sideBySide) (statsPage? := statsPageData? statsPage sidebar?)
+    (comparatorPages := comparatorPages)
 
 end Informal.PreviewManifest

@@ -278,33 +278,34 @@ info: ["_hidden", "shown"]
     IO.println (repr (h.theorems.toList.map (short ·.name)))
     IO.println (repr (h.unjudged.toList.map fun (n, why) => (n.toString, why)))
 
--- Where the challenge comes from: `comparator.json`, else `Comparator/Challenge.lean` in a
--- source directory, else there is none.
+-- The challenges come from the project's layout (`ComparatorLayout`): one folder per challenge,
+-- in the order of their names; a project that does not follow it is an error naming the rule.
 /--
-info: [none,
- some (Except.ok (`Comparator.Challenge, `Comparator.Solution, none, none, none)),
- some (Except.ok (`Puzzle.Statement, `Puzzle.Answer, some #[`main], some #[`propext], some "comparator.json")),
- some (Except.error "`permitted_axioms` is missing")]
+info: [("Alpha", `Comparator.Alpha.Challenge, `Comparator.Alpha.Solution, some #[`A.t], some #[`propext],
+   some "Comparator/Alpha/comparator.json"),
+  ("Beta", `Comparator.Beta.Challenge, `Comparator.Beta.Solution, some #[`B.t], some #[`propext],
+   some "Comparator/Beta/comparator.json")]
+true
 -/
-#guard_msgs in
-#eval withScratch fun root => do
-  let summary (found : Option (Except String ChallengeConfig)) :=
-    found.map fun (r : Except String ChallengeConfig) => r.map fun (c : ChallengeConfig) =>
-      (c.challengeModule, c.solutionModule, c.theoremNames, c.permittedAxioms, c.configFile)
-  let none₁ ← ChallengeConfig.find? root #["."]
-  write (root / "src/Comparator/Challenge.lean") "theorem t : True := sorry\n"
-  let byDefault ← ChallengeConfig.find? root #[".", "src"]
-  write (root / "comparator.json") <| "{\"challenge_module\": \"Puzzle.Statement\", " ++
-    "\"solution_module\": \"Puzzle.Answer\", \"theorem_names\": [\"main\"], " ++
-    "\"permitted_axioms\": [\"propext\"]}"
-  let configured ← ChallengeConfig.find? root #["."]
-  write (root / "comparator.json") <| "{\"challenge_module\": \"Puzzle.Statement\", " ++
-    "\"solution_module\": \"Puzzle.Answer\", \"theorem_names\": []}"
-  let broken ← ChallengeConfig.find? root #["."]
-  return [summary none₁, summary byDefault, summary configured, summary broken]
+#guard_msgs (whitespace := lax) in
+#eval show IO Unit from withScratch fun root => do
+  for (name, ns) in [("Beta", "B"), ("Alpha", "A")] do
+    write (root / s!"Comparator/{name}/Challenge.lean") s!"theorem {ns}.t : True := sorry\n"
+    write (root / s!"Comparator/{name}/Solution.lean") s!"theorem {ns}.t : True := trivial\n"
+    write (root / s!"Comparator/{name}/comparator.json") <|
+      s!"\{\"challenge_module\": \"Comparator.{name}.Challenge\", " ++
+      s!"\"solution_module\": \"Comparator.{name}.Solution\", \"theorem_names\": [\"{ns}.t\"], " ++
+      "\"permitted_axioms\": [\"propext\"]}"
+  let found ← ComparatorLayout.challengesAt root
+  IO.println (repr (found.toList.map fun c =>
+    (c.name, c.challengeModule, c.solutionModule, c.theoremNames, c.permittedAxioms, c.configFile)))
+  write (root / "comparator.json") "{}"
+  let refused ← try discard <| ComparatorLayout.challengesAt root; pure false
+    catch e => pure ((toString e).contains "rule L1")
+  IO.println refused
 
 -- A project without a challenge has no headline, and says so.
-/-- info: (none, false) -/
+/-- info: (#[], false) -/
 #guard_msgs in
 #eval show CoreM _ from do
   let cwd ← IO.currentDir
@@ -312,7 +313,7 @@ info: [none,
     IO.Process.setCurrentDir root
     try
       let stats ← ({} : ProjectStats).withHeadline
-      return (stats.headline.map (·.challengeModule), stats.hasComparatorChallenge)
+      return (stats.challenges.map (·.challengeModule), stats.hasComparatorChallenge)
     finally
       IO.Process.setCurrentDir cwd
 

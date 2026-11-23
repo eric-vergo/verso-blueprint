@@ -1,0 +1,6 @@
+{
+  "challenge_module": "Comparator.Pending.Challenge",
+  "solution_module": "Comparator.Pending.Solution",
+  "theorem_names": ["Pend.true_holds"],
+  "permitted_axioms": []
+}

@@ -60,6 +60,21 @@ def pageSection? (sections : Array SiteSection) (title : String) : Option SiteSe
       | some b => if s.depth < b.depth then some s else some b
       | Option.none => some s
 
+/-- The title of the page that lists the project's Comparator challenges; each challenge's page
+is a page below it, titled with the challenge's name. -/
+def comparatorPageTitle : String := "Comparator"
+
+/-- The folder of the Comparator pages in a multi-page site. -/
+def comparatorPageFolder : String := (Verso.Multi.Slug.ofString comparatorPageTitle).toString
+
+/-- The page of the challenge `name`: the section titled `name` in the Comparator pages' folder. -/
+def challengePageSection? (sections : Array SiteSection) (name : String) : Option SiteSection :=
+  sections.foldl (init := none) fun best s =>
+    if s.title != name || s.link.path[0]? != some comparatorPageFolder then best
+    else match best with
+      | some b => if s.depth < b.depth then some s else some b
+      | Option.none => some s
+
 /-- The address of the explanation of the marks, the Project Stats page's anchor, when the site
 has the page. Pages resolve it against their `<base href>`, the site's root, so it serves every
 page, the Project Stats page included. -/

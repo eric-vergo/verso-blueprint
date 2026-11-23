@@ -363,10 +363,12 @@ def scan (ws : Lake.Workspace) (generatorFile : FilePath) (imports : Array Name)
   let config ← (configFiles ws).mapM fun file => return (file, ← fileHash? file)
   return { generatorHash, modules, config }
 
-/-- Lake builds the generator's imports and the Comparator challenge; load the imports and the
-generator. -/
+/-- Lake builds the generator's imports and the Comparator challenges (after their layout was
+checked, `VersoBlueprint.Vbp.checkLayout`); load the imports and the generator. -/
 def load (s : Session) : IO Session := do
-  VersoBlueprint.Vbp.buildComparatorChallenge s.ws
+  let report ← VersoBlueprint.Vbp.checkLayout (← IO.currentDir) (some s.ws)
+  unless report.violations.isEmpty do throw (IO.userError report.errorText)
+  VersoBlueprint.Vbp.buildComparatorChallenges s.ws report.challenges
   let setup ← generatorSetup s.ws s.generatorFile
   loadForeignNative s.ws setup
   let generator ← elaborateFile s.generatorFile setup

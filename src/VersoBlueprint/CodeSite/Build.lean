@@ -384,10 +384,11 @@ def countKey : String → String
   | _ => "definitions"
 
 /-- The project statistics of the data: the files under `root`, the project's identity, and the
-graph's progress, size and trust ledger. The headline is `headline?` when the caller compared the
-project's Comparator challenge; a challenge without it is reported as not compared. -/
+graph's progress, size and trust ledger. The headlines are `headlines` for the challenges the
+caller compared; a challenge of the project without one is reported as not compared. A project
+whose Comparator files do not follow the layout is an error (`ComparatorLayout.challengesAt`). -/
 def statsOf (root : System.FilePath) (project : Project) (state : Environment.State)
-    (graph : Graph.GraphModel) (headline? : Option Stats.Headline := none) :
+    (graph : Graph.GraphModel) (headlines : Array Stats.Headline := #[]) :
     IO Stats.ProjectStats := do
   let layout ← layoutOf root project
   let modules := project.modules.map fun m =>
@@ -396,17 +397,12 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     m.declarations.foldl (fun acc d => acc.add (countKey d.kind)) acc
   let sources ← Stats.SourceStats.read root layout modules
   let identity ← Stats.ProjectIdentity.read root
-  let challenge ← Stats.ChallengeConfig.find? root layout.sourceDirs
-  let headline := headline? <|> challenge.map fun
-    | .ok config => {
-        challengeModule := config.challengeModule, solutionModule := config.solutionModule
-        config := config.configFile, permittedAxioms := config.permittedAxioms
-        unavailable := some .solutionNotImported
-        unavailableDetail := some config.solutionModule.toString }
-    | .error msg => {
-        challengeModule := .anonymous, solutionModule := .anonymous
-        config := some Stats.comparatorConfigFile, unavailable := some .configInvalid
-        unavailableDetail := some msg }
+  let configs ← Stats.ComparatorLayout.challengesAt root
+  let challenges ← configs.mapM fun config =>
+    match headlines.find? (·.name == config.name) with
+    | some headline => (pure headline : IO Stats.Headline)
+    | none => Stats.Headline.uncompared config root layout .solutionNotImported
+        (some config.solutionModule.toString)
   return {
     identity, layout, modules := modules.qsort (·.name.toString < ·.name.toString)
     declarations, sources
@@ -414,8 +410,8 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     leanProgress := Stats.leanProgressOf state graph
     graph := Stats.graphSizeOf graph
     trust := Stats.trustLedgerOf state graph
-    headline
-    hasComparatorChallenge := challenge.isSome
+    challenges
+    hasComparatorChallenge := !configs.isEmpty
     claims := ← Stats.Claims.atRoot? root
   }
 
@@ -442,54 +438,66 @@ def replayConfigOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
   let searchPath ← Stats.dedupDirs (← libraryPathOf root layout).toArray
   return { config with searchPath }
 
-/-- The headline of the project's Comparator challenge, compared as a Blueprint site compares it
-(`Stats.Headline.compute`): the solution module and the challenge's imports are imported from the
+/-- The headlines of the project's Comparator challenges, compared as a Blueprint site compares them
+(`Stats.Headline.compute`): the solution modules and the challenges' imports are imported from the
 project's build for the comparison alone (only when the project has a challenge), and each judged
-theorem's node is its declaration's. `none` without a challenge; a headline saying why when the
+theorem's node is its declaration's. Empty without a challenge; a headline saying why when a
 comparison cannot be made (the challenge not built, the solution's environment not loadable, …).
-With `notBuilt?` the caller could not build the challenge (the reason): nothing is imported, and the
-headline says the challenge was not built, with that reason.
+With `notBuilt?` the caller could not build the challenges (the reason): nothing is imported, and
+every headline says its challenge was not built, with that reason. `configs?` replaces the
+challenges found under `root` (`ComparatorLayout.challengesAt`).
 -/
-def headlineOf? (root : System.FilePath) (project : Project) (known : NameSet)
-    (notBuilt? : Option String := none) : IO (Option Stats.Headline) := do
+def headlinesOf (root : System.FilePath) (project : Project) (known : NameSet)
+    (notBuilt? : Option String := none)
+    (configs? : Option (Array Stats.ChallengeConfig) := none) : IO (Array Stats.Headline) := do
   let layout ← layoutOf root project
-  let some found ← Stats.ChallengeConfig.find? root layout.sourceDirs | return none
-  let .ok config := found | return none  -- `statsOf` reports an invalid configuration
-  let base : Stats.Headline := {
-    challengeModule := config.challengeModule, solutionModule := config.solutionModule
-    config := config.configFile, permittedAxioms := config.permittedAxioms }
-  let unavailable (why : Stats.Unavailable) (detail : String) : Stats.Headline :=
-    { base with unavailable := some why, unavailableDetail := some detail }
-  -- the caller could not build the challenge: nothing is compared, and the page says why
-  if let some why := notBuilt? then return some (unavailable .challengeNotBuilt why)
+  let configs ← match configs? with
+    | some configs => pure configs
+    | none => Stats.ComparatorLayout.challengesAt root
+  if configs.isEmpty then return #[]
+  let uncompared (config : Stats.ChallengeConfig) (why : Stats.Unavailable) (detail : String) :=
+    Stats.Headline.uncompared config root layout why (some detail)
+  -- the caller could not build the challenges: nothing is compared, and the page says why
+  if let some why := notBuilt? then
+    return ← configs.mapM (uncompared · .challengeNotBuilt why)
   let libraryPath ← libraryPathOf root layout
-  let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
-    | return some (unavailable .challengeNotBuilt config.challengeModule.toString)
-  let imports ← match ← (Stats.ChallengeModule.read olean).toBaseIO with
-    | .ok challenge => pure challenge.imports
-    | .error e => return some (unavailable .challengeUnreadable (toString e))
-  let env ← try
-      let sysroot ← match ← IO.getEnv "LEAN_SYSROOT" with
-        | some dir => pure (System.FilePath.mk dir)
-        | none => Lean.findSysroot
-      Lean.initSearchPath sysroot libraryPath
-      let wanted := (#[config.solutionModule] ++ imports).foldl (init := #[]) fun acc m =>
-        if acc.contains m then acc else acc.push m
-      importModules (wanted.map ({ module := · })) {} (loadExts := false)
-    catch e =>
-      return some (unavailable .importsNotAvailable s!"the solution could not be loaded: {e}")
-  let ctx : Core.Context := { fileName := "<code-site>", fileMap := default, maxHeartbeats := 0 }
-  let computed ← ((Stats.Headline.compute config root layout libraryPath).toIO ctx { env }).toBaseIO
-  match computed with
-  | .error e => return some (unavailable .importsNotAvailable (toString e))
-  | .ok (headline, _) =>
-    return some { headline with theorems := headline.theorems.map fun t =>
-      { t with node := t.node <|> if known.contains t.name then some t.name else none } }
+  let mut wanted : Array Name := #[]
+  let mut ready : Array Stats.ChallengeConfig := #[]
+  let mut early : Array Stats.Headline := #[]
+  for config in configs do
+    let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
+      | early := early.push (← uncompared config .challengeNotBuilt config.challengeModule.toString)
+    match ← (Stats.ChallengeModule.read olean).toBaseIO with
+    | .ok challenge =>
+      ready := ready.push config
+      for m in #[config.solutionModule] ++ challenge.imports do
+        unless wanted.contains m do wanted := wanted.push m
+    | .error e => early := early.push (← uncompared config .challengeUnreadable (toString e))
+  let mut computed := early
+  if !ready.isEmpty then
+    let env? : Except String Environment ← try
+        let sysroot ← match ← IO.getEnv "LEAN_SYSROOT" with
+          | some dir => pure (System.FilePath.mk dir)
+          | none => Lean.findSysroot
+        Lean.initSearchPath sysroot libraryPath
+        pure (.ok (← importModules (wanted.map ({ module := · })) {} (loadExts := false)))
+      catch e => pure (.error s!"the solutions could not be loaded: {e}")
+    for config in ready do
+      match env? with
+      | .error why => computed := computed.push (← uncompared config .importsNotAvailable why)
+      | .ok env =>
+        let ctx : Core.Context := { fileName := "<code-site>", fileMap := default, maxHeartbeats := 0 }
+        match ← ((Stats.Headline.compute config root layout libraryPath).toIO ctx { env }).toBaseIO with
+        | .error e => computed := computed.push (← uncompared config .importsNotAvailable (toString e))
+        | .ok (headline, _) =>
+          computed := computed.push { headline with theorems := headline.theorems.map fun t =>
+            { t with node := t.node <|> if known.contains t.name then some t.name else none } }
+  return configs.filterMap fun config => computed.find? (·.name == config.name)
 
 /-- The render model of the data's Blueprint state, as `RenderModel.captureJson` captures a
 written Blueprint's. -/
 def modelOf (root : System.FilePath) (project : Project) (state : Environment.State)
-    (headline? : Option Stats.Headline := none) : IO RenderModel := do
+    (headlines : Array Stats.Headline := #[]) : IO RenderModel := do
   let labels := state.data.toArray.map (·.1)
   let graph := Graph.buildModel state labels (groupTitles := state.groups.toArray)
   -- Graph nodes show the name as written (a private declaration without Lean's prefix).
@@ -501,7 +509,7 @@ def modelOf (root : System.FilePath) (project : Project) (state : Environment.St
     nodes := TraversalIndex.Nodes.capture state
     graph
     summary := Commands.summaryOfState state
-    stats := ← statsOf root project state graph headline?
+    stats := ← statsOf root project state graph headlines
   }
 
 /-! ## The document -/

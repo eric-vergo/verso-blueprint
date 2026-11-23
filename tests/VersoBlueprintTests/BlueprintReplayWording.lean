@@ -437,4 +437,57 @@ private def falseWords (replay? : Option Replay.Result) (covered : Bool) (text :
     let failed := checks.filter (!·.2) |>.map (·.1)
     if failed.isEmpty then none else some (name, failed)
 
+
+/-! ## The Comparator pages -/
+
+-- The Comparator index gives every theorem the verdict of the Project Stats page, from the same
+-- statistics, in every state: the same token and words, and the same scope of success colours.
+/-- info: [] -/
+#guard_msgs in
+#eval
+  replays.flatMap fun (state, replay?) => [`P.main, `P.assumed].filterMap fun name =>
+    let h := { headline with name := "P", theorems := #[met name] }
+    let stats : ProjectStats := { challenges := #[h], hasComparatorChallenge := true, replay := replay? }
+    let index := (comparatorIndexHtml { stats }).render
+    let band := (statsPageHtml { stats }).render
+    let standing := headlineStanding replay? h (met name)
+    let (token, verdict) := headlineVerdict (met name) standing replay?
+    let checks := [
+      ("index verdict", hasSubstr index s!"data-bp-verdict=\"{token}\"" && hasSubstr index verdict),
+      ("index scope", hasSubstr index s!"bp_comparator_verdict {standing.scopeClass}"),
+      ("band verdict", hasSubstr band verdict),
+      ("index words", (falseWords replay? true (verdict ++ " " ++ replayNoteText replay? standing)).isEmpty)]
+    let failed := checks.filter (!·.2) |>.map (·.1)
+    if failed.isEmpty then none else some (state, name, failed)
+
+-- The Comparator pages' own sentences, and why a challenge was not compared, for every reason.
+/--
+info: The Comparator challenge P: the challenge file states the theorems with sorry as their proofs, the solution file proves them, and comparator.json says which theorems are judged and which axioms a proof may use. The verdict is the one the Project Stats page shows for this challenge, from the same comparison and the same kernel replay.
+The project's Comparator challenges. Each states theorems in a challenge file and proves them in a solution file; lake comparator, run from the project root with --config Comparator/<Name>/comparator.json, judges a solution against its challenge. The verdicts below are the ones the Project Stats page shows, from the same comparison and the same kernel replay.
+What a verdict of the kernel replay leaves trusted
+Shown with syntax colours only: no highlighted build of this module matches the file.
+Not compared: the site's statistics hold no result for this challenge.
+The continuous-integration run that built this site
+source at the commit this site is built from
+configInvalid | comparator.json could not be read or lacks the fields lake comparator needs.
+challengeNotBuilt | The challenge module has not been built.
+challengeOutOfDate | The compiled challenge module does not match its source: build it again after an edit.
+challengeProvenanceUnknown | It is not known that the compiled challenge module was compiled from its source as shown.
+challengeUnreadable | The compiled challenge module could not be read.
+solutionNotImported | The Blueprint does not import the solution module.
+importsNotAvailable | The challenge imports a module the Blueprint does not import.
+modulesNotLoaded | The compiled modules were not loaded for the comparison.
+solutionOutOfDate | The solution's source differs from the one its compiled module was compiled from: build it again after an edit.
+solutionProvenanceUnknown | It is not known that the compiled solution module was compiled from its source as shown.
+-/
+#guard_msgs in
+#eval do
+  for line in [challengePageIntroText "P", comparatorIndexIntroText, challengeTrustedCaption,
+      plainHighlightText, challengeWithoutResultText, ciRunText, sourceLinkText] do
+    IO.println line
+  for u in [Unavailable.configInvalid, .challengeNotBuilt, .challengeOutOfDate,
+      .challengeProvenanceUnknown, .challengeUnreadable, .solutionNotImported,
+      .importsNotAvailable, .modulesNotLoaded, .solutionOutOfDate, .solutionProvenanceUnknown] do
+    IO.println (row [(toJson u).compress.replace "\"" "", unavailableText u])
+
 end Verso.VersoBlueprintTests.BlueprintReplayWording

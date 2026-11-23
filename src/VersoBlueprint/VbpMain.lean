@@ -23,6 +23,8 @@ private def mainCommandLines : List String := [
   buildUsageLine,
   "lake exe vbp query [--site <dir>] <selector>",
   "lake exe vbp check [--site <dir>]",
+  "lake exe vbp comparator-check",
+  "lake exe vbp comparator-migrate [--name <Name>] [--dry-run]",
   "lake exe " ++ Informal.CodeSite.usage
 ]
 
@@ -30,7 +32,9 @@ private def defaultHelpLines : List String := [
   "build writes _out/site",
   "--pdf builds _out/site/pdf/main.pdf from the generated TeX",
   "--verbose shows Blueprint generation phase progress during build",
-  "query and check read _out/site",
+  "query and check read _out/site; check also checks the layout of the Comparator challenges",
+  "comparator-check checks the layout of the Comparator challenges (exit code 1 when it does not hold)",
+  "comparator-migrate moves Comparator/Challenge.lean, Comparator/Solution.lean and comparator.json into Comparator/<Name>/",
   "--serve serves the generated html-multi directory after a successful build",
   "--serve --port <n> serves on a fixed port",
   "--resident keeps the generator loaded and rebuilds on each `build` line read from stdin",
@@ -427,7 +431,11 @@ private def generateSite (opts : BuildOptions) : IO UInt32 := do
         Resident.run context.workspace context.generatorFile
           (generatorMainArgs opts (some worker)).toList
       else
-        buildComparatorChallenge context.workspace
+        let report ← checkLayout (← IO.currentDir) (some context.workspace)
+        unless report.violations.isEmpty do
+          IO.eprintln s!"vbp build: {report.errorText}"
+          return 1
+        buildComparatorChallenges context.workspace report.challenges
         runGenerator context
           (#["--run", context.generatorFile.toString] ++ generatorMainArgs opts (some worker))
 
@@ -512,7 +520,10 @@ def check (args : List String) : IO UInt32 := do
   | .ok opts =>
       try
         let data ← VersoBlueprint.Vbp.readPersistedGeneratedData opts.site
-        let errors := VersoBlueprint.Vbp.checkGeneratedData data
+        -- the files only: loading the workspace could make Lake fetch missing packages
+        let layout ← checkLayout (← IO.currentDir) none
+        let errors := VersoBlueprint.Vbp.checkGeneratedData data ++
+          layout.violations.map (s!"Comparator layout: {·.render}")
         printJson (VersoBlueprint.Vbp.checkJsonFromErrors data errors)
         if errors.isEmpty then pure 0 else pure 1
       catch err =>
@@ -541,6 +552,15 @@ def main (args : List String) : IO UInt32 := do
   | "query" :: rest => query rest
   | "check" :: rest => check rest
   | "code-site" :: rest => Informal.CodeSite.main rest
+  | "comparator-check" :: rest =>
+      match rest with
+      | [] =>
+          -- the files only: loading the workspace could make Lake fetch missing packages
+          comparatorCheck (← IO.currentDir) none
+      | _ =>
+          IO.eprintln "comparator-check does not accept arguments"
+          pure 2
+  | "comparator-migrate" :: rest => migrate rest
   | cmd :: _ =>
       IO.eprintln s!"unknown command '{cmd}'"
       IO.eprintln helpText
