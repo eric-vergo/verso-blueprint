@@ -330,7 +330,7 @@ private def substringsInOrder (text : String) : List String → Bool
       hasSubstr html "First persisted Manual list item." &&
       hasSubstr html "Second persisted Manual list item." &&
       hasSubstr html "<strong>structurally emphasized Verso docstring body</strong>" &&
-      countSubstr html "<code>Nat.succ</code>" == 2 &&
+      countSubstr (outsideHovers html) "<code>Nat.succ</code>" == 2 &&
       hasSubstr html "First imported docstring list item." &&
       hasSubstr html "Second imported docstring list item." &&
       3 ≤ (html.splitOn "<ul>").length &&
@@ -362,7 +362,7 @@ private def substringsInOrder (text : String) : List String → Bool
       (({ label := "attr.hybrid.body" } :
         Informal.Graft.BlueprintNodeConfig).toNode)
     let rendered ← Informal.Graft.renderNodeFromManifestCache {} ctx node
-    let html := rendered.asString
+    let html := rendered.render
     pure <|
       hasSubstr html "Statement uses 1" &&
       hasSubstr html "attr.hybrid.verso_docstring" &&
@@ -383,15 +383,16 @@ private def substringsInOrder (text : String) : List String → Bool
       renderManualDocHtmlStringAndState manualImpls includedDefaultLabelModuleDoc
     let key := Informal.PreviewCache.statementKey label
     let renderedAsExpected (html : String) : Bool :=
-      countSubstr html "<strong>qualified default-label theorem</strong>" == 2 &&
-      countSubstr html "<code class=\"bp_math inline\">3 + 4 = 7</code>" == 2 &&
-      countSubstr html "<code class=\"bp_math display\">3 + 5 = 8</code>" == 2 &&
-      countSubstr html
+      let shown := outsideHovers html
+      countSubstr shown "<strong>qualified default-label theorem</strong>" == 2 &&
+      countSubstr shown "<code class=\"bp_math inline\">3 + 4 = 7</code>" == 2 &&
+      countSubstr shown "<code class=\"bp_math display\">3 + 5 = 8</code>" == 2 &&
+      countSubstr shown
           "href=\"https://example.com/qualified-docstring\"" == 2 &&
-      countSubstr html "<blockquote>" == 2 &&
-      2 ≤ countSubstr html "First qualified-label list item." &&
-      countSubstr html "<strong>Qualified structural subsection</strong>" == 2 &&
-      2 ≤ countSubstr html
+      countSubstr shown "<blockquote>" == 2 &&
+      2 ≤ countSubstr shown "First qualified-label list item." &&
+      countSubstr shown "<strong>Qualified structural subsection</strong>" == 2 &&
+      2 ≤ countSubstr shown
           "Subsection content remains part of the imported statement." &&
       hasSubstr html "class=\"bp_code_block bp_code_panel\"" &&
       hasSubstr html "qualifiedDefaultLabel" &&

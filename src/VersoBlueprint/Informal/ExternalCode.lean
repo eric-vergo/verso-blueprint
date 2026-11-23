@@ -181,7 +181,7 @@ private def externalDeclStatusView (item : LinkedExternalDecl) : ExternalDeclSta
 
 private def externalDeclNode (item : LinkedExternalDecl) : Output.Html :=
   open Verso.Output.Html in
-  let declTxt := {{<code>{{.text true s!"{item.decl.written}"}}</code>}}
+  let declTxt := {{<code>{{.text s!"{item.decl.written}"}}</code>}}
   if let some href := item.href then
     Informal.LeanCodeLink.renderResolved
       item.decl.canonical declTxt "" (some href)
@@ -208,7 +208,7 @@ private def externalDeclHead (item : LinkedExternalDecl) (status : ExternalDeclS
   {{
     <div class="bp_external_decl_head">
       {{externalDeclNode item}}
-      <span class={{status.className}}>{{.text true status.panelText}}</span>
+      <span class={{status.className}}>{{.text status.panelText}}</span>
     </div>
   }}
 
@@ -218,7 +218,7 @@ private def externalDeclRenderedMeta
   let metaText := status.panelText
   let statusBadge : Output.Html :=
     if !metaText.isEmpty then
-      {{<span class={{s!"bp_external_status_badge bp_external_decl_footer_status {status.className}"}}>{{.text true metaText}}</span>}}
+      {{<span class={{s!"bp_external_status_badge bp_external_decl_footer_status {status.className}"}}>{{.text metaText}}</span>}}
     else
       .empty
   let sourceRef? := externalDeclSourceRef? item
@@ -242,11 +242,11 @@ private def externalDeclRenderedWith [Monad m]
   match item.decl.render with
   | .ok renderedHtml =>
     let renderedHtml ← renderHtml renderedHtml
-    pure <| .tag "div" #[("class", "bp_external_decl_rendered")] (.text false renderedHtml)
+    pure <| .element "div" #[("class", "bp_external_decl_rendered")] (.raw renderedHtml)
   | .error err =>
-    pure <| .tag "pre"
+    pure <| .element "pre"
       #[("class", "bp_external_decl_stmt bp_external_decl_render_error")]
-      (.text true s!"Render failed: {err.message}")
+      (.text s!"Render failed: {err.message}")
 
 private def externalDeclRendered (item : LinkedExternalDecl) : Output.Html :=
   Id.run <| externalDeclRenderedWith (fun renderedHtml => pure renderedHtml.selfContained) item
@@ -255,7 +255,7 @@ private def registerPageHoverPayload [Monad m]
     (payload : ExternalDeclHoverPayload) :
     Verso.Doc.Html.HtmlT Verso.Genre.Manual m Nat :=
   modifyGet fun st =>
-    let (id, dedup) := st.dedup.insert (.text false payload.html)
+    let (id, dedup) := st.dedup.insert (.raw payload.html)
     (id, { st with dedup })
 
 private def renderedHtmlWithHoverTable [Monad m]
@@ -299,7 +299,7 @@ private def missingExternalDeclBody : Output.Html :=
   open Verso.Output.Html in
   {{
     <pre class="bp_external_decl_stmt bp_code_hover_none">
-      {{.text true s!"declaration not found ({Data.ExternalDeclLookupError.message .notPresentAtRegistration})"}}
+      {{.text s!"declaration not found ({Data.ExternalDeclLookupError.message .notPresentAtRegistration})"}}
     </pre>
   }}
 
@@ -368,7 +368,7 @@ private abbrev ExternalDeclCacheHoverRender :=
 private def registerCacheHoverPayload (payload : ExternalDeclHoverPayload) :
     ExternalDeclCacheHoverRender Nat :=
   modifyGet fun st =>
-    let (id, dedup) := st.dedup.insert (.text false payload.html)
+    let (id, dedup) := st.dedup.insert (.raw payload.html)
     (id, { st with dedup })
 
 private def renderedHtmlWithCacheHovers
@@ -430,7 +430,7 @@ def renderLeanJumpLinks (externalDecls : Array Data.ExternalRef) : Output.Html :
   let links := externalDecls.filter (·.present) |>.map fun decl =>
     let name := LeanSourceAnchor.declText decl.canonical
     {{<a class="bp_lean_jump" href={{LeanSourceAnchor.declHref decl.canonical}}
-        data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>{{.text true name}}</a>}}
+        data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>{{.text name}}</a>}}
   if links.isEmpty then .empty
   else {{<span class="bp_lean_jumps">{{links}}</span>}}
 
@@ -477,8 +477,8 @@ private def declarationSourceMeta (decl : Data.ExternalRef) : Output.Html :=
   let pathNode : Output.Html :=
     match pathText?, decl.sourceHref? with
     | some path, some href =>
-      {{<a class="bp_decl_source_path" href={{href}} title="View the source">{{.text true path}}</a>}}
-    | some path, none => {{<span class="bp_decl_source_path">{{.text true path}}</span>}}
+      {{<a class="bp_decl_source_path" href={{href}} title="View the source">{{.text path}}</a>}}
+    | some path, none => {{<span class="bp_decl_source_path">{{.text path}}</span>}}
     | none, _ => .empty
   let name := LeanSourceAnchor.declText decl.canonical
   {{
@@ -510,7 +510,7 @@ private def renderDeclarationSourceCardWith [Monad m]
       let indent := indents[i]?.getD 0
       let attrs := if indent == 0 then #[("class", "bp_code_line")]
         else #[("class", "bp_code_line"), ("style", s!"--bp-indent: {indent}")]
-      .tag "span" attrs (htmls[i]?.getD .empty)
+      .element "span" attrs (htmls[i]?.getD .empty)
     let code (start stop : Nat) : Output.Html :=
       {{<code class="hl lean block bp_decl_source_code">{{(List.range' start (stop - start)).toArray.map line}}</code>}}
     let proofHtml : Output.Html :=
@@ -521,8 +521,8 @@ private def renderDeclarationSourceCardWith [Monad m]
     .seq #[code 0 statementLines.size, proofHtml]
   let html ← renderHtml rendered
   let kindClass := if isTheoremLike item.decl then "bp_decl_source_theorem" else "bp_decl_source_definition"
-  pure <| .tag "div" (#[("class", s!"bp_decl_source {kindClass}")] ++ item.anchorAttrs)
-    (.seq #[declarationSourceMeta item.decl, .text false html])
+  pure <| .element "div" (#[("class", s!"bp_decl_source {kindClass}")] ++ item.anchorAttrs)
+    (.seq #[declarationSourceMeta item.decl, .raw html])
 
 /--
 Render the Lean column of a side-by-side node.
@@ -575,7 +575,7 @@ def renderDeclarationSourcePartsWithCacheHovers
   let register (payload : ExternalDeclHoverPayload) :
       StateT (Verso.Code.Hover.State Output.Html) IO Nat :=
     modifyGet fun st =>
-      let (id, dedup) := st.dedup.insert (.text false payload.html)
+      let (id, dedup) := st.dedup.insert (.raw payload.html)
       (id, { st with dedup })
   (renderDeclarationSourcePartsWith (renderedHtmlWithHoverTable register) externalDecls
     getDeclHref (fun _ => #[])).run hoverState

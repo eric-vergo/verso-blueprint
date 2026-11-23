@@ -102,7 +102,7 @@ private def renderLeanCodeBodies
     match ← renderLeanCodePreviewBody? goB state id resolved.preview.label key with
     | none => pure ()
     | some (body, codeData) =>
-        if body.asString.trimAscii.isEmpty then
+        if body.render.trimAscii.isEmpty then
           pure ()
         else
           bodies := bodies.push body

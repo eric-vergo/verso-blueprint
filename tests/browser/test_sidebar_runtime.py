@@ -1,4 +1,4 @@
-"""Browser checks for the Blueprint sidebar (`--sidebar`) and its theme switch."""
+"""Browser checks for the Blueprint sidebar (`--sidebar`) and the theme control in it."""
 
 import subprocess
 import sys
@@ -66,32 +66,38 @@ class TestSidebarRuntime:
         toc = page.locator("#toc")
         expect(toc.locator("tr.bp_sidebar_home a")).to_have_text("Blueprint Home")
         expect(toc.locator("tr.bp_sidebar_rule").first).to_be_attached()
-        expect(toc.locator(".bp_sidebar_foot .bp_theme_switch")).to_be_visible()
+        # Verso's own theme control is in the table of contents, so the sidebar adds no second one
+        expect(toc.locator("[data-verso-theme-toggle]")).to_be_visible()
+        expect(toc.locator(".bp_theme_switch")).to_have_count(0)
         assert_no_runtime_errors(errors)
 
-    def test_theme_switch_persists_across_reload(self, sidebar_server: str, page: Page):
+    def test_theme_choice_persists_across_reload(self, sidebar_server: str, page: Page):
         page.emulate_media(color_scheme="light")
         page.goto(sidebar_server + "/")
-        switch = page.locator(".bp_theme_switch")
-        expect(switch).to_have_attribute("aria-checked", "false")
-        switch.click()
+        dark = page.locator('[data-verso-theme-toggle] [data-theme-choice="dark"]')
+        light = page.locator('[data-verso-theme-toggle] [data-theme-choice="light"]')
+        expect(dark).to_have_attribute("aria-checked", "false")
+        dark.click()
         expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-        expect(switch).to_have_attribute("aria-checked", "true")
+        expect(dark).to_have_attribute("aria-checked", "true")
         assert page.evaluate("localStorage.getItem('verso-theme')") == "dark"
         page.reload()
-        # applied by the inline <head> script, before the sidebar script runs
+        # applied by the inline <head> script, before the page's other scripts run
         expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-        expect(page.locator(".bp_theme_switch")).to_have_attribute("aria-checked", "true")
-        page.locator(".bp_theme_switch").click()
+        expect(dark).to_have_attribute("aria-checked", "true")
+        light.click()
         expect(page.locator("html")).to_have_attribute("data-theme", "light")
         assert page.evaluate("localStorage.getItem('verso-theme')") == "light"
 
-    def test_switch_follows_os_preference_without_stored_choice(self, sidebar_server: str, page: Page):
+    def test_control_follows_os_preference_without_stored_choice(self, sidebar_server: str, page: Page):
         page.emulate_media(color_scheme="dark")
         page.goto(sidebar_server + "/")
         page.evaluate("localStorage.removeItem('verso-theme')")
         page.reload()
-        expect(page.locator(".bp_theme_switch")).to_have_attribute("aria-checked", "true")
+        auto = page.locator('[data-verso-theme-toggle] [data-theme-choice="auto"]')
+        expect(auto).to_have_attribute("aria-checked", "true")
+        assert page.evaluate("document.documentElement.getAttribute('data-theme')") is None
+        assert page.evaluate("matchMedia('(prefers-color-scheme: dark)').matches")
 
     def test_sections_nest_under_their_chapter(self, sidebar_server: str, page: Page):
         errors = record_runtime_errors(page)

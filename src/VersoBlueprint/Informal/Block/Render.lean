@@ -113,8 +113,8 @@ def renderBlockTitleRow (style : BlockKindRenderStyle)
   let labelClass := s!"bp_label bp_kind_{style.kindCss}_label {style.labelCss}"
   {{
     <div class={{titleRowClass}}>
-      <span class={{captionClass}} title={{labelText}}> {{.text true captionText}} </span>
-      {{ if style.showLabel then {{<span class={{labelClass}}> {{.text true numberText}} </span>}} else .empty }}
+      <span class={{captionClass}} title={{labelText}}> {{.text captionText}} </span>
+      {{ if style.showLabel then {{<span class={{labelClass}}> {{.text numberText}} </span>}} else .empty }}
       {{titleSuffix}}
     </div>
   }}
@@ -335,14 +335,14 @@ private def renderExternalMarkupBadge
   let cls := s!"bp_external_markup_badge bp_external_markup_badge_{language.key}"
   let slotAttr := String.intercalate "," slots.toList
   let prefixHtml :=
-    Verso.Output.Html.tag "span"
+    Lean.Html.element "span"
       #[("class", "bp_external_markup_badge_prefix")]
-      (.text true "markup")
+      (.text "markup")
   let languageText :=
-    Verso.Output.Html.tag "span"
+    Lean.Html.element "span"
       #[("class", "bp_external_markup_badge_language")]
-      (.text true (externalMarkupBadgeText language))
-  Verso.Output.Html.tag "span"
+      (.text (externalMarkupBadgeText language))
+  Lean.Html.element "span"
     #[("class", cls),
       ("title", title),
       ("aria-label", title),
@@ -357,7 +357,7 @@ def renderExternalMarkupBadges (markup : Array Data.ExternalMarkup) : Verso.Outp
   else
     let badges := languages.map fun language =>
       renderExternalMarkupBadge language (externalMarkupSlotsFor markup language)
-    Verso.Output.Html.tag "span"
+    Lean.Html.element "span"
       #[("class", "bp_external_markup_badges"),
         ("title", "External source markup attached")]
       (.seq badges)
@@ -379,16 +379,16 @@ private def renderMetadataItem (key : String) (value : Verso.Output.Html) (extra
       s!"bp_metadata_item {extraClass}"
   {{
     <span class={{itemClass}}>
-      <span class="bp_metadata_key">{{.text true key}}</span>
+      <span class="bp_metadata_key">{{.text key}}</span>
       {{value}}
     </span>
   }}
 
 private def renderMetadataTextValue (value : String) : Verso.Output.Html :=
-  {{<span class="bp_metadata_value">{{.text true value}}</span>}}
+  {{<span class="bp_metadata_value">{{.text value}}</span>}}
 
 private def renderMetadataLinkValue (href : String) (label : String) : Verso.Output.Html :=
-  {{<a class="bp_metadata_link bp_metadata_value" href={{href}}>{{.text true label}}</a>}}
+  {{<a class="bp_metadata_link bp_metadata_value" href={{href}}>{{.text label}}</a>}}
 
 private def renderMetadataCodeValue (value : Data.AuthorId) : Verso.Output.Html :=
   {{<span class="bp_metadata_value"><code>s!"{value}"</code></span>}}
@@ -501,7 +501,7 @@ private def renderSourceSpanPreview (span : Source.Span) : Verso.Output.Html :=
   let summary := sourceSpanPreviewText span
   {{
     <li class="bp_source_ref_panel_span">
-      <span class="bp_source_ref_panel_span_text">{{.text true summary}}</span>
+      <span class="bp_source_ref_panel_span_text">{{.text summary}}</span>
     </li>
   }}
 
@@ -524,9 +524,9 @@ private def renderSourceRefPreviewItem (sourceRef : Source.Ref) : Verso.Output.H
         data-bp-source-document={{sourceRef.document}}>
       <div class="bp_source_ref_panel_document">
         <span class="bp_source_ref_panel_key">"Document"</span>
-        <code>{{.text true sourceRef.document}}</code>
+        <code>{{.text sourceRef.document}}</code>
       </div>
-      <div class="bp_source_ref_panel_summary">{{.text true summary}}</div>
+      <div class="bp_source_ref_panel_summary">{{.text summary}}</div>
       <ul class="bp_source_ref_panel_spans">
         {{spanNodes}}
       </ul>
@@ -546,19 +546,19 @@ private def renderSourceRefPreview (sourceRefs : Array Source.Ref) : Verso.Outpu
           class="bp_relation_chip bp_source_ref_chip"
           title={{chipTitle}}
           aria-expanded="false">
-        {{.text true chipText}}
+        {{.text chipText}}
       </button>
       <div class="bp_relation_panel bp_source_ref_panel">
         <div class="bp_relation_panel_header">
-          <div class="bp_relation_panel_title">{{.text true panelTitle}}</div>
-          <div class="bp_relation_panel_meta">{{.text true panelMeta}}</div>
+          <div class="bp_relation_panel_title">{{.text panelTitle}}</div>
+          <div class="bp_relation_panel_meta">{{.text panelMeta}}</div>
         </div>
         <div class="bp_relation_panel_body bp_source_ref_panel_body">
           <div class="bp_relation_preview_surface bp_source_ref_preview_surface">
             <div class="bp_relation_preview_header">
               <div class="bp_relation_preview_label">"Preview"</div>
               <div class="bp_relation_preview_heading bp_preview_header_heading">
-                <div class="bp_relation_preview_title">{{.text true panelTitle}}</div>
+                <div class="bp_relation_preview_title">{{.text panelTitle}}</div>
                 <a class="bp_relation_preview_header_label bp_preview_header_label" hidden></a>
               </div>
             </div>
@@ -628,7 +628,7 @@ private def renderStatementMetadataPanel (data : BlockData) : Verso.Output.Html 
     else
       renderMetadataItem "Tags" {{
         <span class="bp_metadata_tags">
-          {{metadata.tags.map (fun tag => {{ <span class="bp_metadata_tag">{{.text true tag}}</span> }})}}
+          {{metadata.tags.map (fun tag => {{ <span class="bp_metadata_tag">{{.text tag}}</span> }})}}
         </span>
       }}
   if metadata.hasAny then
@@ -761,7 +761,7 @@ private def renderShellTitleRow (shell : InformalBlockShell) : Verso.Output.Html
   let titleRow := renderBlockTitleRow shell.style shell.labelText shell.numberText shell.captionText
     shell.titleSuffix
   match shell.titleRowAttrs? with
-  | some attrs => .tag "a" attrs titleRow
+  | some attrs => .element "a" attrs titleRow
   | none => titleRow
 
 def renderInformalBlockShell (shell : InformalBlockShell)
@@ -843,9 +843,9 @@ def htmlClassAttrs (className : String) : Array (String × String) :=
 /-- The line under an informal statement that stands beside Lean code: where the text comes from,
 and that nothing compared it with the Lean statement (`Informal.Meaning.sourceLine`). -/
 def renderStatementSource (source : Option String) : Verso.Output.Html :=
-  .tag "p" #[("class", "bp_statement_source"), ("data-bp-statement-source", (source.getD "blueprint")),
+  .element "p" #[("class", "bp_statement_source"), ("data-bp-statement-source", (source.getD "blueprint")),
       ("title", Informal.Meaning.uncheckedNote)]
-    (.text true (Informal.Meaning.sourceLine source))
+    (.text (Informal.Meaning.sourceLine source))
 
 /--
 A node as a unit: the informal statement on the left and its Lean declarations on the right.
@@ -993,8 +993,8 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
 
 private def statusGlyphSpan (kind : StatusGlyphKind) (attrs : Array (String × String)) :
     Verso.Output.Html :=
-  .tag "span" (#[("class", s!"bp_status_glyph bp_status_glyph_{kind.modifier}")] ++ attrs)
-    (.text true kind.glyph)
+  .element "span" (#[("class", s!"bp_status_glyph bp_status_glyph_{kind.modifier}")] ++ attrs)
+    (.text kind.glyph)
 
 /-- The status glyph shown beside a node title in the side-by-side layout. -/
 def renderStatusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result := none) :
@@ -1018,8 +1018,8 @@ the page) on pages whose nodes carry glyphs.
 def statusLegendTemplate : Verso.Output.Html :=
   open Verso.Output.Html in
   let rows := StatusGlyphKind.all.map fun kind =>
-    {{<dt>{{statusGlyphSpan kind #[("aria-hidden", "true")]}}</dt><dd>{{.text true kind.meaning}}</dd>}}
-  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl><p class="bp_status_legend_note">{{.text true statusLegendNote}}</p></details></template>}}
+    {{<dt>{{statusGlyphSpan kind #[("aria-hidden", "true")]}}</dt><dd>{{.text kind.meaning}}</dd>}}
+  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl><p class="bp_status_legend_note">{{.text statusLegendNote}}</p></details></template>}}
 
 /-- Render a complete informal block model, including companion panels. -/
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=
@@ -1038,7 +1038,7 @@ def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.H
       else blockHtml
   let html := Verso.Output.Html.seq (#[blockHtml] ++ model.companionPanels)
   match model.wrapperClass? with
-  | some className => Verso.Output.Html.tag "div" (htmlClassAttrs className) html
+  | some className => Lean.Html.element "div" (htmlClassAttrs className) html
   | none => html
 
 end Informal

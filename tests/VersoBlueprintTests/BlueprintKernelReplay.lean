@@ -175,15 +175,15 @@ info: [(Informal.Replay.Outcome.accepted, none),
    combineRuns #[]]
 
 -- The census of an export: its declaration records and whether its last line is complete, also
--- when a piece of the file ends inside a line.
+-- when a piece of the file ends inside a line. A `quot` record is not counted.
 /--
 info: [{ bytes := 0, records := 0, endsWithNewline := false },
- { bytes := 56, records := 2, endsWithNewline := true },
- { bytes := 55, records := 2, endsWithNewline := false }]
+ { bytes := 68, records := 2, endsWithNewline := true },
+ { bytes := 67, records := 2, endsWithNewline := false }]
 -/
 #guard_msgs (whitespace := lax) in
 #eval
-  let text := "{\"meta\":1}\n{\"in\":1}\n{\"thm\":{}}\n{\"inductive\":{}}\n{\"x\":0}\n"
+  let text := "{\"meta\":1}\n{\"in\":1}\n{\"thm\":{}}\n{\"quot\":{}}\n{\"inductive\":{}}\n{\"x\":0}\n"
   [censusOf ByteArray.empty, censusOf text.toUTF8, censusOf (text.dropEnd 1).copy.toUTF8]
 
 -- Each checker runs with half the machine's threads, at most 8 and at least 2.
@@ -452,7 +452,7 @@ private def stats (replay? : Option Replay.Result) : ProjectStats := {
   replay := replay? }
 
 private def page (replay? : Option Replay.Result) : String :=
-  (statsPageHtml { stats := stats replay? }).asString
+  (statsPageHtml { stats := stats replay? }).render
 
 -- Accepted: the verdict, the line under it, and the band with the checker, what was checked,
 -- where it comes from, what was left out, and what a replay leaves trusted.
@@ -638,7 +638,7 @@ info: [("accepted", "bp_replay_accepted", none),
 #eval
   let page (site : Replay.SiteState) (replay? : Option Replay.Result) : String :=
     (statsPageHtml { stats := { stats replay? with progress := { formalizedWithAncestors := 2 } },
-                     site }).asString
+                     site }).render
   let accepted := page .accepted (some (result .accepted))
   let rejected := page .rejected (some (result .rejected))
   let none := page (.none "this project's Lean (v4.34.0) ships no con-leche or con-ron")
@@ -675,7 +675,7 @@ info: [("accepted", "bp_replay_accepted", none),
 /-- info: true -/
 #guard_msgs in
 #eval
-  let html := (statsPageHtml { stats := stats (some (result .accepted)) }).asString
+  let html := (statsPageHtml { stats := stats (some (result .accepted)) }).render
   hasSubstr html "class=\"bp_project_stats bp_replay_none\"" &&
     (progressBuckets {}).any (·.label == "Lean complete, dependencies too (as the compiled \
       files report, not replayed by a kernel)") &&

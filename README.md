@@ -476,8 +476,10 @@ the current checkout's selected projects with
 Each external Blueprint is published only for its intended current release.
 [FLT](https://github.com/ejgallego/verso-flt) uses Lean `v4.35.0-rc3`, and
 [Sphere Packing](https://github.com/ejgallego/verso-sphere-packing) uses
-`v4.35.0-rc4`, both on `v4.35.0`, the sole maintained release line. Their upstream
+`v4.35.0-rc4`, both on `v4.35.0`. Their upstream
 Mathlib configurations determine each reference's exact toolchain and dependency pins.
+The `v4.36.0` line follows Lean 4.36.0 and Verso v4.36.0; its catalog has only the
+in-repo starter template until the references move to it.
 Further reference updates follow their upstream toolchains and validation.
 Noperthedron and Carleson are outside the published catalog while they require
 the retired 4.34 line; they can return after migration and validation on a

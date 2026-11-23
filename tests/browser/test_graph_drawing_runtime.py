@@ -28,19 +28,19 @@ from support import (
 )
 
 # The most the strict policy of the checks below leaves out for the page template that Verso
-# writes: its inline scripts and handlers, and the Markdown renderer it loads from a CDN.
+# writes: its inline scripts and handlers. No page loads a script from another host.
 STRICT_POLICY = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'"
 )
 # The least policy under which the site's pages work as a whole: the page template's own inline
-# scripts and its Markdown renderer's CDN script are allowed, nothing else is.
+# scripts are allowed, nothing else is.
 TEMPLATE_POLICY = (
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; "
     "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
     "object-src 'none'; base-uri 'self'"
 )
-TEMPLATE_BLOCKED = {"inline", "https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"}
+TEMPLATE_BLOCKED = {"inline"}
 
 RECORD_VIOLATIONS = """
 window.__bpCsp = [];
@@ -108,8 +108,8 @@ class TestFirstDrawing:
         page.on("request", lambda request: requested.append(request.url))
         goto_graph(page, code_site_url + "/Dependency-Graph/")
         outside = [url for url in requested if not url.startswith(code_site_url)]
-        # the only request beyond the site is the Markdown renderer of Verso's page template
-        assert outside == ["https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"]
+        # no request leaves the site: docstrings are rendered when the site is built
+        assert outside == []
         assert not [url for url in requested if "vendor" in url or "d3" in url.lower()
                     or "graphviz" in url.lower() or url.endswith(".wasm")]
         assert page.evaluate(
@@ -138,8 +138,7 @@ class TestContentSecurityPolicy:
     def test_graph_draws_under_the_strict_policy(self, page: Page, code_site_dir: Path):
         """The drawings are fetched from the site and parsed as SVG: no inline script, no remote
         host, no image or connection outside the site. Under the strictest policy the graph still
-        draws; the page template's own inline scripts and its CDN script are what the policy
-        stops."""
+        draws; the page template's own inline scripts are what the policy stops."""
         with serve_with_headers(code_site_dir, {"Content-Security-Policy": STRICT_POLICY}) as url:
             page.add_init_script(RECORD_VIOLATIONS)
             goto_graph(page, url + "/Dependency-Graph/")

@@ -11,28 +11,29 @@ namespace Informal.Source.Metadata
 
 open Lean Elab Term
 open Verso Doc Elab
-open Lean.Doc.Syntax
+open Lean.Doc (MetadataView VersoBlock)
 
 /-- Reconstruct the Lean structure-initializer term carried by a Verso metadata block. -/
-def metadataTerm? (block : TSyntax `block) : DocElabM (Option (TSyntax `term)) := do
-  match block with
-  | `(block|%%%%$_ $fieldOrAbbrev* %%%%$_) =>
-      return some (← `(term| { $fieldOrAbbrev* }))
-  | _ =>
+def metadataTerm? (block : VersoBlock) : DocElabM (Option (TSyntax `term)) := do
+  match MetadataView.of block with
+  | some v =>
+      let fields := v.fields
+      return some ⟨(← `(Lean.Parser.Term.structInst| { $[$fields],* })).raw⟩
+  | none =>
       return none
 
-def isMetadataBlock (block : TSyntax `block) : DocElabM Bool := do
+def isMetadataBlock (block : VersoBlock) : DocElabM Bool := do
   return (← metadataTerm? block).isSome
 
 structure LeadingMetadata where
   term? : Option (TSyntax `term) := none
-  body : Array (TSyntax `block) := #[]
+  body : Array (VersoBlock) := #[]
 
 /--
 Split off the optional leading metadata block used by Blueprint source syntax.
 The remaining blocks stay in original order so callers can render or reject them.
 -/
-def splitLeadingMetadata (contents : Array (TSyntax `block)) : DocElabM LeadingMetadata := do
+def splitLeadingMetadata (contents : Array (VersoBlock)) : DocElabM LeadingMetadata := do
   match contents[0]? with
   | some first =>
       match ← metadataTerm? first with
@@ -43,9 +44,9 @@ def splitLeadingMetadata (contents : Array (TSyntax `block)) : DocElabM LeadingM
 
 /-- Keep visible blocks while letting callers report metadata that appears too late. -/
 def visibleBlocksWithoutMetadata
-    (contents : Array (TSyntax `block))
-    (onMetadataBlock : TSyntax `block → DocElabM Unit) :
-    DocElabM (Array (TSyntax `block)) := do
+    (contents : Array (VersoBlock))
+    (onMetadataBlock : VersoBlock → DocElabM Unit) :
+    DocElabM (Array (VersoBlock)) := do
   let mut body := #[]
   for block in contents do
     if ← isMetadataBlock block then

@@ -917,8 +917,9 @@ def combineRuns (runs : Array Replay.CheckerRun) : Replay.Outcome × Option Stri
       | none => (.failed, some "no checker ran")
 
 /-- What the generator finds in an export file: its size, its declaration records (lines that
-start with `{"def":`, `{"thm":`, `{"opaque":`, `{"axiom":`, `{"inductive":` or `{"quot":`) and
-whether its last line is complete. -/
+start with `{"def":`, `{"thm":`, `{"opaque":`, `{"axiom":` or `{"inductive":`) and whether its
+last line is complete. The `{"quot":` records of the kernel's quotient package are not counted:
+the checkers add them without counting them among the declarations they accepted. -/
 structure ExportCensus where
   bytes : Nat
   records : Nat
@@ -926,7 +927,7 @@ structure ExportCensus where
 deriving Repr, Inhabited, DecidableEq
 
 private def recordPrefixes : Array ByteArray :=
-  #["{\"def\":", "{\"thm\":", "{\"opaque\":", "{\"axiom\":", "{\"inductive\":", "{\"quot\":"].map
+  #["{\"def\":", "{\"thm\":", "{\"opaque\":", "{\"axiom\":", "{\"inductive\":"].map
     (·.toUTF8)
 
 private def startsWithAt (bytes : ByteArray) (at_ : Nat) (pre : ByteArray) : Bool := Id.run do

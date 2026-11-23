@@ -35,7 +35,7 @@ node cards.
 
 namespace Informal.CodeSite
 
-open Lean System
+open _root_.Informal.Lean System
 
 /-- Options of `vbp code-site`. -/
 structure Options where

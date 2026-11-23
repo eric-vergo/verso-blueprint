@@ -108,8 +108,8 @@ def NodeView.hasInformal (v : NodeView) (isBlank : Verso.Output.Html → Bool) :
 private def linkHtml (l : Link) : Verso.Output.Html :=
   let attrs := #[("class", "bp_node_view_link"), ("data-bp-node-link", l.label), ("title", l.label)]
   match l.href? with
-  | some href => .tag "a" (#[("href", href)] ++ attrs) (.text true l.title)
-  | none => .tag "span" attrs (.text true l.title)
+  | some href => .element "a" (#[("href", href)] ++ attrs) (.text l.title)
+  | none => .element "span" attrs (.text l.title)
 
 private def relationRow (caption : String) (links : Array Link) : Verso.Output.Html :=
   if links.isEmpty then .empty else
@@ -126,17 +126,17 @@ private def axiomTag : Data.AxiomClass → Option String
 private def axiomItem (a : Lean.Name) : Verso.Output.Html :=
   let cls := Data.AxiomClass.ofName a
   let tag : Verso.Output.Html := match axiomTag cls with
-    | some t => .seq #[.text true " ", .tag "span" #[("class", "bp_axiom_tag")] (.text true t)]
+    | some t => .seq #[.text " ", .element "span" #[("class", "bp_axiom_tag")] (.text t)]
     | none => .empty
-  .tag "li" #[("class", s!"bp_axiom bp_axiom_{cls.token}"), ("data-bp-axiom-class", cls.token),
+  .element "li" #[("class", s!"bp_axiom bp_axiom_{cls.token}"), ("data-bp-axiom-class", cls.token),
       ("title", cls.description)]
-    (.seq #[.tag "code" #[] (.text true a.toString), tag])
+    (.seq #[.element "code" #[] (.text a.toString), tag])
 
 private def axiomsRow : Option (Array Lean.Name) → Verso.Output.Html
   | none => .empty
   | some axioms =>
     let items : Array Verso.Output.Html := if axioms.isEmpty then
-        #[.tag "li" #[("class", "bp_axiom bp_axiom_none")] (.text true "none")]
+        #[.element "li" #[("class", "bp_axiom bp_axiom_none")] (.text "none")]
       else (Data.sortAxioms axioms).map axiomItem
     {{<div class="bp_node_view_relation bp_node_view_axioms"><span class="bp_node_view_relation_caption">"Axioms"</span><ul>{{items}}</ul></div>}}
 
@@ -152,13 +152,13 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     | some href => {{<a class="bp_node_view_title" href={{href}}>{{v.title}}</a>}}
     | none => {{<span class="bp_node_view_title">{{v.title}}</span>}}
   let glyphHtml : Verso.Output.Html :=
-    .tag "span" #[("class", s!"bp_status_glyph bp_status_glyph_{glyph.modifier}"),
-      ("title", statusText), ("aria-hidden", "true")] (.text true glyph.glyph)
+    .element "span" #[("class", s!"bp_status_glyph bp_status_glyph_{glyph.modifier}"),
+      ("title", statusText), ("aria-hidden", "true")] (.text glyph.glyph)
   let egoHtml : Verso.Output.Html :=
-    .tag "a" #[("class", "bp_node_view_ego"), ("href", egoHref v.label),
+    .element "a" #[("class", "bp_node_view_ego"), ("href", egoHref v.label),
       ("data-bp-ego-link", v.label),
       ("title", "Show what this node uses and what uses it in the dependency graph")]
-      (.text true "Neighbourhood")
+      (.text "Neighbourhood")
   let header := {{
     <div class="bp_node_view_header">
       {{titleHtml}}{{glyphHtml}}<span class="bp_node_view_status">{{statusText}}</span>{{egoHtml}}
@@ -172,14 +172,14 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
   let lean := if v.lean.isEmpty then none else some (Verso.Output.Html.seq v.lean)
   -- Informal text beside Lean code: its source, and the sentence that nothing compared them.
   let meaning : Verso.Output.Html := match v.meaningHref? with
-    | some href => Verso.Output.Html.seq #[.text true " ",
-        .tag "a" #[("href", href), ("class", "bp_meaning_link")]
-          (.text true Informal.Meaning.linkText)]
+    | some href => Verso.Output.Html.seq #[.text " ",
+        .element "a" #[("href", href), ("class", "bp_meaning_link")]
+          (.text Informal.Meaning.linkText)]
     | none => .empty
   let sourceNote : Verso.Output.Html :=
-    .tag "p" #[("class", "bp_statement_source"),
+    .element "p" #[("class", "bp_statement_source"),
         ("data-bp-statement-source", v.informalSource.getD "blueprint")]
-      (Verso.Output.Html.seq #[.text true s!"Informal statement from \
+      (Verso.Output.Html.seq #[.text s!"Informal statement from \
         {Informal.Meaning.sourcePhrase v.informalSource}. {Informal.Meaning.uncheckedNote}", meaning])
   let informal : Option Verso.Output.Html :=
     if lean.isSome then informal.map fun h => Verso.Output.Html.seq #[h, sourceNote] else informal
@@ -206,7 +206,7 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone then .empty
     else {{<div class="bp_node_view_relations">{{relationRow "Uses" v.uses}}{{
       relationRow "Used by" v.usedBy}}{{axiomsRow v.axioms?}}</div>}}
-  .tag "article" (#[("class", "bp_node_view"), ("data-bp-node-view", v.label),
+  .element "article" (#[("class", "bp_node_view"), ("data-bp-node-view", v.label),
       ("data-bp-node-view-layout", layout)] ++ declAttrs)
     (.seq #[header,
       {{<div class={{bodyClass}}><div class="bp_sbs_grid">{{columns}}</div></div>}}, footer])

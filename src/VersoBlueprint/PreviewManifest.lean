@@ -541,17 +541,17 @@ def readBuildMetadata (reproducibility : ReproducibilityOptions := {}) : IO Buil
 private def buildMetadataLabelHtml (label : String) (href? : Option String) : Output.Html :=
   match href? with
   | some href =>
-      Output.Html.tag "a"
+      Lean.Html.element "a"
         #[("class", "bp_build_metadata_label bp_build_metadata_link"), ("href", href)]
         (VersoBlueprint.Html.text label)
   | none =>
-      Output.Html.tag "span" #[("class", "bp_build_metadata_label")] (VersoBlueprint.Html.text label)
+      Lean.Html.element "span" #[("class", "bp_build_metadata_label")] (VersoBlueprint.Html.text label)
 
 private def buildMetadataCodeHtml (value : String) (href? : Option String) : Output.Html :=
-  let code := Output.Html.tag "code" #[("class", "bp_build_metadata_commit")] (VersoBlueprint.Html.text value)
+  let code := Lean.Html.element "code" #[("class", "bp_build_metadata_commit")] (VersoBlueprint.Html.text value)
   match href? with
   | some href =>
-      Output.Html.tag "a" #[("class", "bp_build_metadata_commit_link"), ("href", href)] code
+      Lean.Html.element "a" #[("class", "bp_build_metadata_commit_link"), ("href", href)] code
   | none => code
 
 def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
@@ -601,7 +601,7 @@ def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
   }}
 
 def buildMetadataHtmlString (metadata : BuildMetadata) : String :=
-  Output.Html.asString <| buildMetadataHtml metadata
+  Lean.Html.render <| buildMetadataHtml metadata
 
 def insertBuildMetadataHtml? (html metadataHtml : String) : Option String :=
   if html.contains "class=\"bp_build_metadata\"" then
@@ -631,20 +631,14 @@ private def writeBuildMetadataHtml
   | some html => IO.FS.writeFile path html
   | none => Verso.reportError s!"Blueprint build metadata: could not find title page heading in {path}"
 
-private def highlightedDocstringInnerTextRead : String :=
-  "const str = d.innerText;"
-
-private def highlightedDocstringTextContentRead : String :=
-  "const str = d.textContent || \"\";"
-
 private def highlightedTacticShowToggleRead : String :=
-  "const toggle = inst.reference.querySelector(\":scope > input.tactic-toggle\");"
+  "const toggle = ref.querySelector(\":scope > input.tactic-toggle\");"
 
 private def highlightedTacticShowGuardedToggleRead : String :=
-  "if (!inst.reference.querySelector(\":scope > .tactic-state\")) {
+  "if (!ref.querySelector(\":scope > .tactic-state\")) {
             return false;
           }
-          const toggle = inst.reference.querySelector(\":scope > input.tactic-toggle\");"
+          const toggle = ref.querySelector(\":scope > input.tactic-toggle\");"
 
 private def highlightedTacticContentCloneRead : String :=
   "const state = tgt.querySelector(\":scope > .tactic-state\").cloneNode(true);"
@@ -656,10 +650,10 @@ private def highlightedTacticContentGuardedCloneRead : String :=
           }
           const state = stateSource.cloneNode(true);"
 
+/-- Whether `source` is the startup script of Verso's highlighted code, which sets up the hovers
+of Lean code (`defaultTippyProps`). -/
 private def isHighlightedStartupJs (source : String) : Bool :=
-  source.contains "/* Render docstrings */" &&
-    source.contains "const str = d.innerText;" &&
-    source.contains "const defaultTippyProps = {"
+  source.contains "const defaultTippyProps = {"
 
 private def replaceFirstHighlightedJs?
     (beforeOptions : List String)
@@ -679,12 +673,6 @@ private def replaceRequiredHighlightedJs
   | none =>
     panic! s!"Blueprint highlighted-code JS patch `{label}` did not apply; upstream Verso highlight startup JS likely changed"
 
-private def replaceOptionalHighlightedJs
-    (beforeOptions : List String) (after source : String) : String :=
-  match replaceFirstHighlightedJs? beforeOptions after source with
-  | some source => source
-  | none => source
-
 private def patchHighlightedStartupJs (js : JS) : JS :=
   if !isHighlightedStartupJs js.js then
     js
@@ -692,13 +680,11 @@ private def patchHighlightedStartupJs (js : JS) : JS :=
   let patched :=
     js.js
       |> replaceRequiredHighlightedJs
-          "docstring textContent read"
-          [highlightedDocstringInnerTextRead]
-          highlightedDocstringTextContentRead
-      |> replaceOptionalHighlightedJs
+          "tactic hover without a tactic state"
           [highlightedTacticShowToggleRead]
           highlightedTacticShowGuardedToggleRead
-      |> replaceOptionalHighlightedJs
+      |> replaceRequiredHighlightedJs
+          "tactic hover content without a tactic state"
           [highlightedTacticContentCloneRead]
           highlightedTacticContentGuardedCloneRead
   { js with js := patched }
@@ -1163,10 +1149,11 @@ def File.findHtml? (file : File) (key : String) : Option String :=
 
 def initialHoverState : Verso.Code.Hover.State Output.Html :=
   { dedup := { ({} : Verso.Code.Hover.Dedup Output.Html) with nextId := hoverIdStart }
-    idSupply := {} }
+    idSupply := {}
+    tokenHovers := {} }
 
 def HoverDoc.toHtml (doc : HoverDoc) : Output.Html :=
-  Output.Html.text false doc.html
+  Lean.Html.raw doc.html
 
 def File.hoverDocsJson (file : File) : Json :=
   file.hoverDocs.foldl (init := Json.mkObj []) fun out doc =>
@@ -1186,7 +1173,8 @@ def File.hoverDedup (file : File) : Verso.Code.Hover.Dedup Output.Html :=
 
 def File.hoverState (file : File) : Verso.Code.Hover.State Output.Html :=
   { dedup := file.hoverDedup
-    idSupply := {} }
+    idSupply := {}
+    tokenHovers := {} }
 
 /--
 Rendered Lean-code preview keys and bodies, deduplicated by preview identity.
@@ -2223,7 +2211,7 @@ private def buildTraversalEntries
             continue
           pure html
         else
-          pure (externalBody?.getD (.text false codeOnlyBlockPreviewHtml))
+          pure (externalBody?.getD (.raw codeOnlyBlockPreviewHtml))
       let manifestEntry := { blockEntryOfFacet state resolved with
         codeOnlyPreview := !entry.hasRenderedBody && externalBody?.isNone }
       entries := entries.push manifestEntry
@@ -2275,7 +2263,7 @@ private def buildExternalMarkupEntries
         let heading := manifestEntry.heading
         if let some html := renderExternalMarkupEntryHtml renderConfig manifestEntry.blockData
             heading.caption heading.label markup manifestEntry.externalMarkup manifestEntry.sources then
-          htmlEntries := htmlEntries.push { key := manifestEntry.key, html := .text false html }
+          htmlEntries := htmlEntries.push { key := manifestEntry.key, html := .raw html }
   pure (entries, htmlEntries)
 
 private def declarationRangeToLspRange (range : Lean.DeclarationRange) : Lean.Lsp.Range := {
@@ -2551,17 +2539,17 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
       let informal? : Option Output.Html :=
         if entry.codeOnlyPreview then none else
         (bodies.get? key.value).bind fun html =>
-          if fragmentIsBlank html then none else some (.text false html)
+          if fragmentIsBlank html then none else some (.raw html)
       let proof? : Option Output.Html :=
         (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
-          if fragmentIsBlank html then none else some (.text false html)
+          if fragmentIsBlank html then none else some (.raw html)
       let decls := (entry.codeData.map (·.externalDecls)).getD #[]
       let (sourceParts, hoverState') ←
         Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
       hoverState := hoverState'
       let inlineParts : Array Output.Html := entry.leanCodePreviewKeys.filterMap fun k =>
         match index.findEntry? k, bodies.get? k with
-        | some e, some html => if e.targetKind == .inlineLeanCode then some (.text false html) else none
+        | some e, some html => if e.targetKind == .inlineLeanCode then some (.raw html) else none
         | _, _ => none
       let view : Informal.NodeView.NodeView := {
         label
@@ -2580,7 +2568,7 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         claim? := claimOf (decls.map (·.canonical))
         meaningHref?
       }
-      entries := entries.push { label, html := view.render.asString }
+      entries := entries.push { label, html := view.render.render }
   pure ({ entries }, hoverState)
 
 /--
@@ -2648,7 +2636,7 @@ def buildPreviewDataFiles
     let html ← match resolve entry.html with
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint resource {entry.key}: {error}")
-    pure ({ key := entry.key, html := html.asString } : HtmlCache.Entry)
+    pure ({ key := entry.key, html := html.render } : HtmlCache.Entry)
   let stats? := (Informal.TraversalIndex.RenderOverviews.required
     (α := Informal.Stats.ProjectStats) state `stats).toOption
   let claims? : Option Informal.Stats.Claims := stats?.bind (·.claims)
@@ -2664,7 +2652,7 @@ def buildPreviewDataFiles
     let html ← match resolve html with
       | .ok html => pure html
       | .error error => throw (IO.userError s!"Blueprint hover {id}: {error}")
-    pure ({ id, html := html.asString } : HtmlCache.HoverDoc)
+    pure ({ id, html := html.render } : HtmlCache.HoverDoc)
   if verbose then
     let serializeFinish ← IO.monoMsNow
     let bytes := resolvedEntries.foldl (fun n entry => n + entry.html.utf8ByteSize) 0
@@ -2859,7 +2847,7 @@ the legend of its status glyphs.
 -/
 def withSideBySideDefaultStyle (config : RenderConfig) : RenderConfig :=
   let styleMeta : Output.Html :=
-    .tag "meta" #[("name", defaultStyleMetaName), ("content", "sbs")] .empty
+    .element "meta" #[("name", defaultStyleMetaName), ("content", "sbs")] .empty
   let head := #[styleMeta, Informal.statusLegendTemplate].foldl
     VersoBlueprint.Html.pushIfRenderedMissing config.toHtmlConfig.extraHead
   { config with extraHead := head }

@@ -70,9 +70,12 @@ the named imported Lean module as a source-ordered Manual part. The optional lea
 level controls where the part is inserted; omitting it creates a child part.
 Use {lit}`(title := "...")` to replace the default final module-name component.
 -/
-@[part_command Lean.Doc.Syntax.command]
+@[part_command Lean.Doc.Parser.Block.command]
 public meta def includeBlueprintModuleCmd : PartCommand
-  | stx@`(block|command{includeBlueprintModule $args*}) => do
+  | .command v => do
+    unless v.name.getId == `includeBlueprintModule do Lean.Elab.throwUnsupportedSyntax
+    let stx : Syntax := v.stx
+    let args := v.args
     let ref ← getRef
     Hover.addCustomHover ref
       r#"Includes merged Blueprint nodes whose labels have attribute applications in the named imported Lean module, as one Manual part.

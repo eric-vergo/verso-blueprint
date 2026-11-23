@@ -1,7 +1,7 @@
 import Lake
 open Lake DSL
 
-require VersoBlueprint from git "https://github.com/leanprover/verso-blueprint"@"v4.35.0"
+require VersoBlueprint from "/private/tmp/r9-v-work/vbp"
 package ProjectTemplate where
   precompileModules := false
   leanOptions := #[⟨`experimental.module, true⟩]

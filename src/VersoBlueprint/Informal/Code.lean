@@ -26,7 +26,7 @@ open Verso Doc Elab
 open Verso.Genre Manual
 open Verso.ArgParse
 open Lean Lean.Elab
-open Lean.Doc.Syntax
+open Lean.Doc.Parser
 
 namespace Informal
 open CodeSummary
@@ -369,7 +369,7 @@ def internal : CodeBlockExpanderOf Unit
 
 private def rocqImpl : CodeBlockExpanderOf Unit
   | _cfg, contents => do
-    ``(Block.code $contents)
+    ``(Block.code $(quote contents.getVersoCodeBlock))
 
 @[code_block]
 def rocq : CodeBlockExpanderOf Unit
@@ -401,7 +401,7 @@ private def externalMarkupImpl
     (language : Data.ExternalMarkupLanguage) : CodeBlockExpanderOf ExternalMarkupConfig
   | cfg, contents => do
     let location? ← cfg.location?
-    let raw := contents.getString
+    let raw := contents.getVersoCodeBlock
     let markup : Data.ExternalMarkup := {
       language
       slot := cfg.slot

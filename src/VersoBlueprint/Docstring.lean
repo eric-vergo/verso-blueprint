@@ -52,13 +52,15 @@ private def blockToHtml
 
 private def rewriteMathHtml
     (texPrelude : String) (html : Verso.Output.Html) : Verso.Output.Html :=
-  html.visitM (m := Id) (tag := fun name attrs contents =>
-    if name == "code" && attrs.contains ("class", "math inline") then
-      some (.tag name (mathAttrs .inline texPrelude) contents)
-    else if name == "code" && attrs.contains ("class", "math display") then
-      some (.tag name (mathAttrs .display texPrelude) contents)
-    else
-      none)
+  html.rewritePost fun
+    | h@(.element name attrs contents) =>
+      if name == "code" && attrs.contains ("class", "math inline") then
+        .element name (mathAttrs .inline texPrelude) contents
+      else if name == "code" && attrs.contains ("class", "math display") then
+        .element name (mathAttrs .display texPrelude) contents
+      else
+        h
+    | h => h
 
 /--
 Render the standard structural subset of an elaborated Verso docstring as
@@ -82,8 +84,8 @@ where
       if part.title.isEmpty then
         .empty
       else
-        .tag "p" #[] <|
-          .tag "strong" #[] (.seq <| part.title.map inlineToHtml)
+        .element "p" #[] <|
+          .element "strong" #[] (.seq <| part.title.map inlineToHtml)
     let content := .seq <| part.content.map blockToHtml
     let children := .seq <| part.subParts.map partToHtml
     .seq #[title, content, children]

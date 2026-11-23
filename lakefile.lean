@@ -1,17 +1,19 @@
 import Lake
 open Lake DSL
 
--- Pin the matching Lean 4.35 stable dependency stack.
-require verso from git "https://github.com/leanprover/verso"@"v4.35.0-patch1"
-require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.35.0"
+-- Pin the matching Lean 4.36 stable dependency stack.
+-- Verso comes from the eric-vergo/verso fork's `release/v4.36.0` branch: upstream's `v4.36.0`
+-- tag plus the fork's manual features (dark theme, page-tag anchors, raw HTML in docstrings).
+require verso from git "https://github.com/eric-vergo/verso"@"94cea086b880f61f5b3847d30151b8e5f80e1259"
+require «verso-slides» from git "https://github.com/leanprover/verso-slides"@"v4.36.0"
 -- Side-by-side nodes need `SubVerso.Module.findDecl?`, which is not in an upstream
--- SubVerso release. The commit below is on the branch `release/verso-v4.35.0` of
--- the eric-vergo/subverso fork: upstream's `verso-v4.35.0` tag (the SubVerso that
--- Verso v4.35.0 builds with) plus the lookup. Return to the upstream tag once a
+-- SubVerso release. The commit below is on the branch `release/verso-v4.36.0` of
+-- the eric-vergo/subverso fork: upstream's `verso-v4.36.0` tag (the SubVerso that
+-- Verso v4.36.0 builds with) plus the lookup. Return to the upstream tag once a
 -- release carries the lookup.
-require subverso from git "https://github.com/eric-vergo/subverso"@"f53c070f0357f5dcf3b03b8924deb714294dac69"
-require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.116"
-require lean_vir from git "https://github.com/ejgallego/lean-vir"@"225218e18a3ae554acc571a93aab484453d857a6"
+require subverso from git "https://github.com/eric-vergo/subverso"@"4e04c61d96960d5a1461c6c870572ccb8b45a495"
+require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.120"
+require lean_vir from git "https://github.com/ejgallego/lean-vir"@"64497b98aaa39378bc581f2f1e87c4412e2d4154"
 -- Typesets blueprint math when the site is built (`VersoBlueprint.StaticMath`).
 require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"9badbe4cac48c2061f738e114dc6cb0b66c316be"
 

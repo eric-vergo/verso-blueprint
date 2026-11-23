@@ -105,7 +105,7 @@ targets dropped; the escaped text in a `pre` when it cannot be rendered. -/
 def docHtml (doc : String) : String :=
   match MD4Lean.renderHtml doc with
   | some html => sanitizeLinks html
-  | none => (Verso.Output.Html.tag "pre" #[] (.text true doc)).asString
+  | none => (Lean.Html.element "pre" #[] (.text doc)).render
 
 /-- The module docstrings (`/-! … -/`) of a source text, without their delimiters, in order. -/
 def moduleDocs (text : String) : Array String :=

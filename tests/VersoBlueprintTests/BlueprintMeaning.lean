@@ -117,7 +117,7 @@ private def directSorry : Data.ProvedStatus :=
 /-- info: true -/
 #guard_msgs in
 #eval
-  let legend := statusLegendTemplate.asString
+  let legend := statusLegendTemplate.render
   StatusGlyphKind.all.all (fun kind => hasSubstr kind.meaning "Lean") &&
     hasSubstr legend "A mark is about the Lean code only. No tool checks that an informal \
       statement says the same as the Lean statement." &&
@@ -198,7 +198,7 @@ private def stats (headline : Option Headline) (leanProgress : LeanProgress := {
     progress := { formalizedWithAncestors := leanProgress.total } }
 
 private def page (s : ProjectStats) : String :=
-  (statsPageHtml { stats := s, nodes := #[{ label := `n, title := "Theorem 6.1", href := some "/M/#n" }] }).asString
+  (statsPageHtml { stats := s, nodes := #[{ label := `n, title := "Theorem 6.1", href := some "/M/#n" }] }).render
 
 private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   { challengeModule := `Challenge, solutionModule := `Solution
@@ -360,7 +360,7 @@ private def claimsText : String := "{
   | .ok claims =>
     let html (v? : Option ClaimView.ClaimView) (href? : Option String) : String :=
       match v? with
-      | some v => (v.render href?).asString
+      | some v => (v.render href?).render
       | Option.none => ""
     let attested := html (claims.view? `Demo.double_eq) (some "#m")
     let bare := html (claims.view? `Demo.double) Option.none
@@ -410,24 +410,24 @@ private def claimsText : String := "{
       "Informal statement from the project's TeX blueprint · not checked against the Lean statement" &&
     Meaning.sourceLine (some "attribute") ==
       "Informal statement from a blueprint attribute · not checked against the Lean statement" &&
-    hasSubstr (renderStatementSource (some "docstring")).asString
+    hasSubstr (renderStatementSource (some "docstring")).render
       "data-bp-statement-source=\"docstring\"" &&
-    hasSubstr (renderSideBySideNode "n" (.text true "S") (some (.text true "L"))
-      (renderStatementSource Option.none)).asString "class=\"bp_statement_source\"" &&
+    hasSubstr (renderSideBySideNode "n" (.text "S") (some (.text "L"))
+      (renderStatementSource Option.none)).render "class=\"bp_statement_source\"" &&
     -- a node without Lean code has nothing to be compared with: no line
-    !hasSubstr (renderSideBySideNode "n" (.text true "S") Option.none
-      (renderStatementSource Option.none)).asString "bp_statement_source" &&
+    !hasSubstr (renderSideBySideNode "n" (.text "S") Option.none
+      (renderStatementSource Option.none)).render "bp_statement_source" &&
     -- the generator shows the line for a written statement with Lean code, and only then
     (let data : BlockData := { kind := .theorem, label := `n, count := 1 }
      let html (note : Bool) : String := (renderInformalBlockModel {
-        data, context := .forBlock data "1", statementSourceNote := note }).asString
+        data, context := .forBlock data "1", statementSourceNote := note }).render
      hasSubstr (html true) "bp_statement_source" && !hasSubstr (html false) "bp_statement_source")
 
 private def nodeView : NodeView.NodeView := {
   label := "thm:x", title := "Theorem 1.2"
   status := (.proved, "Lean proof complete: no sorry in it or in what it uses")
-  informal? := some (.text true "Every x is fine.")
-  lean := #[.text true "theorem x : True"]
+  informal? := some (.text "Every x is fine.")
+  lean := #[.text "theorem x : True"]
 }
 
 -- The node view: the source and the sentence under the statement, with the link; a claim in
@@ -437,9 +437,9 @@ private def nodeView : NodeView.NodeView := {
 #eval
   let claim : ClaimView.ClaimView := { reference := some "Theorem 2.2", statement := some "Claimed." }
   let both := ({ nodeView with informalSource := some "docstring", meaningHref? := some "Stats/#m"
-                               claim? := some claim }).render.asString
-  let leanOnly := ({ nodeView with informal? := Option.none, claim? := some claim }).render.asString
-  let informalOnly := ({ nodeView with lean := #[], claim? := some claim }).render.asString
+                               claim? := some claim }).render.render
+  let leanOnly := ({ nodeView with informal? := Option.none, claim? := some claim }).render.render
+  let informalOnly := ({ nodeView with lean := #[], claim? := some claim }).render.render
   hasSubstr both "Informal statement from the docstring. No tool has checked that this text says \
       the same as the Lean statement." &&
     hasSubstr both "<a href=\"Stats/#m\" class=\"bp_meaning_link\">What this means</a>" &&

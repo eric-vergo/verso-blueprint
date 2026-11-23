@@ -59,7 +59,7 @@ Addition.
   let cfg : RenderConfig := {}
   let cfg := Informal.PreviewManifest.withBlueprintAssets cfg
   cfg.toHtmlConfig.extraHead.any fun html =>
-    let source := html.asString
+    let source := html.render
     hasSubstr source "type=\"module\"" &&
       hasSubstr source "-verso-data/blueprint-page-runtime.mjs"
 
@@ -70,7 +70,7 @@ Addition.
   let cfg := Informal.PreviewManifest.withBlueprintAssets cfg
   let cfg := Informal.PreviewManifest.withBlueprintAssets cfg
   (cfg.toHtmlConfig.extraHead.filter fun html =>
-    hasSubstr html.asString "-verso-data/blueprint-page-runtime.mjs").size == 1
+    hasSubstr html.render "-verso-data/blueprint-page-runtime.mjs").size == 1
 
 /-- info: true -/
 #guard_msgs in
@@ -171,12 +171,21 @@ private partial def freshBlueprintMainWrapperRoot (testName : String) : IO Syste
 private def freshPdfSmokeRoot : IO System.FilePath :=
   freshBlueprintMainWrapperRoot "verso-blueprint-pdf-smoke-test"
 
-private def highlightedStartupWithoutTacticsJs : JS := r#"/* Render docstrings */
-for (const d of document.querySelectorAll("code.docstring, pre.docstring")) {
-  const str = d.innerText;
-}
-const defaultTippyProps = {
-  allowHTML: true
+/-- The parts of the startup script of Verso's highlighted code that the Blueprint patches: the
+hover of a tactic reads its tactic state, which a tactic shown as a proof toggle does not have. -/
+private def highlightedStartupJs : JS := r#"const defaultTippyProps = {
+  onShow(inst) {
+    const ref = inst.reference;
+    if (ref.className == 'tactic') {
+      const toggle = ref.querySelector(":scope > input.tactic-toggle");
+    }
+  },
+  content (tgt) {
+    const content = document.createElement("span");
+    if (tgt.className == 'tactic') {
+      const state = tgt.querySelector(":scope > .tactic-state").cloneNode(true);
+    }
+  }
 };
 "#
 
@@ -188,7 +197,7 @@ const defaultTippyProps = {
     let outDir := root / "site"
     let config : RenderConfig := Informal.PreviewManifest.withBlueprintAssets {
       toHtmlConfig := {
-        extraJs := [highlightedStartupWithoutTacticsJs]
+        extraJs := [highlightedStartupJs]
       }
     }
     let code ←
@@ -203,8 +212,9 @@ const defaultTippyProps = {
     let html ← IO.FS.readFile (outDir / "html-multi" / "index.html")
     pure <|
       code == 0 &&
-        hasSubstr html "const str = d.textContent || \"\";" &&
-        !hasSubstr html "const str = d.innerText;"
+        hasSubstr html "if (!ref.querySelector(\":scope > .tactic-state\")) {" &&
+        hasSubstr html "const stateSource = tgt.querySelector(\":scope > .tactic-state\");" &&
+        !hasSubstr html "const state = tgt.querySelector(\":scope > .tactic-state\").cloneNode(true);"
 
 private partial def filesUnder (root : System.FilePath) : IO (Array System.FilePath) := do
   let mut out := #[]
@@ -406,7 +416,7 @@ private def runHtmlCheck (action : EmitM (Option Informal.HtmlDocument))
   for (mode, changed) in #[(Mode.single, cfg), (.multi, { cfg with htmlDepth := 1 }),
       (.multi, { cfg with draft := true }), (.multi, { cfg with features := {.KaTeX} }),
       (.multi, { cfg with extraJs := ["console.log('changed asset');"] }),
-      (.multi, { cfg with extraHead := #[.text false "changed head"] })] do
+      (.multi, { cfg with extraHead := #[.raw "changed head"] })] do
     let (result, errors) ← runHtmlCheck (Informal.HtmlDocument.load mode changed path)
     unless result.isNone && errors.any (hasSubstr · "layout/configuration") do
       throw <| IO.userError "Resume accepted an incompatible layout/configuration"
