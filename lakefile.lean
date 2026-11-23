@@ -134,6 +134,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintCodeSite,
     `VersoBlueprintTests.BlueprintCodeSiteApi,
     `VersoBlueprintTests.BlueprintDarkTheme,
+    `VersoBlueprintTests.BlueprintDocstringMarkdown,
     `VersoBlueprintTests.BlueprintDocstringReferences,
     `VersoBlueprintTests.BlueprintImportedDuplicates.Direct,
     `VersoBlueprintTests.BlueprintImportedDuplicates.ProviderA,

@@ -6,6 +6,7 @@ Author: Emilio J. Gallego Arias
 
 import Lean.DocString.Extension
 import VersoManual
+import Verso.Output.Html.Markdown
 
 namespace Informal.Docstring
 
@@ -61,6 +62,19 @@ private def rewriteMathHtml
       else
         h
     | h => h
+
+/--
+Render a Markdown docstring as static HTML when the site is built, with Verso's Markdown renderer
+(`Verso.Output.Html.Markdown.toHtml`, the one Verso renders its hovers' docstrings with).
+
+The docstring is untrusted text: raw HTML in it is parsed as text and written escaped, links keep
+only relative targets and the `http`, `https` and `mailto` schemes (images also `data`), and other
+links are written as their text. Math in dollar signs receives the same classes and TeX prelude
+metadata as Blueprint math nodes.
+-/
+def markdownDocstringToHtml (markdown : String) (texPrelude : String := "") :
+    Verso.Output.Html :=
+  rewriteMathHtml texPrelude (Verso.Output.Html.Markdown.toHtml markdown (math := true))
 
 /--
 Render the standard structural subset of an elaborated Verso docstring as

@@ -87,25 +87,11 @@ def safeHref (href : String) : Bool :=
   let hasScheme := (h.splitOn ":").length > 1 && !scheme.any (fun c => c == '/' || c == '?' || c == '#')
   !hasScheme || scheme == "http" || scheme == "https" || scheme == "mailto"
 
-/-- `html` with every `href` and `src` that `safeHref` rejects replaced by `#`. -/
-def sanitizeLinks (html : String) : String := Id.run do
-  let mut out := html
-  for attr in ["href=\"", "src=\""] do
-    let parts := out.splitOn attr
-    let mut acc := parts.head!
-    for part in parts.tail! do
-      let value := (part.splitOn "\"").head!
-      let rest := (part.drop value.length).toString
-      acc := acc ++ attr ++ (if safeHref value then value else "#") ++ rest
-    out := acc
-  return out
-
-/-- A docstring as HTML: Markdown rendered by md4c, raw HTML in it shown as text, unsafe link
-targets dropped; the escaped text in a `pre` when it cannot be rendered. -/
+/-- A docstring as HTML, rendered when the site is built by Verso's Markdown renderer
+(`Informal.Docstring.markdownDocstringToHtml`): raw HTML in it shown as text, links without a
+safe target written as their text. -/
 def docHtml (doc : String) : String :=
-  match MD4Lean.renderHtml doc with
-  | some html => sanitizeLinks html
-  | none => (Lean.Html.element "pre" #[] (.text doc)).render
+  (Informal.Docstring.markdownDocstringToHtml doc).render
 
 /-- The module docstrings (`/-! … -/`) of a source text, without their delimiters, in order. -/
 def moduleDocs (text : String) : Array String :=

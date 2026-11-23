@@ -290,12 +290,13 @@ private def signatureToHtml (keywordText : String) (sig : Verso.Genre.Manual.Sig
     </div>
   }}
 
-private def plainDocstringHtml (docs? : Option String) : ExternalDeclHtml :=
-  open Verso.Output.Html in
+/-- A Markdown docstring, rendered when the site is built (`markdownDocstringToHtml`). -/
+private def plainDocstringHtml (docs? : Option String) (texPrelude : String) : ExternalDeclHtml :=
   match docs? with
   | none => .empty
   | some docs =>
-    {{<pre class="docstring">{{.text docs}}</pre>}}
+    .element "div" #[("class", "docstring")]
+      (Informal.Docstring.markdownDocstringToHtml docs texPrelude)
 
 private def structuralDocstringHtml
     (doc : Lean.VersoDocString) (texPrelude : String) : ExternalDeclHtml :=
@@ -307,9 +308,9 @@ private def internalDocstringHtml
     (fallback? : Option String)
     (texPrelude : String) : ExternalDeclHtml :=
   match doc? with
-  | some (.inl doc) => plainDocstringHtml (some doc)
+  | some (.inl doc) => plainDocstringHtml (some doc) texPrelude
   | some (.inr doc) => structuralDocstringHtml doc texPrelude
-  | none => plainDocstringHtml fallback?
+  | none => plainDocstringHtml fallback? texPrelude
 
 private def docstringHtmlForDecl
     (env : Lean.Environment) (decl : Name)
@@ -592,7 +593,7 @@ private def renderDeclHtmlDocstringFromInfoE
         | some ctor =>
           let title := if isClass then "Instance Constructor" else "Constructor"
           let ctorHtml ← renderDocNameCtor ctor <|
-            nestedDocstrings.getD ctor.name (plainDocstringHtml ctor.docstring?)
+            nestedDocstrings.getD ctor.name (plainDocstringHtml ctor.docstring? texPrelude)
           pure <| renderTitledSection? decl title #[ctorHtml]
         | none => pure none
       | _ => pure none
@@ -603,7 +604,7 @@ private def renderDeclHtmlDocstringFromInfoE
         let rows ←
           fieldInfo.filter (fun f => f.subobject?.isNone) |>.mapM fun field =>
             renderFieldSignature field <|
-              nestedDocstrings.getD field.projFn (plainDocstringHtml field.docString?)
+              nestedDocstrings.getD field.projFn (plainDocstringHtml field.docString? texPrelude)
         pure <| renderTitledSection? decl (if isClass then "Methods" else "Fields") rows
       | _ => pure none
 
@@ -617,7 +618,7 @@ private def renderDeclHtmlDocstringFromInfoE
       | .inductive ctors _ _ =>
         let rows ← ctors.mapM fun ctor =>
           renderDocNameCtor ctor <|
-            nestedDocstrings.getD ctor.name (plainDocstringHtml ctor.docstring?)
+            nestedDocstrings.getD ctor.name (plainDocstringHtml ctor.docstring? texPrelude)
         pure <| renderTitledSection? decl "Constructors" rows
       | _ => pure none
 
@@ -714,7 +715,7 @@ def renderPlainDecl (decl : Name) (kindMarker signature : String) (doc? : Option
         </details>
       }}
     | none => .empty
-  let body : ExternalDeclHtml := {{ {{docsHtml (plainDocstringHtml doc?)}} {{sourceHtml}} }}
+  let body : ExternalDeclHtml := {{ {{docsHtml (plainDocstringHtml doc? "")}} {{sourceHtml}} }}
   let html := renderExternalDeclWrapper decl kindMarker kindMarker signatureHtml body
     (headerSource? := headerSource?)
   { html := html.render, hoverPayloads := #[] }

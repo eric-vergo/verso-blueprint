@@ -584,6 +584,10 @@ Verso Blueprint builds on:
   Apache 2.0 licence that lays out and draws the dependency graph; it is a Lake
   dependency, and none of its files are copied into this repository or into a
   generated site
+- [MD4Lean](https://github.com/acmepjz/md4lean), Lean bindings (MIT licence) to
+  the [md4c](https://github.com/mity/md4c) Markdown parser (MIT licence), with
+  which Verso renders docstrings when a site is built; it is a Lake dependency
+  of Verso, and the generated pages load no Markdown renderer of their own
 
 Verso Blueprint has been directly inspired by previous blueprint projects:
 

@@ -129,11 +129,12 @@ theorem sameModuleRenderPackageExists (x y : Nat) (hxy : x <= y) :
           !out.contains "sameModuleRenderPackage.mk" &&
           !out.contains "Constructor"
       | none => false
-    let theoremDocstringAvailableForRuntimeMarkdown :=
+    let theoremDocstringRenderedAtBuildTime :=
       match samePackageExists? with
       | some samePackageExists =>
         let out := samePackageExists.render
-        out.contains "<pre class=\"docstring\">Given a counterexample-shaped input `x + y = y + x`" &&
+        out.contains "<div class=\"docstring\"><p>Given a counterexample-shaped input <code>x + y = y + x</code>" &&
+          !out.contains "<pre class=\"docstring\">" &&
           out.contains "produce a package." &&
           !out.contains "<span class=\"bp_external_decl_header_meta\">(docstring)</span>"
       | none => false
@@ -145,7 +146,7 @@ theorem sameModuleRenderPackageExists (x y : Nat) (hxy : x <= y) :
         unsafeDefUsesUniformDefinitionRendering &&
         unsafeAbbrevUsesUniformAbbrevRendering &&
         structureUsesFieldFirstRendering &&
-        theoremDocstringAvailableForRuntimeMarkdown &&
+        theoremDocstringRenderedAtBuildTime &&
         prod?.isSome &&
         sameDef?.isSome &&
         sameAbbrev?.isSome &&
