@@ -2471,8 +2471,10 @@ The rules, as the messages number them:
 - **S1** `Solution.lean` imports no module under `Comparator`. It may import
   the project's library.
 - **K1** The project's Lake workspace can build both modules: a library holds
-  them. `lake exe vbp build`, `vbp check` and `vbp comparator-check` check
-  this; for example, in `lakefile.toml`:
+  them. `lake exe vbp build` checks this with the workspace it loads anyway;
+  `vbp check` and `vbp comparator-check` check the files only, since loading
+  a workspace whose packages are missing makes Lake fetch them. For example, in
+  `lakefile.toml`:
 
   ```toml
   [[lean_lib]]
@@ -2501,15 +2503,18 @@ kernel replay (see "The headline" above and "Kernel replay" below).
 
 #### Checking the layout
 
-- `lake exe vbp build` checks the layout before it builds anything; a project
-  that does not follow it stops with exit code 1 and the messages, one per line.
+- `lake exe vbp build` checks the layout, rule K1 included, before it builds
+  anything; a project that does not follow it stops with exit code 1 and the
+  messages, one per line.
 - The generators check it too: a generator run (`lake exe vbp build`,
   `vbp code-site`, or a document's own `main`) of a project that does not follow
   it fails with the messages, and the render model captured while the Blueprint
   is elaborated fails its elaboration with them.
 - `lake exe vbp check` adds every violation to the errors it reports for a site.
-- `lake exe vbp comparator-check` reports the violations alone, with exit code
-  1 when there is one and 0 otherwise, for continuous integration.
+- `lake exe vbp comparator-check` reports the violations of the files' rules
+  (every rule but K1) alone, with exit code 1 when there is one and 0 otherwise,
+  for continuous integration. Neither it nor `vbp check` loads the Lake
+  workspace.
 
 A message reads:
 
@@ -2528,7 +2533,8 @@ and prints every change; with `--dry-run` it prints them and changes nothing:
 - a `comparator.json` at the root is moved into the folder and given the new
   module names; without one, the folder gets one that judges every theorem the
   challenge declares and permits Lean's standard three axioms, which is what
-  the single-challenge layout judged without the file;
+  the single-challenge layout judged without the file (in a Git checkout it is
+  added with `git add`);
 - the module names `Comparator.Challenge` and `Comparator.Solution` and the paths
   `Comparator/Challenge.lean` and `Comparator/Solution.lean` are replaced in the
   project's Lean files, `lakefile.toml` and Markdown files (whole words only).

@@ -12,9 +12,10 @@ import VersoBlueprint.Stats.Comparator
 /-!
 What `vbp` does with a project's Comparator challenges (`Informal.Stats.ComparatorLayout`):
 
-* `checkLayout` checks the layout, and that the project's Lake workspace can build every
-  challenge's two modules (rule `K1`); `vbp build` stops when it does not hold, and
-  `vbp comparator-check` reports it with an exit code for continuous integration;
+* `checkLayout` checks the layout and, given the project's Lake workspace, that it can build
+  every challenge's two modules (rule `K1`); `vbp build` checks both and stops when they do not
+  hold, and `vbp comparator-check` reports the files' rules with an exit code for continuous
+  integration (without loading the workspace, which could make Lake fetch missing packages);
 * `buildComparatorChallenges` builds each challenge module before the generator runs, so that
   the statistics' headlines compare up-to-date challenges with their solutions. Nothing imports a
   challenge (it declares the same names as its solution), so building the generator's imports
@@ -208,7 +209,8 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
   return .ok changes
 
 /-- Carry out `changes` in the project at `root`; moves use `git mv` in a Git checkout (so the
-history follows the files) and a rename otherwise. A rename of text is applied to the file's
+history follows the files), and a written file is added with `git add`; outside a checkout, a
+rename. A rename of text is applied to the file's
 place after the moves. -/
 def applyChanges (root : FilePath) (changes : Array Change) : IO Unit := do
   let git := (← entryAt (root / ".git")) != .missing
@@ -224,7 +226,13 @@ def applyChanges (root : FilePath) (changes : Array Change) : IO Unit := do
         unless out.exitCode == 0 do
           throw (IO.userError s!"git mv {src} {dst} failed: {out.stderr.trimAscii}")
       else IO.FS.rename (root / src) (root / dst)
-    | .write file text => IO.FS.writeFile (root / file) text
+    | .write file text =>
+      IO.FS.writeFile (root / file) text
+      -- a new file of the challenge is added to Git with the moved ones
+      if git then
+        let out ← IO.Process.output { cmd := "git", args := #["add", "--", file], cwd := root }
+        unless out.exitCode == 0 do
+          throw (IO.userError s!"git add {file} failed: {out.stderr.trimAscii}")
     | .rename file old new _ =>
       let path := root / placeOf file
       let text ← IO.FS.readFile path

@@ -520,10 +520,8 @@ def check (args : List String) : IO UInt32 := do
   | .ok opts =>
       try
         let data ← VersoBlueprint.Vbp.readPersistedGeneratedData opts.site
-        let workspace ← match ← loadWorkspace with
-          | .ok ws => pure (some ws)
-          | .error _ => pure none
-        let layout ← checkLayout (← IO.currentDir) workspace
+        -- the files only: loading the workspace could make Lake fetch missing packages
+        let layout ← checkLayout (← IO.currentDir) none
         let errors := VersoBlueprint.Vbp.checkGeneratedData data ++
           layout.violations.map (s!"Comparator layout: {·.render}")
         printJson (VersoBlueprint.Vbp.checkJsonFromErrors data errors)
@@ -557,10 +555,8 @@ def main (args : List String) : IO UInt32 := do
   | "comparator-check" :: rest =>
       match rest with
       | [] =>
-          let workspace ← match ← loadWorkspace with
-            | .ok ws => pure (some ws)
-            | .error _ => pure none
-          comparatorCheck (← IO.currentDir) workspace
+          -- the files only: loading the workspace could make Lake fetch missing packages
+          comparatorCheck (← IO.currentDir) none
       | _ =>
           IO.eprintln "comparator-check does not accept arguments"
           pure 2
