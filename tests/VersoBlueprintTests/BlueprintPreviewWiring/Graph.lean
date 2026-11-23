@@ -25,6 +25,15 @@ Base statement for an explicit left-to-right graph.
 {blueprint_graph (direction := LR) (pack := false)}
 :::::::
 
+#docs (Genre.Manual) splineGraphDoc "Blueprint Graph Drawn With Curves" :=
+:::::::
+:::definition "def:graph.spline.base"
+Base statement for a graph drawn with curves.
+:::
+
+{blueprint_graph (routing := spline)}
+:::::::
+
 #docs (Genre.Manual) hoverPreviewGraphDoc "Blueprint Hover Preview Graph" :=
 :::::::
 :::definition "def:graph.hover.base"
@@ -113,7 +122,7 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-direction=\"TB\"" &&
       hasSubstr out "data-bp-graph-pack=\"true\"" &&
       hasSubstr out "data-bp-graph-default-pack=\"true\"" &&
-      hasSubstr out "\"options\":{\"direction\":\"TB\",\"pack\":true}" &&
+      hasSubstr out "\"options\":{\"direction\":\"TB\",\"pack\":true,\"routing\":\"bundled\"}" &&
       hasSubstr out "data-bp-tex-prelude-id" &&
       !hasSubstr out "data-bp-tex-prelude=\"" &&
       !hasSubstr out "bp_preview_tex_prelude" &&
@@ -177,7 +186,7 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-default-direction=\"LR\"" &&
       hasSubstr out "data-bp-graph-default-pack=\"false\"" &&
       (hasSubstr out "selected value=\"LR\"" || hasSubstr out "value=\"LR\" selected") &&
-      hasSubstr out "\"options\":{\"direction\":\"LR\",\"pack\":false}" &&
+      hasSubstr out "\"options\":{\"direction\":\"LR\",\"pack\":false,\"routing\":\"bundled\"}" &&
       hasSubstr out "class=\"bp_graph_first_drawing\" data-variant=\"full\" data-direction=\"LR\"" &&
       !hasSubstr out "rankdir=LR;" &&
       !hasSubstr out "dotByDirection"
@@ -202,5 +211,20 @@ Base statement for graph preview mode option coverage.
       !files.manifest.graphs.isEmpty &&
         errors.any fun msg =>
           hasSubstr msg "Blueprint manifest: malformed graph entry graph:malformed:"
+
+
+-- `(routing := spline)` draws the graph with curves; without it the graph has bundled lanes.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let (spline, _) ← renderManualDocHtmlStringAndState manualImpls splineGraphDoc
+    let (bundled, _) ← renderManualDocHtmlStringAndState manualImpls lrDirectionGraphDoc
+    pure (
+      hasSubstr spline "\"routing\":\"spline\"" &&
+      hasSubstr spline "data-bp-routing=\"spline\"" &&
+      !hasSubstr spline "class=\"stem\"" &&
+      hasSubstr bundled "data-bp-routing=\"bundled\""
+    )
 
 end Verso.VersoBlueprintTests.BlueprintPreviewWiring.Graph
