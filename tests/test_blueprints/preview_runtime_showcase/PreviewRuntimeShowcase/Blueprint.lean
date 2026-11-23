@@ -7,10 +7,8 @@ import PreviewRuntimeShowcase.Chapters.CodePanels
 import PreviewRuntimeShowcase.Chapters.CorePreviews
 import PreviewRuntimeShowcase.Chapters.CustomRenderClient
 import PreviewRuntimeShowcase.Chapters.ExternalDeclHeadings
-import PreviewRuntimeShowcase.Chapters.GroupPreviews
-import PreviewRuntimeShowcase.Chapters.InlineHoverPreviews
-import PreviewRuntimeShowcase.Chapters.PreviewRelationships
-import PreviewRuntimeShowcase.Chapters.SideBySideRuns
+import PreviewRuntimeShowcase.Parts.Reading
+import PreviewRuntimeShowcase.Parts.Relations
 
 open Verso.Genre
 open Verso.Genre.Manual
@@ -26,10 +24,8 @@ generator checks can run against a focused, synthetic site.
 {include 0 PreviewRuntimeShowcase.Chapters.CodePanels}
 {include 0 PreviewRuntimeShowcase.Chapters.CustomRenderClient}
 {include 0 PreviewRuntimeShowcase.Chapters.ExternalDeclHeadings}
-{include 0 PreviewRuntimeShowcase.Chapters.GroupPreviews}
-{include 0 PreviewRuntimeShowcase.Chapters.PreviewRelationships}
-{include 0 PreviewRuntimeShowcase.Chapters.InlineHoverPreviews}
-{include 0 PreviewRuntimeShowcase.Chapters.SideBySideRuns}
+{include 0 PreviewRuntimeShowcase.Parts.Relations}
+{include 0 PreviewRuntimeShowcase.Parts.Reading}
 
 {blueprint_graph (pack := true)}
 {blueprint_summary}

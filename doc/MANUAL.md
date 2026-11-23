@@ -14,6 +14,7 @@ If you are starting a first project, read
 - [Labels and Node Identity](#labels-and-node-identity)
 - [Minimal Project Shape](#minimal-project-shape)
 - [The Blueprint Top-Level File](#the-blueprint-top-level-file)
+- [Parts, Chapters, and Numbers](#parts-chapters-and-numbers)
 - [A First Chapter](#a-first-chapter)
 - [Core Block Forms](#core-block-forms)
 - [Connecting Blocks to Lean](#connecting-blocks-to-lean)
@@ -321,6 +322,73 @@ This file decides:
 - whether the dependency graph is rendered
 - whether the summary page is rendered
 - whether other global pages such as the bibliography are rendered
+
+## Parts, Chapters, and Numbers
+
+The parts directly under the top-level file are the chapters. Chapters are
+numbered `1`, `2`, … and their sections `§1.1`, `§1.2`, …; statements are
+numbered by their place in the chapter or section as the
+[numbering options](#blueprint-options) say (by default `Theorem 1.2` before a
+chapter's first section and `Theorem 1.3.2` in section `§1.3`). Statements and
+sections are counted separately: `Theorem 9.1` and `§9.1` are different things,
+and the section sign keeps them apart wherever a section number is shown (its
+heading, the tables of contents, the buttons to the previous and next page and
+the site's cross-reference data; the full-text search index keeps Verso's form).
+Chapter numbers are written as Verso writes them (`9.`).
+
+### Parts
+
+A long Blueprint can group its chapters into parts, as a LaTeX book does. A part
+is an ordinary part of the document directly under the top-level file whose
+text contains `{blueprint_part}`; its own subparts are its chapters:
+
+```lean
+-- Project/Parts/Foundations.lean
+import VersoManual
+import VersoBlueprint
+import Project.Chapters.Groups
+import Project.Chapters.Orbits
+
+open Verso.Genre Manual
+
+#doc (Manual) "Foundations" =>
+
+%%%
+tag := "part-foundations"
+%%%
+
+{blueprint_part}
+
+The chapters of this part set up the groups and their orbits.
+
+{include 0 Project.Chapters.Groups}
+{include 0 Project.Chapters.Orbits}
+```
+
+```lean
+-- the top-level file
+{include 0 Project.Chapters.Introduction}
+{include 0 Project.Parts.Foundations}
+{include 0 Project.Parts.MainResult}
+```
+
+Here the introduction is Chapter 1, the part's page is titled
+`Part I — Foundations`, and its chapters are Chapters 2 and 3; the chapters of
+the next part go on with Chapter 4. Chapter numbers run through all parts, so a
+statement keeps the number it would have without parts (`Theorem 3.2` stays
+`Theorem 3.2` when its chapter moves into a part). The part's page is
+unnumbered: in the table of contents it stands before its chapters, at their
+level, with its introduction as its text. It is written to the folder `Part-I`
+unless the part names its own file (`file := ...`); its chapters keep their
+folders. A cross-reference to the part's tag shows its title, numeral included.
+TeX output has the same structure: the part's page is an unnumbered chapter.
+
+Every subpart of a part is one of its chapters, and `{blueprint_part}` counts
+only in a part directly under the top-level file; elsewhere the HTML build
+reports an error that says so. A statement belongs in a chapter: one written in a
+part's own text is numbered without a chapter number.
+
+A document without `{blueprint_part}` is numbered as before.
 
 ## A First Chapter
 
@@ -1405,6 +1473,44 @@ label-only fallback HTML.
 When labeled inline Rust code is attached to a node, the rendered page also
 shows an associated Rust code panel below the statement body.
 
+The Lean status link of a statement header (`L∃∀N`) opens a summary of the
+statement's Lean declarations, headed by the statement's numbered title
+(`Lemma 6.2`). The summary and the line under an informal statement that stands
+beside Lean code ("Informal statement from the blueprint · not checked against
+the Lean statement") end with a "What this means" link to the explanation of the
+marks on the Project Stats page, when the site has that page. Lean declarations
+attached to a proof are set in the code size of the side-by-side Lean column, and
+their signatures take Verso's narrow layout, one binder a line, whenever the
+panel is narrower than the wide layout needs.
+
+Popovers (relation panels, Lean summaries, inline previews) open on hover and
+on keyboard focus. Opening one closes any other, except one that holds the new
+trigger, such as a preview opened from a link inside a relation panel. A popover
+opened by focus closes as soon as the focus moves to an element outside it and
+its trigger; one opened by the pointer closes shortly after the pointer leaves.
+Popovers are kept inside the viewport and beside, not under, the table of
+contents, and are never wider than the screen.
+
+### Links to repository files
+
+`{repoFile "path"}[text]` links its text to a file or folder of the project's
+repository at the commit the site is built from, as the source links of Lean
+declarations are:
+
+```lean
+See the {repoFile "notes/engine.md"}[engine guide] and the
+{repoFile "Project/Main.lean#L10-L20"}[main loop].
+```
+
+The path is relative to the root of the repository; a fragment (`#L10-L20`) is
+kept. Elaboration fails when the path is absolute, leaves the repository (`..`),
+or names nothing in the checkout that contains the chapter. The link is made
+when the site is generated, from the `HEAD` commit and the GitHub `origin`
+remote of the checkout it is generated in
+(`https://github.com/<owner>/<repo>/blob/<commit>/<path>`); outside a Git
+checkout with a GitHub `origin` the text is shown without a link. TeX output
+shows the text.
+
 ### Side-by-side layout
 
 A generator can render every statement that has `(lean := ...)` references as a
@@ -1749,10 +1855,15 @@ arrowhead lies along the end of its curve. The line styles keep their meaning:
 an edge from a definition is dashed, an edge that only a proof uses is dotted,
 and an edge that both the statement and the proof use is thicker.
 
-Labels are drawn at 12 pixels. A label that is a long dotted name (a module, a
-declaration in its namespaces) is broken after dots into lines of at most 28
-characters, so that a node is not much wider than the others; the node's name
-and its tooltip keep the whole name.
+Labels are drawn at 12 pixels. A node of a statement the document numbers is
+labelled with its numbered title (`Theorem 6.5`); its label (`critical_radius`)
+stays its name and its tooltip, and both make its accessible name: every node is
+an image (`role="img"`) named by `aria-label` (`Theorem 6.5 (critical_radius)`),
+and on the page a node that opens a view or preview is a button the keyboard
+reaches (`role="button"`). Other nodes are labelled with their label. A label
+that is a long dotted name (a module, a declaration in its namespaces) is broken
+after dots into lines of at most 28 characters, so that a node is not much wider
+than the others; the node's name and its tooltip keep the whole name.
 
 Measured against Graphviz `dot` (16.1.0) on dependency graphs of real projects, both given
 the same node sizes and gaps, with the layout's own default options. The first numbers are this
@@ -2967,6 +3078,27 @@ generator never wrote is on no record and is never removed, so files a person
 put into the folder stay; the first build into a folder that holds an older
 site without a record removes nothing.
 
+### Checks of the written site
+
+After a site is written, the generator checks its navigation: every link of a
+`nav` element (Verso's table of contents, the buttons to the previous and next
+page, a sidebar) and every link with a `bp_` class (the links the Blueprint
+generates, such as "What this means") that names a place on a page of the site
+(`Chapter/#id`) must find a page with that `id`, resolved against the page's
+`<base href>` as a browser resolves it. A dead link fails the build with an error
+that names the page and the link. Links written in the document's text are the
+author's and are not checked; a fragment with `=` (`#node=…`, `#ego=…`) is state
+a page's script reads, not a place, and is not checked either.
+
+Pages are written with a viewport that lets the reader zoom
+(`width=device-width, initial-scale=1`).
+
+The title page shows when the site was compiled, the project's commit, the Lean
+toolchain, and the commits of VersoBlueprint and, when the project uses them,
+of Mathlib and an upstream formalization, each once: a package pinned by a commit
+shows that commit, and one pinned by a branch or tag shows the name and the
+commit (`v4.35.0@56a0058`). Commit subjects are not shown.
+
 ### Reproducible output
 
 By default the title page shows when and from which commits the site was built,
@@ -2989,7 +3121,7 @@ also accepts one by one:
 - `--omit-build-time` drops the "Compiled" timestamp from the build metadata,
   and the run-dependent facts of the kernel replay named above;
 - `--omit-git-metadata` drops facts read from Git working trees (the project's
-  and the upstream formalization's commit and subject, and versions of path
+  and the upstream formalization's commit, and versions of path
   dependencies); versions pinned in `lake-manifest.json` and repository links
   stay;
 - `--relative-source-paths` writes `sourceLocation.location.path` in

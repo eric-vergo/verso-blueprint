@@ -13,6 +13,7 @@ import VersoBlueprint.Informal.Block.Common
 import VersoBlueprint.Informal.LeanCodePreviewKey
 import VersoBlueprint.Informal.LeanCodeLink
 import VersoBlueprint.Lib.HoverRender
+import VersoBlueprint.Meaning
 import VersoBlueprint.Replay
 
 namespace Informal
@@ -630,9 +631,21 @@ def renderPanelIndicator (label : Data.Label) (cdata : ComputedData)
       { summaryTitle := inlinePanel.summaryTitle ++ "\n" ++ externalPanel.summaryTitle
         indicator := .seq #[inlinePanel.indicator, externalPanel.indicator] }
 
-/-- Heading status and tooltip cover every association, independent of panel layout. -/
+/-- The summary's closing line: a link to the explanation of the marks, when the site has one. -/
+private def withMeaningLink (body : Output.Html) (meaningHref? : Option String) : Output.Html :=
+  match meaningHref? with
+  | some href =>
+    .seq #[body, .element "p" #[("class", "bp_code_summary_meaning")]
+      (.element "a" #[("class", "bp_meaning_link"), ("href", href)]
+        (.text Informal.Meaning.linkText))]
+  | none => body
+
+/-- Heading status and tooltip cover every association, independent of panel layout. The
+tooltip is headed `heading` (the statement's numbered title) and ends with a link to the
+explanation of the marks at `meaningHref?`. -/
 def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Option String)
-    (replay? : Option Replay.Result := none) : RenderParts :=
+    (replay? : Option Replay.Result := none) (heading : String := toString data.label)
+    (meaningHref? : Option String := none) : RenderParts :=
   if data.isProof then {} else
   let source := cdata.source.getD {}
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
@@ -645,8 +658,9 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
       (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
       renderHealth
   { statusMark := if source.isEmpty then none else some statusMark
-    codeEntry := renderCodeEntryWrap cdata.codeHref title s!"{data.label}"
-      (renderSummaryPreview cdata hrefOf) (codeEntryVisual (!source.isEmpty) statusMark replay?)
+    codeEntry := renderCodeEntryWrap cdata.codeHref title heading
+      (withMeaningLink (renderSummaryPreview cdata hrefOf) meaningHref?)
+      (codeEntryVisual (!source.isEmpty) statusMark replay?)
       renderHealth }
 
 /-- The heading status of a statement of kind `kind` whose Lean side is `source?`, as

@@ -14,6 +14,7 @@ import Lean.Elab.InfoTree.Types
 import VersoManual
 
 import VersoBlueprint.Commands.Common
+import VersoBlueprint.Commands.SiteSections
 import VersoBlueprint.Data
 import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Environment
@@ -138,7 +139,8 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               codeHref := Informal.TraversalIndex.InlineCode.firstHref? s data.label
               source := codeHint?
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
-            } getDeclHref (replayOf? s)
+            } getDeclHref (replayOf? s) (heading := data.displayTitle s)
+              (meaningHref? := Commands.meaningHref? s)
           | true => none
         let formalColumn? : Option Output.Html ←
           if sideBySide && !data.isProof && !externalDecls.isEmpty then
@@ -194,8 +196,9 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           sideBySideNode := sideBySide && !data.isProof
           statementSourceNote := !data.isProof && data.codeData.any (!·.isEmpty) &&
             (!blocks.isEmpty || selectedMarkupAndContent?.isSome)
+          meaningHref? := Commands.meaningHref? s
           claim := if data.isProof then .empty else
-            ((claimFor? s data).map (·.render)).getD .empty
+            ((claimFor? s data).map (·.render (Commands.meaningHref? s))).getD .empty
         }
 
 /- Informal custom blocks -/

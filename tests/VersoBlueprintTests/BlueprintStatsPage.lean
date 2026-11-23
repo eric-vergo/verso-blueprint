@@ -111,7 +111,8 @@ private def rokickiLike : ProjectStats := {
 
 private def view (stats : ProjectStats) : StatsPageView := {
   stats
-  page := { links := #[{ label := "GitHub", href := "https://example.org/repo" }] }
+  page := { links := #[{ label := "GitHub", href := "https://example.org/repo" }]
+            meaningHref := some s!"Project-Stats/#{Informal.Meaning.anchor}" }
   chapters := #[
     { title := "Binary expansions", number := some "1", href := some "/Binary/#binary",
       progress := { formalizedWithAncestors := 10 } },
@@ -179,7 +180,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
     hasSubstr html "No node's Lean code uses sorry, an axiom outside Lean's standard three or the \
       result of compiled code, as Lean reports the axioms of this build." &&
     hasSubstr html s!"id=\"{Informal.Meaning.anchor}\"" &&
-    hasSubstr html s!"<a href=\"#{Informal.Meaning.anchor}\" class=\"bp_meaning_link\">What this means</a>" &&
+    hasSubstr html s!"<a href=\"Project-Stats/#{Informal.Meaning.anchor}\" class=\"bp_meaning_link\">What this means</a>" &&
     meaningItems.all (fun item => hasSubstr html item.1) &&
     hasSubstr html "<a href=\"lean:help/marks\">" &&
     appearsBefore html "bp_stats_trust" "bp_stats_meaning" &&
@@ -344,6 +345,9 @@ A theorem.
       hasSubstr html "class=\"bp_project_stats bp_replay_none\"" &&
       hasSubstr html "data-bp-chapter=\"Sums\"" &&
       hasSubstr html "<a href=\"https://example.org/repo\">Repository</a>" &&
+      -- the page's links to its own explanation resolve against the site's root (`<base href>`)
+      hasSubstr html s!"href=\"Project-Stats/#{Informal.Meaning.anchor}\"" &&
+      !hasSubstr html s!"href=\"#{Informal.Meaning.anchor}\"" &&
       hasSubstr index "Project-Stats" &&
       !(← (root / "flag" / "html-multi" / "Project-Stats").pathExists) &&
       !(← (root / "off" / "html-multi" / "Project-Stats").pathExists))

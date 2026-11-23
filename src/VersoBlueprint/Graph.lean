@@ -121,6 +121,9 @@ def nodeStatusClasses (kind : Data.NodeKind) (statement : StatementStatus) (proo
 structure GraphNode (Ref : Type) where
   label : Name
   displayLabel? : Option String := none
+  /-- The node's numbered title in the document (`Theorem 6.5`), when it has one: drawings label
+  the node with it, and keep the label for the node's tooltip and accessible name. -/
+  caption? : Option String := none
   deps : Array Name
   proofDeps : Array Name := #[]
   parent? : Option Name := none
@@ -145,7 +148,7 @@ deriving Inhabited, Repr, ToJson, FromJson
 instance [Quote Ref] : Quote (GraphNode Ref) where
   quote n := Syntax.mkCApp ``GraphNode.mk
     #[
-      quote n.label, quote n.displayLabel?, quote n.deps, quote n.proofDeps, quote n.parent?, quote n.shape,
+      quote n.label, quote n.displayLabel?, quote n.caption?, quote n.deps, quote n.proofDeps, quote n.parent?, quote n.shape,
       quote n.style, quote n.fillcolor, quote n.color, quote n.penwidth, quote n.fontcolor, quote n.peripheries,
       quote n.gradientangle?, quote n.tooltip?, quote n.ref?, quote n.svgClass
     ]
@@ -380,10 +383,23 @@ structure CachedGraphData where
   options : GraphOptions
 deriving Inhabited, Repr, ToJson, FromJson, Quote
 
+/-- The numbered title of a node (`Theorem 6.5`, `Lemma A.2`): a title whose last word is a
+number, digits and capital letters joined by dots with at least one digit. A title of a node of a
+document numbered `none` ends with the node's label instead (`Theorem Project.main`), and the
+title of a node outside the document is its label: neither numbers the node. -/
+def numberedCaption? (title : String) : Option String :=
+  let title := title.trimAscii.toString
+  let last := ((title.splitOn " ").getLast?).getD ""
+  let isNumber := last.any Char.isDigit &&
+    last.all (fun c => c.isDigit || c.isUpper || c == '.') && !last.startsWith "." &&
+    !last.endsWith "."
+  if title.contains ' ' && isNumber then some title else none
+
 private def NodeData.toGraphNode (node : NodeData) : GraphNode String :=
   {
     label := node.label
     displayLabel? := some node.displayLabel
+    caption? := numberedCaption? node.title
     deps := node.statementUses.map (fun useRef => (useRef.label : Name))
     proofDeps := node.proofUses.map (fun useRef => (useRef.label : Name))
     parent? := node.parent

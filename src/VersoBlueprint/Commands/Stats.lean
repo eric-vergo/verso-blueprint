@@ -10,7 +10,9 @@ import VersoManual
 import VersoBlueprint.Axioms
 import VersoBlueprint.Commands.Common
 import VersoBlueprint.Commands.SerializedExtension
+import VersoBlueprint.Commands.SiteSections
 import VersoBlueprint.Commands.WorkQueue
+import VersoBlueprint.Git
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Store
 import VersoBlueprint.Lib.ExtensionDecode
@@ -75,9 +77,9 @@ structure StatsPageData where
   documentTitle : Option String := none
   /-- External links shown with the identity (generators pass their sidebar links). -/
   links : Array StatsLink := #[]
-  /-- The page of the explanation of the marks is this page, so its notes link to the anchor
-  alone. -/
-  meaningHref : Option String := Option.some s!"#{Informal.Meaning.anchor}"
+  /-- The address of the explanation of the marks (`meaningHref?`); the page fills it in from the
+  site when it is drawn. -/
+  meaningHref : Option String := Option.none
 deriving Inhabited, Repr, BEq, ToJson, FromJson
 
 /-- A Blueprint node as the page links to it. -/
@@ -119,9 +121,6 @@ structure StatsPageView where
   Lean's standard three, sorted (`ReplayView.Index.resting`). -/
   resting : Array Name := #[]
 deriving Inhabited
-
-/-- The title of the page in the table of contents. -/
-def statsPageTitle : String := "Project Stats"
 
 /-- The title of the page `{blueprint_summary}` adds. -/
 def summaryPageTitle : String := "Blueprint Summary"
@@ -258,7 +257,7 @@ private def identityHtml (view : StatsPageView) : Output.Html :=
   let packages := identity.packages.filter (!·.inherited) |>.map fun pkg =>
     let version := match pkg.rev with
       | some rev => match pkg.inputRev with
-        | some input => if input == rev then shortRev rev else s!"{input} · {shortRev rev}"
+        | some input => if Git.sameRevision input rev then shortRev rev else s!"{input} · {shortRev rev}"
         | Option.none => shortRev rev
       | Option.none => pkg.dir.map (fun _ => "local") |>.getD pkg.source
     el "li" "bp_stats_chip bp_stats_chip_package" (.seq #[el "span" "bp_stats_chip_name" (txt pkg.name),
@@ -980,51 +979,6 @@ def statsPageHtml (view : StatsPageView) : Output.Html :=
 
 /-! ## Reading the traversal -/
 
-/-- A section of the site as Verso's section domain records it. -/
-structure SiteSection where
-  title : String
-  number : Option String := none
-  link : Verso.Multi.Link
-  /-- How many headers enclose it, itself and the document's root included. -/
-  depth : Nat
-deriving Inhabited
-
-/-- Every section of the site that has an address. -/
-def siteSections (state : TraverseState) : Array SiteSection :=
-  match state.domains.get? sectionDomain with
-  | Option.none => #[]
-  | some domain => domain.objects.foldl (init := #[]) fun acc _ obj =>
-    let title? := (obj.data.getObjValAs? String "title").toOption
-    let number := (obj.data.getObjValAs? String "sectionNum").toOption
-    let depth := ((obj.data.getObjValAs? (Array Json) "context").toOption.map (·.size)).getD 0
-    let link? := obj.ids.toArray.foldl (init := none) fun found id =>
-      found <|> state.externalTags[id]?
-    match title?, link? with
-    | some title, some link => acc.push { title, number, link, depth }
-    | _, _ => acc
-
-/-- The outermost section of the page in directory `dir` (a chapter's own heading). -/
-def chapterSection? (sections : Array SiteSection) (dir : String) : Option SiteSection :=
-  sections.foldl (init := none) fun best s =>
-    if s.link.path != #[dir] then best
-    else match best with
-      | some b => if s.depth < b.depth then some s else some b
-      | Option.none => some s
-
-/-- The outermost section with the given title, such as the summary page. -/
-def pageSection? (sections : Array SiteSection) (title : String) : Option SiteSection :=
-  sections.foldl (init := none) fun best s =>
-    if s.title != title then best
-    else match best with
-      | some b => if s.depth < b.depth then some s else some b
-      | Option.none => some s
-
-/-- The address of the explanation of the marks from another page of the site: the Project
-Stats page's anchor, when the site has the page. -/
-def meaningHref? (state : TraverseState) : Option String :=
-  (pageSection? (siteSections state) "Project Stats").map fun s =>
-    String.join (s.link.path.toList.map (· ++ "/")) ++ "#" ++ Informal.Meaning.anchor
-
 /-- The node's numbered title ("Lemma 4.2"), falling back to the graph's display label. -/
 private def nodeTitle (state : TraverseState) (node : Graph.NodeData) : String :=
   match Informal.TraversalIndex.Nodes.display? state node.label with
@@ -1093,6 +1047,7 @@ private def statsToHtml :
       | .ok graph => pure (some graph)
       | .error message => Verso.reportError message; pure none
     let (some stats, some graph) := (stats, graph) | pure .empty
+    let data := { data with meaningHref := data.meaningHref <|> meaningHref? s }
     pure (statsPageHtml (StatsPageView.build s stats graph data))
 
 block_extension Block.projectStats (data : StatsPageData) where

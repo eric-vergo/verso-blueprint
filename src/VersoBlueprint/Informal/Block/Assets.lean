@@ -12,6 +12,21 @@ import VersoBlueprint.StyleSwitcher
 namespace Informal.Block.Assets
 
 def css : String := r##"
+:root {
+  /* The size of Lean code in Blueprint panels and in the side-by-side Lean column. */
+  --bp-code-text-size: 0.82rem;
+}
+
+/* On a narrow window Verso moves the closed table of contents off the screen; hidden as well
+   (once it has slid away), its links leave the tab order until it is opened. */
+@media screen and (max-width: 700px) {
+  #toc:not(:has(#toggle-toc:checked)) {
+    visibility: hidden;
+    transition: transform var(--verso-toc-transition-time) ease,
+      visibility 0s linear var(--verso-toc-transition-time);
+  }
+}
+
 .bp_wrapper {
   scroll-margin-top: 1rem;
   margin: 0.85rem 0;
@@ -620,7 +635,7 @@ span[class$="_thmlabel"]::after {
   left: 50%;
   top: 100%;
   transform: translateX(-50%);
-  min-width: 20rem;
+  min-width: min(20rem, calc(100vw - 1rem));
   max-width: min(34rem, 75vw);
   z-index: 20;
   border: 1px solid var(--bp-color-border);
@@ -820,6 +835,37 @@ html[data-lean-links] .bp_lean_jumps {
   padding: 0.52rem 0.55rem;
 }
 
+/* A declaration in a code panel is set in the code size of the side-by-side Lean column, and its
+   signature is laid out for the panel's width rather than the window's: Verso's narrow layout,
+   one binder a line, whenever the panel is narrower than a wide signature needs. */
+.bp_code_panel .bp_external_decl_rendered {
+  container-type: inline-size;
+}
+
+.bp_code_panel .bp_external_decl_rendered pre.bp_external_decl_signature.hl.lean {
+  font-size: var(--bp-code-text-size);
+}
+
+@container (max-width: 40rem) {
+  .bp_code_panel .bp_external_decl_signature_wrap > .wide-only {
+    display: none;
+  }
+
+  .bp_code_panel .bp_external_decl_signature_wrap > .narrow-only {
+    display: block;
+  }
+}
+
+@container (min-width: 40rem) {
+  .bp_code_panel .bp_external_decl_signature_wrap > .wide-only {
+    display: block;
+  }
+
+  .bp_code_panel .bp_external_decl_signature_wrap > .narrow-only {
+    display: none;
+  }
+}
+
 .bp_code_panel .bp_external_decl_rendered .bp_external_decl_body:not(:empty) {
   padding: 0.5rem 0.55rem;
 }
@@ -926,10 +972,11 @@ html[data-lean-links] .bp_lean_jumps {
 }
 
 .bp_relation_panel {
+  box-sizing: border-box;
   position: absolute;
   top: 100%;
   right: 0;
-  min-width: 26rem;
+  min-width: min(26rem, calc(100vw - 1rem));
   width: min(50rem, 92vw);
   z-index: 26;
   border: 1px solid var(--bp-color-border);
@@ -950,7 +997,7 @@ html[data-lean-links] .bp_lean_jumps {
 }
 
 .bp_source_ref_panel {
-  min-width: 20rem;
+  min-width: min(20rem, calc(100vw - 1rem));
   width: min(32rem, 92vw);
 }
 
@@ -1583,8 +1630,7 @@ a.bp_external_decl_source_path:hover {
 
 .bp_external_decl_rendered .bp_external_decl_signature .token,
 .bp_external_decl_rendered .name-and-type .token {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .bp_external_decl_rendered .bp_external_decl_body:empty {

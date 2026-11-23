@@ -191,7 +191,8 @@ def first_preview_node(page: Page):
 
 
 def preview_node_by_label(page: Page, label: str):
-    node = page.locator(".bp_graph_canvas svg g.node[tabindex='0']").filter(has_text=label).first
+    # a node is drawn with its numbered title; its label is its name
+    node = page.locator(f".bp_graph_canvas svg g.node[tabindex='0'][data-bp-node-name='{label}']").first
     node.wait_for()
     return node
 

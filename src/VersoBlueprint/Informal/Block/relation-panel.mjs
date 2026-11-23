@@ -1,3 +1,5 @@
+import { keepPanelInView } from "../../Commands/preview-runtime-lifecycle.mjs";
+
   export function relationPreviewDiagnosticOptions(detail) {
     return {
       rootClass: "bp_relation_preview_message",
@@ -217,6 +219,7 @@
       if (wrap instanceof Element) {
         wrap.classList.add("bp_relation_wrap_open");
       }
+      keepPanelInView(panel);
       setExpanded(true);
       if (opts.loadPreview !== false) {
         loadActivePreview();
@@ -228,6 +231,7 @@
       if (wrap instanceof Element) {
         wrap.classList.remove("bp_relation_wrap_open");
       }
+      if (panel instanceof HTMLElement) panel.style.translate = "";
       setExpanded(false);
     }
 
@@ -289,7 +293,9 @@
         shouldKeepOpen: function (_trigger, ev) {
           return surface.shouldKeepOpen(ev && ev.relatedTarget, wrap);
         },
-        onPanelEnter: function () { openWrap(); },
+        // entering an open panel keeps its preview: rendering it again would take the focus
+        // from a link inside it
+        onPanelEnter: function () { openWrap({ loadPreview: !wrapIsOpen() }); },
         bindWindow: false
       });
       surface.bindDismissal({

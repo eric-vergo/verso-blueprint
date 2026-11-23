@@ -345,6 +345,7 @@ def blueprintTokensCss : String :=
 
 def previewPanelCss : String := r##"
 .bp_preview_panel {
+  box-sizing: border-box;
   border: 1px solid var(--bp-color-border);
   border-radius: var(--bp-radius-lg);
   background: var(--bp-color-surface);
@@ -459,7 +460,8 @@ def inlinePreviewCss : String := r##"
   display: flex;
   flex-direction: column;
   z-index: 70;
-  min-width: 18rem;
+  box-sizing: border-box;
+  min-width: min(18rem, calc(100vw - 1.5rem));
   max-width: min(34rem, 86vw);
   max-height: min(26rem, 80vh);
   overflow: hidden;
