@@ -15,10 +15,10 @@ require subverso from git "https://github.com/eric-vergo/subverso"@"4e04c61d9696
 require proofwidgets from git "https://github.com/leanprover-community/ProofWidgets4"@"v0.0.120"
 require lean_vir from git "https://github.com/ejgallego/lean-vir"@"64497b98aaa39378bc581f2f1e87c4412e2d4154"
 -- Typesets blueprint math when the site is built (`VersoBlueprint.StaticMath`).
-require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"9badbe4cac48c2061f738e114dc6cb0b66c316be"
+require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"be3eb1be7bc199d1649e5638bf700641b90a0fdb"
 
 -- Lays out and draws the dependency graph when the site is built (`VersoBlueprint.GraphLayout`).
-require pilean from git "https://github.com/eric-vergo/PILean"@"f55e4e6aa5f5206bbebf2185ec35c32000051aea"
+require pilean from git "https://github.com/eric-vergo/PILean"@"a3d961d432bdf17da516a42bbc1f7e0c5cd11f1f"
 
 package VersoBlueprint where
   leanOptions := #[⟨`experimental.module, true⟩]
