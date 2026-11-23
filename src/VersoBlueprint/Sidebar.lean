@@ -77,9 +77,9 @@ def headHtml (cfg : Config) : Array Verso.Output.Html :=
   -- `<` cannot occur in the JSON payload's markup context once escaped this way.
   let json := (cfg.toJson.compress.replace "<" "\\u003c")
   #[
-    .tag "meta" #[("name", metaName), ("content", "on")] .empty,
-    .tag "script" #[("type", "application/json"), ("id", configElementId)] (.text false json),
-    .tag "script" #[] (.text false themeInitScript)
+    .element "meta" #[("name", metaName), ("content", "on")] .empty,
+    .element "script" #[("type", "application/json"), ("id", configElementId)] (.raw json),
+    .element "script" #[] (.raw themeInitScript)
   ]
 
 /-- Enable the sidebar for a generated site. -/

@@ -170,8 +170,9 @@ structure Result where
   axioms : Array (Name × Array Name) := #[]
   /-- What each checker answered, in the order they ran; empty when none ran. -/
   checkers : Array CheckerRun := #[]
-  /-- The declaration records of the export (`def`, `thm`, `opaque`, `axiom`, `inductive`,
-  `quot`), as the generator counted them in the file. -/
+  /-- The declaration records of the export (`def`, `thm`, `opaque`, `axiom`, `inductive`; not
+  the quotient package's `quot` records, which the checkers do not count), as the generator
+  counted them in the file. -/
   records : Nat := 0
   /-- The number of constants in the export. -/
   constants : Nat := 0

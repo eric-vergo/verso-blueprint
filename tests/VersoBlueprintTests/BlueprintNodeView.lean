@@ -27,8 +27,8 @@ private def view : NodeView.NodeView := {
   title := "Theorem 1.2"
   href? := some "Chapter/#thm-x"
   status := (.proved, "Lean proof complete: no sorry in it or in what it uses")
-  informal? := some (.text true "Every x is fine.")
-  lean := #[.tag "div" #[("class", "card")] (.text true "theorem x : True")]
+  informal? := some (.text "Every x is fine.")
+  lean := #[.element "div" #[("class", "card")] (.text "theorem x : True")]
   leanDecls := #[`Foo.x, `Foo.x]
   uses := #[{ label := "def:y", title := "Definition 1.1", href? := some "Chapter/#def-y" }]
   usedBy := #[{ label := "thm:z", title := "Theorem 2.1" }]
@@ -38,7 +38,7 @@ private def view : NodeView.NodeView := {
 /-- info: true -/
 #guard_msgs in
 #eval
-  let out := view.render.asString
+  let out := view.render.render
   hasSubstr out "data-bp-node-view=\"thm:x\"" &&
     hasSubstr out "data-bp-node-view-layout=\"both\"" &&
     hasSubstr out "data-lean-decls=\"Foo.x\"" &&
@@ -58,17 +58,17 @@ private def view : NodeView.NodeView := {
 /-- info: true -/
 #guard_msgs in
 #eval
-  let leanOnly := { view with informal? := none }.render.asString
-  let blank := { view with informal? := some (.text true "  ") }.render.asString
+  let leanOnly := { view with informal? := none }.render.render
+  let blank := { view with informal? := some (.text "  ") }.render.render
   hasSubstr leanOnly "data-bp-node-view-layout=\"lean\"" &&
     hasSubstr leanOnly "class=\"bp_sbs bp_sbs_single bp_node_view_body\"" &&
     hasSubstr leanOnly "class=\"bp_sbs_formal\"" && !hasSubstr leanOnly "bp_sbs_informal" &&
     -- a proof without a statement is not shown on its own
-    !hasSubstr { view with informal? := none, proof? := some (.text true "P") }.render.asString
+    !hasSubstr { view with informal? := none, proof? := some (.text "P") }.render.render
       "bp_node_view_proof" &&
     -- a blank statement counts as none when the caller says what blank is
-    hasSubstr ({ view with informal? := some (.text true "  ") }.render
-        (isBlank := fun h => h.asString.trimAscii.isEmpty)).asString
+    hasSubstr ({ view with informal? := some (.text "  ") }.render
+        (isBlank := fun h => h.render.trimAscii.isEmpty)).render
       "data-bp-node-view-layout=\"lean\"" &&
     hasSubstr blank "data-bp-node-view-layout=\"both\""
 
@@ -77,14 +77,14 @@ private def view : NodeView.NodeView := {
 /-- info: true -/
 #guard_msgs in
 #eval
-  let prose := { view with lean := #[], leanDecls := #[], uses := #[], usedBy := #[] }.render.asString
-  let axioms := { view with axioms? := some #[``propext, ``Classical.choice] }.render.asString
-  let none' := { view with axioms? := some #[] }.render.asString
+  let prose := { view with lean := #[], leanDecls := #[], uses := #[], usedBy := #[] }.render.render
+  let axioms := { view with axioms? := some #[``propext, ``Classical.choice] }.render.render
+  let none' := { view with axioms? := some #[] }.render.render
   hasSubstr prose "data-bp-node-view-layout=\"informal\"" && !hasSubstr prose "bp_sbs_formal" &&
     !hasSubstr prose "data-lean-decls" && !hasSubstr prose "bp_node_view_relations" &&
     hasSubstr axioms ">Axioms<" && hasSubstr axioms "<code>Classical.choice</code>" &&
     hasSubstr axioms "data-bp-axiom-class=\"standard\"" &&
-    !hasSubstr view.render.asString ">Axioms<" &&
+    !hasSubstr view.render.render ">Axioms<" &&
     hasSubstr none' ">Axioms<" && hasSubstr none' "bp_axiom_none"
 
 /-- A theorem stated in prose and in Lean. -/

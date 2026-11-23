@@ -120,9 +120,9 @@ private def hasHexColor (s : String) : Bool :=
 #guard_msgs in
 #eval
   let html := (Informal.Commands.summaryCard "Ready now" "3"
-    (accent? := StatusColors.readyBorder)).asString
+    (accent? := StatusColors.readyBorder)).render
   hasSubstr html "bp_summary_card bp_summary_card_status" &&
   hasSubstr html "--bp-summary-status: var(--bp-color-status-ready-border)" &&
-  !hasSubstr (Informal.Commands.summaryCard "Total" "3").asString "bp_summary_card_status"
+  !hasSubstr (Informal.Commands.summaryCard "Total" "3").render "bp_summary_card_status"
 
 end Verso.VersoBlueprintTests.BlueprintGraph.StatusColors

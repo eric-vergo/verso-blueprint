@@ -46,11 +46,11 @@ structure ClaimView where
   attestations : Array Attestation := #[]
 deriving Inhabited, Repr, BEq
 
-private def txt (s : String) : Html := .text true s
+private def txt (s : String) : Html := .text s
 
 private def el (tag cls : String) (content : Html) (attrs : Array (String × String) := #[]) :
     Html :=
-  .tag tag (#[("class", cls)] ++ attrs) content
+  .element tag (#[("class", cls)] ++ attrs) content
 
 /-- What the claim refers to, in words: "Theorem 2.2 of Title (authors; version)". -/
 def ClaimView.citation (c : ClaimView) : String :=
@@ -84,10 +84,10 @@ def ClaimView.render (c : ClaimView) (meaningHref? : Option String := none) : Ht
   let cite : Html :=
     if citation.isEmpty then .empty
     else match c.sourceLink with
-      | some href => .tag "a" #[("href", href), ("class", "bp_claim_cite")] (txt citation)
+      | some href => .element "a" #[("href", href), ("class", "bp_claim_cite")] (txt citation)
       | none => el "span" "bp_claim_cite" (txt citation)
   let meaning : Html := match meaningHref? with
-    | some href => .seq #[txt " ", .tag "a" #[("href", href), ("class", "bp_meaning_link")]
+    | some href => .seq #[txt " ", .element "a" #[("href", href), ("class", "bp_meaning_link")]
         (txt Informal.Meaning.linkText)]
     | none => .empty
   let attestations : Html :=

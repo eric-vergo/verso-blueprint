@@ -47,17 +47,17 @@ private def classesContain (attrs : Array (String × String)) (cls : String) : B
 
 /-- Whether an element carries class `cls`. -/
 private def hasClass : Html → String → Bool
-  | .tag _ attrs _, cls => classesContain attrs cls
+  | .element _ attrs _, cls => classesContain attrs cls
   | _, _ => false
 
 /-- The label of a side-by-side statement node. -/
 private def nodeLabel? : Html → Option String
-  | .tag _ attrs _ => if classesContain attrs "bp_sbs" then attr? attrs "data-bp-node" else none
+  | .element _ attrs _ => if classesContain attrs "bp_sbs" then attr? attrs "data-bp-node" else none
   | _ => none
 
 /-- The statement label of a proof block. -/
 private def proofLabel? : Html → Option String
-  | .tag _ attrs _ =>
+  | .element _ attrs _ =>
     if attr? attrs "data-bp-facet" == some "proof" then attr? attrs "data-bp-node" else none
   | _ => none
 
@@ -69,15 +69,17 @@ def flattenInto (acc : Array Html) : Html → Array Html
 /-- Whether `html` shows nothing: it has no element, and its text is only whitespace. -/
 def rendersNothing (html : Html) : Bool :=
   (flattenInto #[] html).all fun
-    | .text _ s => s.all Char.isWhitespace
+    | .text s | .raw s => s.all Char.isWhitespace
     | _ => false
 
 /-- Append `extra` to the node's informal column. -/
 private def appendToInformal (node : Html) (extra : Array Html) : Html :=
-  node.visitM (m := Id) (tag := fun name attrs contents =>
-    if classesContain attrs "bp_sbs_informal" then
-      some (.tag name attrs (.seq (#[contents] ++ extra)))
-    else none)
+  node.rewritePost fun
+    | h@(.element name attrs contents) =>
+      if classesContain attrs "bp_sbs_informal" then
+        .element name attrs (.seq (#[contents] ++ extra))
+      else h
+    | h => h
 
 /--
 Move each proof that directly follows its statement node, with the proof's Lean references
@@ -122,7 +124,7 @@ def renderRun (parts : Array (Bool × Html)) : Html := Id.run do
   return .seq (close out run)
 where
   close (out run : Array Html) : Array Html :=
-    if run.isEmpty then out else out.push (.tag "div" #[("class", runClass)] (.seq (attachProofs run)))
+    if run.isEmpty then out else out.push (.element "div" #[("class", runClass)] (.seq (attachProofs run)))
 
 /-- Whether `block` is a Blueprint block, which takes part in runs. -/
 def isRunMember : Block Manual → Bool

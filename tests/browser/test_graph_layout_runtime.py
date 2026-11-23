@@ -200,8 +200,8 @@ class TestGraphLayoutRuntime:
     def test_graph_draws_without_the_network(self, server: str, page: Page):
         """The graph is drawn when the site is built and its drawings are files of the site: with
         every request outside the site's server refused, the page still draws its nodes, and it
-        asks the network for no layout or drawing library. (Other remote assets of the page, such
-        as the Markdown renderer Verso's page template loads, are Verso's.)"""
+        asks the network for nothing at all: no layout or drawing library, and no other remote
+        asset."""
         outside: list[str] = []
 
         def refuse_outside(route):
@@ -218,7 +218,7 @@ class TestGraphLayoutRuntime:
             first_preview_node(page)
         finally:
             page.context.unroute("**/*", refuse_outside)
-        assert [url for url in outside if "d3" in url or "graphviz" in url or "wasm" in url] == []
+        assert outside == []
         assert page.evaluate(
             """() => ["d3", "Graphviz", "graphviz", "hpccWasm"].every(
                 (name) => typeof window[name] === "undefined")"""

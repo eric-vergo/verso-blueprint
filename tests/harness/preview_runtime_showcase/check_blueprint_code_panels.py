@@ -566,7 +566,7 @@ def main() -> int:
     )
     if structure_docstring_panel is None:
         fail("missing external theorem docstring code panel")
-    if "Given a counterexample `a^p + b^p = c^p`" not in structure_docstring_panel:
+    if "Given a counterexample <code>a^p + b^p = c^p</code>" not in structure_docstring_panel:
         fail("external theorem docstring panel missing counterexample prose")
     if "there exists a preview Frey package." not in structure_docstring_panel:
         fail("external theorem docstring panel missing package prose")

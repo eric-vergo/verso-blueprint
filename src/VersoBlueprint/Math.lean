@@ -23,7 +23,7 @@ open Verso.Genre Manual
 namespace Informal.Math
 
 open Lean Elab Syntax
-open Lean.Doc.Syntax
+open Lean.Doc.Parser
 
 instance : Quote MathMode where
   quote
@@ -74,27 +74,21 @@ private def isDisplayMathSource (source : String) : Bool :=
     displayMathEnvironments.any fun env =>
       source.startsWith ("\\begin{" ++ env ++ "}")
 
-/-- Narrow the warning site from the whole math literal down to the offending source slice when possible. -/
-private def lintWarningRef? [Monad m] [MonadFileMap m]
-    (ref : TSyntax `str) (failure : Informal.MathLint.Failure) : m (Option Syntax) := do
-  let some sourceSpan := (match failure.site with
+/-- Narrow the warning site from the whole formula down to the offending source slice when possible. -/
+private def lintWarningRef? (code : Lean.Doc.VersoCode) (failure : Informal.MathLint.Failure) :
+    Option Syntax := do
+  let sourceSpan ← match failure.site with
     | .source source _katexInput => some source
-    | _ => none)
-    | return none
-  let fileMap ← getFileMap
-  let some range := ref.raw.getRange?
-    | return none
-  let rawSource := range.start.extract fileMap.source range.stop
-  let some (localStart, localStop) := Informal.MathLint.inlineCodeRawRangeOfDecodedSpan? rawSource sourceSpan
-    | return none
-  let start := range.start.offsetBy localStart
-  let stop := range.start.offsetBy localStop
-  return some <| Syntax.ofRange { start, stop }
+    | _ => none
+  let lines ← code.getVersoCodeLines.mapM fun line =>
+    return ((← line.raw.getPos?), line.getVersoCodeLine)
+  let (start, stop) ← Informal.MathLint.codeLinesRangeOfDecodedSpan? lines sourceSpan
+  return Syntax.ofRange { start, stop }
 
 /-- Run the KaTeX lint check during elaboration and log a warning immediately instead of waiting for final HTML render. -/
 private def lintBpMathTerm [Monad m] [MonadLiftT IO m] [MonadOptions m]
-    [MonadRef m] [MonadLog m] [AddMessageContext m] [MonadFileMap m]
-    (ref : TSyntax `str) (mode : MathMode) (source texPrelude : String) : m Unit := do
+    [MonadRef m] [MonadLog m] [AddMessageContext m]
+    (ref : Lean.Doc.VersoCode) (mode : MathMode) (source texPrelude : String) : m Unit := do
   unless Informal.MathLint.enabled (← getOptions) do
     return
   let lintMode :=
@@ -103,8 +97,7 @@ private def lintBpMathTerm [Monad m] [MonadLiftT IO m] [MonadOptions m]
     | .display => Informal.MathLint.Mode.display
   match ← liftM <| Informal.MathLint.lint? { mode := lintMode, source, texPrelude } with
   | some failure =>
-    let warningRef ← lintWarningRef? ref failure
-    logWarningAt (warningRef.getD ref) failure.toMessageData
+    logWarningAt ((lintWarningRef? ref failure).getD ref) failure.toMessageData
   | none => pure ()
 
 private def mathHtmlAssets (texPrelude : String) : HtmlAssets :=
@@ -155,14 +148,14 @@ inline_extension Inline.bpMath (data : BpMathData) where
         let svg? ← Informal.StaticMath.render? (mode matches .display) source texPrelude
           s!"bpm{id}-"
         if let some svg := svg? then
-          return .tag "span" #[("class", mathClasses mode ++ " bp_math_static"),
-            ("data-bp-math-rendered", "1")] (.text false svg)
+          return .element "span" #[("class", mathClasses mode ++ " bp_math_static"),
+            ("data-bp-math-rendered", "1")] (.raw svg)
       let attrs :=
         if texPrelude.isEmpty then
           #[("class", mathClasses mode)]
         else
           #[("class", mathClasses mode), ("data-bp-tex-prelude-id", "default")]
-      pure <| .tag "code" attrs (.text true source)
+      pure <| .element "code" attrs (.text source)
 
 /-- Build the serialized inline node shared by both the plain and linted elaboration paths. -/
 private def mkBpMathInlineTermCore [Monad m] [MonadQuotation m]
@@ -184,22 +177,20 @@ def mkBpMathInlineTerm [Monad m] [MonadEnv m] [MonadQuotation m]
 /-- Same as `mkBpMathInlineTerm`, but emits an immediate warning before packaging the node. -/
 def mkBpMathInlineTermLinted [Monad m] [MonadEnv m] [MonadQuotation m]
     [MonadLiftT IO m] [MonadOptions m] [MonadRef m] [MonadLog m] [AddMessageContext m]
-    [MonadFileMap m]
-    (ref : TSyntax `str) (mode : MathMode) (source : String) : m (TSyntax `term) := do
+    (ref : Lean.Doc.VersoCode) (mode : MathMode) (source : String) : m (TSyntax `term) := do
   let texPrelude ← Informal.Macros.getTexPrelude
   lintBpMathTerm ref mode source texPrelude
   mkBpMathInlineTermCore mode source texPrelude (staticEnabled (← getOptions))
 
-@[inline_expander Lean.Doc.Syntax.inline_math]
-public meta def _root_.Informal.Math.inlineMathExpand : InlineExpander
-  | `(inline| \math code( $s )) =>
-    mkBpMathInlineTermLinted s .inline s.getString
+/-- Blueprint math for a formula in the blueprint's own text. -/
+meta def mathExpand : InlineExpander
+  | .math v => mkBpMathInlineTermLinted v.code.content v.mode v.getVersoCode
   | _ => Lean.Elab.throwUnsupportedSyntax
 
-@[inline_expander Lean.Doc.Syntax.display_math]
-public meta def _root_.Informal.Math.displayMathExpand : InlineExpander
-  | `(inline| \displaymath code( $s )) =>
-    mkBpMathInlineTermLinted s .display s.getString
-  | _ => Lean.Elab.throwUnsupportedSyntax
+@[inline_expander Lean.Doc.Parser.Inline.inline_math]
+public meta def _root_.Informal.Math.inlineMathExpand : InlineExpander := mathExpand
+
+@[inline_expander Lean.Doc.Parser.Inline.display_math]
+public meta def _root_.Informal.Math.displayMathExpand : InlineExpander := mathExpand
 
 end Informal.Math

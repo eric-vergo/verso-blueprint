@@ -428,7 +428,7 @@ private def falseWords (replay? : Option Replay.Result) (covered : Bool) (text :
 #eval
   sites.filterMap fun (name, site) =>
     let html := (statsPageHtml { stats := { progress := { formalizedWithAncestors := 2 } }, site
-      }).asString
+      }).render
     let checks := [
       ("sentence", site.sentence.isEmpty || hasSubstr html site.sentence),
       ("legend", hasSubstr html s!"Lean complete, dependencies too{(site.note?.map (s!" ({·})")).getD ""}"),

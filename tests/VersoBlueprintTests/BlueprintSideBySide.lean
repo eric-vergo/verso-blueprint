@@ -90,7 +90,7 @@ private def theoremCode : Highlighted :=
 #guard_msgs in
 #eval
   let cfg := PreviewManifest.withSideBySideDefaultStyle (PreviewManifest.withSideBySideDefaultStyle {})
-  let head := String.join (cfg.toHtmlConfig.extraHead.map (·.asString)).toList
+  let head := String.join (cfg.toHtmlConfig.extraHead.map (·.render)).toList
   countSubstr head "<template id=\"bp-status-legend\">" == 1 &&
     countSubstr head "name=\"verso-blueprint-default-style\"" == 1 &&
     Informal.StatusGlyphKind.all.all fun kind =>
@@ -277,17 +277,17 @@ Statement after the hidden block.
 open Verso.Output in
 /-- A side-by-side node and a proof of it, as rendered (attributes only). -/
 private def node (label : String) : Html :=
-  .tag "div" #[("class", "bp_sbs"), ("data-bp-node", label)] <|
-    .tag "div" #[("class", "bp_sbs_grid")] <| .seq #[
-      .tag "div" #[("class", "bp_sbs_informal")] (.text true "statement"),
-      .tag "div" #[("class", "bp_sbs_formal")] (.text true "lean")]
+  .element "div" #[("class", "bp_sbs"), ("data-bp-node", label)] <|
+    .element "div" #[("class", "bp_sbs_grid")] <| .seq #[
+      .element "div" #[("class", "bp_sbs_informal")] (.text "statement"),
+      .element "div" #[("class", "bp_sbs_formal")] (.text "lean")]
 
 open Verso.Output in
 private def proof (label : String) : Html :=
-  .tag "details" #[("data-bp-node", label), ("data-bp-facet", "proof")] (.text true s!"proof {label}")
+  .element "details" #[("data-bp-node", label), ("data-bp-facet", "proof")] (.text s!"proof {label}")
 
 open Verso.Output in
-private def panel : Html := .tag "div" #[("class", "bp_wrapper bp_code_panel_wrapper")] .empty
+private def panel : Html := .element "div" #[("class", "bp_wrapper bp_code_panel_wrapper")] .empty
 
 -- Proofs move into the node they directly follow, with their references panel; a proof of
 -- another node stays where it is.
@@ -297,7 +297,7 @@ private def panel : Html := .tag "div" #[("class", "bp_wrapper bp_code_panel_wra
   open Verso.Output in
   let out := Informal.SideBySideRuns.renderRun <| #[node "a", .seq #[proof "a", panel], node "b",
     proof "c", proof "b"].map (true, ·)
-  let s := out.asString
+  let s := out.render
   countSubstr s "<div class=\"bp_sbs_run\">" == 1 &&
     appearsBefore s "proof a" "class=\"bp_sbs_formal\"" &&
     appearsBefore s "bp_code_panel_wrapper" "data-bp-node=\"b\"" &&
@@ -313,9 +313,9 @@ private def panel : Html := .tag "div" #[("class", "bp_wrapper bp_code_panel_wra
 #eval
   open Verso.Output in
   let out := Informal.SideBySideRuns.renderRun #[(true, node "a"), (false, .empty),
-    (false, .seq #[.text true "\n  ", .seq #[]]), (true, proof "a"), (false, .text true "prose"),
+    (false, .seq #[.text "\n  ", .seq #[]]), (true, proof "a"), (false, .text "prose"),
     (true, node "b")]
-  let s := out.asString
+  let s := out.render
   countSubstr s "<div class=\"bp_sbs_run\">" == 2 &&
     appearsBefore s "proof a" "class=\"bp_sbs_formal\"" &&
     appearsBefore s "proof a" "prose" && appearsBefore s "prose" "data-bp-node=\"b\"" &&

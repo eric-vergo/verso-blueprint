@@ -18,6 +18,26 @@ def hasSubstr (s needle : String) : Bool :=
 def countSubstr (s needle : String) : Nat :=
   (s.splitOn needle).length.pred
 
+/--
+`html` without the contents of its inline Lean hovers (`<span class="hover-info">…</span>`), where
+Verso repeats a declaration's docstring, rendered when the site is built. A hover inside a hover is
+not looked for.
+-/
+def outsideHovers (html : String) : String :=
+  match html.splitOn "<span class=\"hover-info\">" with
+  | [] => html
+  | first :: rest => first ++ String.join (rest.map afterHover)
+where
+  /-- The text after the `</span>` that closes a hover whose contents start `s`. -/
+  afterHover (s : String) : String := Id.run do
+    let pieces := s.splitOn "</span>"
+    let mut depth := 1
+    for i in [0:pieces.length] do
+      depth := depth + countSubstr pieces[i]! "<span" - 1
+      if depth == 0 then
+        return "</span>".intercalate (pieces.drop (i + 1))
+    return ""
+
 def appearsBefore (s lhs rhs : String) : Bool :=
   match s.splitOn lhs with
   | _ :: tail => hasSubstr (String.intercalate lhs tail) rhs
@@ -96,13 +116,13 @@ def renderManualDocHtmlStringAndState
     (doc : Doc.VersoDoc Genre.Manual)
     (model : Informal.RenderModel := by exact blueprint_render_model%) : IO (String × TraverseState) := do
   let (html, st) ← renderManualDocHtmlAndState impls doc (model := model)
-  pure (html.asString, st)
+  pure (html.render, st)
 
 def renderManualDocHtmlString (impls : ExtensionImpls) (doc : Doc.VersoDoc Genre.Manual)
     (model : Informal.RenderModel := by exact blueprint_render_model%)
     (prepare : Doc.Part Genre.Manual → Doc.Part Genre.Manual := id) : IO String := do
   let html ← renderManualDocHtml impls doc (model := model) (prepare := prepare)
-  pure html.asString
+  pure html.render
 
 def buildManualPreviewDataFiles
     (impls : ExtensionImpls)

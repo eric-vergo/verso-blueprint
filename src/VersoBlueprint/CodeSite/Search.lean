@@ -38,6 +38,6 @@ block_extension Block.declSearch (name : Name) where
   toTeX := some fun _goI _goB _id _data _contents => pure .empty
   toHtml := some fun _goI _goB id _data _contents => do
     let xref ← Verso.Doc.Html.HtmlT.state
-    return .tag "span" ((xref.htmlId id).push ("class", "bp_code_site_anchor")) .empty
+    return .element "span" ((xref.htmlId id).push ("class", "bp_code_site_anchor")) .empty
 
 end Informal.CodeSite

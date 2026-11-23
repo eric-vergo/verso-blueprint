@@ -130,7 +130,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
 /-- info: true -/
 #guard_msgs in
 #eval
-  let html := (statsPageHtml (view rokickiLike)).asString
+  let html := (statsPageHtml (view rokickiLike)).render
   hasSubstr html "class=\"bp_project_stats bp_replay_accepted\"" &&
     hasSubstr html "Rokicki's constant is irrational</p>" && hasSubstr html "class=\"bp_stats_name\"" &&
     hasSubstr html "License: Apache-2.0" && hasSubstr html "Lean v4.35.0" &&
@@ -199,7 +199,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
   let stats := { rokickiLike with
     headline := none, hasComparatorChallenge := false
     identity := { rokickiLike.identity with license := none } }
-  let html := (statsPageHtml (view stats)).asString
+  let html := (statsPageHtml (view stats)).render
   hasSubstr html "class=\"bp_stats_headline_hint\"" && hasSubstr html headlineHintText &&
     !hasSubstr html "bp_stats_band bp_stats_headline" && !hasSubstr html "data-bp-theorem" &&
     hasSubstr html "No license file"
@@ -216,7 +216,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
   }
   let headline := rokickiLike.headline.map fun h => { h with theorems := h.theorems.map fun t =>
     { t with conditionsMet := false, sorryFree := some false, axioms := t.axioms.push ``sorryAx } }
-  let html := (statsPageHtml (view { rokickiLike with trust, headline })).asString
+  let html := (statsPageHtml (view { rokickiLike with trust, headline })).render
   hasSubstr html "1 Lean declaration of nodes with a sorry of its own." &&
     hasSubstr html "data-bp-trust=\"sorry-direct\" data-bp-count=\"1\"" &&
     hasSubstr html "<a href=\"/Sums/#lem\">Lemma 3.2</a>" &&
@@ -238,7 +238,7 @@ private def view (stats : ProjectStats) : StatsPageView := {
 #eval
   let files := (List.range 11).toArray.map fun i =>
     ({ path := s!"Extra/F{i}.lean", status := .notBuilt } : SourceFile)
-  let html := (statsPageHtml (view { rokickiLike with sources := { files } })).asString
+  let html := (statsPageHtml (view { rokickiLike with sources := { files } })).render
   hasSubstr html "11 Lean files on disk in no build:" && hasSubstr html "<summary>and 3 more</summary>" &&
     hasSubstr html "<code>Extra/F10.lean</code>" &&
     hasSubstr html "0 of 11 Lean files compiled: 0 imported by the site."

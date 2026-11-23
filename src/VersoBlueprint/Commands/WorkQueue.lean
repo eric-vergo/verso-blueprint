@@ -80,8 +80,8 @@ def workQueueAssetBundle : BlueprintAssetBundle :=
 
 private def nodeLink (state : TraverseState) (node : Graph.NodeData) (text : String) : Output.Html :=
   match Informal.TraversalIndex.Nodes.href? state node.label <|> node.href with
-  | some href => {{<a href={{href}}>{{.text true text}}</a>}}
-  | Option.none => .text true text
+  | some href => {{<a href={{href}}>{{.text text}}</a>}}
+  | Option.none => .text text
 
 /-- The node's numbered title ("Lemma 4.2"), falling back to the graph's display label. -/
 private def nodeHeading (state : TraverseState) (node : Graph.NodeData) : String :=
@@ -109,7 +109,7 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry)
     else
       let links := entry.needs.map fun dep => nodeLink state dep (nodeHeading state dep)
       let separated := links.foldl (init := #[]) fun acc link =>
-        if acc.isEmpty then #[link] else acc ++ #[.text true ", ", link]
+        if acc.isEmpty then #[link] else acc ++ #[.text ", ", link]
       {{<div class="bp_work_queue_needs"><span class="bp_work_queue_needs_key">"needs: "</span>{{separated}}</div>}}
   let stateClass := if entry.ready then "bp_work_queue_ready" else "bp_work_queue_incomplete"
   {{
@@ -117,7 +117,7 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry)
         data-bp-stage={{entry.stage}}>
       <div class="bp_work_queue_head">
         {{nodeLink state entry.node (nodeHeading state entry.node)}}
-        <span class="bp_work_queue_stage">{{.text true (stageText entry)}}</span>
+        <span class="bp_work_queue_stage">{{.text (stageText entry)}}</span>
       </div>
       {{match statement? with
         | some statement => {{<div class="bp_work_queue_statement">{{statement}}</div>}}
@@ -156,7 +156,7 @@ private def workQueueToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT Ex
       if items.isEmpty then .empty
       else {{
         <section class="bp_work_queue_section">
-          <h2 class="bp_work_queue_title">{{.text true s!"{title} ({items.size})"}}</h2>
+          <h2 class="bp_work_queue_title">{{.text s!"{title} ({items.size})"}}</h2>
           <ol class="bp_work_queue_list">{{items.map (·.2)}}</ol>
         </section>
       }}
@@ -183,16 +183,18 @@ block_extension Block.workQueue (data : WorkQueueBlockData) where
 open Verso Doc Elab Syntax in
 def mkWorkQueuePart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedPart := do
   let titlePreview := "Ready to Prove"
-  let titleInlines ← `(inline | "Ready to Prove")
-  let expandedTitle ← #[titleInlines].mapM (elabInline ·)
+  let expandedTitle := #[← ``(Verso.Doc.Inline.text "Ready to Prove")]
   let metadata : Option (TSyntax `term) := some (← `(term| { number := false }))
   let block ← serializedBlockTerm `Informal.Commands.Block.workQueue ({} : WorkQueueBlockData)
   pure <| FinishedPart.mk stx stx expandedTitle titlePreview metadata #[block] #[] endPos
 
 open Verso Doc Elab Syntax PartElabM in
-@[part_command Lean.Doc.Syntax.command]
+@[part_command Lean.Doc.Parser.Block.command]
 public meta def blueprintWorkQueueCmd : PartCommand
-  | stx@`(block|command{blueprint_work_queue}) => do
+  | .command v => do
+    unless v.name.getId == `blueprint_work_queue do Lean.Elab.throwUnsupportedSyntax
+    unless v.args.isEmpty do Lean.Elab.throwUnsupportedSyntax
+    let stx : Syntax := v.stx
     let endPos := stx.getTailPos?.get!
     closePartsUntil 1 endPos
     addPart (← mkWorkQueuePart stx endPos)

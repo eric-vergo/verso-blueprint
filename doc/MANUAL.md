@@ -491,6 +491,13 @@ blocks. The same structural content is rendered inside the attached “Lean code
 for…” declaration panel. If no docstring is available, the node is still
 registered, but there is no imported informal statement body.
 
+Every docstring a page shows, in a declaration panel or in a Lean hover, is
+rendered from Markdown when the site is built, by Verso's Markdown renderer;
+pages load no Markdown renderer and fetch nothing from another site. Docstring
+text is treated as untrusted: raw HTML in it is shown as text, and links keep
+only relative targets and the `http`, `https` and `mailto` schemes (images also
+`data`); any other link is shown as its text.
+
 Importing `VersoBlueprint` registers Lean docstring handlers for the same
 `Informal.uses` and `Informal.bpref` names used in Manual prose. Enable
 `doc.verso` in the module containing the declaration and open `Informal` (or use
@@ -2334,8 +2341,9 @@ kernel replay of what the declaration concerned depends on:
 - **Reading a checker's answer**: by its exit status first and its words
   second. Status 0 is an acceptance only with the checker's line `accepted N
   declarations` and `N` at least the number of declaration records the
-  generator counts in the file (`def`, `thm`, `opaque`, `axiom`, `inductive`,
-  `quot` lines); the file must also be exactly the one the worker wrote (its
+  generator counts in the file (`def`, `thm`, `opaque`, `axiom` and `inductive`
+  lines; the `quot` lines of the quotient package are not counted, since the
+  checkers of Lean 4.36 add them without counting them); the file must also be exactly the one the worker wrote (its
   size) and end with a complete line, and hold at least one declaration: both
   checkers accept an empty, metadata-only or cut-off file with status 0. Status
   1 is a rejection only with the checker's words of rejection (`invalid: …`

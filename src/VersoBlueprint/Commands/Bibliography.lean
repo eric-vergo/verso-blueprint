@@ -99,12 +99,12 @@ block_extension Block.bibliography (biblio : BibliographyData) where
                 match detailText? with
                 | some detail =>
                   {{<span class="bp_bibliography_use_inline_meta">
-                    {{.text true s!" - {detail}"}}
+                    {{.text s!" - {detail}"}}
                   </span>}}
                 | Option.none => .empty
               let lineNode : Output.Html := {{
                 <a href={{use.href}} class="bp_bibliography_use_line">
-                  {{.text true summaryText}}
+                  {{.text summaryText}}
                   {{inlineMeta}}
                 </a>}}
               let previewLine : Output.Html :=
@@ -149,8 +149,7 @@ block_extension Block.bibliography (biblio : BibliographyData) where
 open Verso Doc Elab Syntax in
 def mkBibliographyPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedPart := do
   let titlePreview := "Blueprint Bibliography"
-  let titleInlines ← `(inline | "Blueprint Bibliography")
-  let expandedTitle ← #[titleInlines].mapM (elabInline ·)
+  let expandedTitle := #[← ``(Verso.Doc.Inline.text "Blueprint Bibliography")]
   let metadata : Option (TSyntax `term) := some (← `(term| { number := false }))
   let entries := Informal.Cite.allBibEntries (← getEnv)
   if verso.blueprint.debug.commands.get (← Lean.getOptions) then
@@ -164,9 +163,12 @@ def mkBibliographyPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM Fini
   pure <| FinishedPart.mk stx stx expandedTitle titlePreview metadata #[block] subParts endPos
 
 open Verso Doc Elab Syntax PartElabM in
-@[part_command Lean.Doc.Syntax.command]
+@[part_command Lean.Doc.Parser.Block.command]
 public meta def blueprintBibliographyCmd : PartCommand
-  | stx@`(block|command{blueprint_bibliography}) => do
+  | .command v => do
+    unless v.name.getId == `blueprint_bibliography do Lean.Elab.throwUnsupportedSyntax
+    unless v.args.isEmpty do Lean.Elab.throwUnsupportedSyntax
+    let stx : Syntax := v.stx
     let endPos := stx.getTailPos?.get!
     closePartsUntil 1 endPos
     addPart (← mkBibliographyPart stx endPos)

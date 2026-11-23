@@ -56,7 +56,7 @@ private def summaryReplayNote (site : Replay.SiteState) : Output.Html :=
   if site.sentence.isEmpty then .empty
   else {{
     <p class={{s!"bp_summary_replay_note bp_summary_replay_note_{site.token}"}}>
-      {{.text true site.sentence}}
+      {{.text site.sentence}}
     </p>
   }}
 

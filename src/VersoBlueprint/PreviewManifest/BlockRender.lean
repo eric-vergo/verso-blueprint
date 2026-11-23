@@ -20,7 +20,7 @@ open Verso.Output.Html
 
 /-- Re-inject already-rendered HTML fragments as HTML, not escaped text. -/
 def htmlFragment (html : String) : Html :=
-  .text false html
+  .raw html
 
 /-- Related-entry panel positions available in a preview-data-backed block header. -/
 inductive RelationPanelKind where

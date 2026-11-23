@@ -21,8 +21,7 @@ open Informal Data Environment
 open Verso Doc Elab Syntax in
 def mkSummaryPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedPart := do
   let titlePreview := "Blueprint Summary"
-  let titleInlines ← `(inline | "Blueprint Summary")
-  let expandedTitle ← #[titleInlines].mapM (elabInline ·)
+  let expandedTitle := #[← ``(Verso.Doc.Inline.text "Blueprint Summary")]
   let metadata : Option (TSyntax `term) := some (← `(term| { number := false }))
   reportImportedConflicts
   let options ← Lean.getOptions
@@ -35,9 +34,12 @@ def mkSummaryPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedP
   pure <| FinishedPart.mk stx stx expandedTitle titlePreview metadata #[block] subParts endPos
 
 open Verso Doc Elab Syntax PartElabM in
-@[part_command Lean.Doc.Syntax.command]
+@[part_command Lean.Doc.Parser.Block.command]
 public meta def blueprintSummaryCmd : PartCommand
-  | stx@`(block|command{blueprint_summary}) => do
+  | .command v => do
+    unless v.name.getId == `blueprint_summary do Lean.Elab.throwUnsupportedSyntax
+    unless v.args.isEmpty do Lean.Elab.throwUnsupportedSyntax
+    let stx : Syntax := v.stx
     let endPos := stx.getTailPos?.get!
     closePartsUntil 1 endPos
     addPart (← mkSummaryPart stx endPos)

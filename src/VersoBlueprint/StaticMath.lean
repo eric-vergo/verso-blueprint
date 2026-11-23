@@ -312,9 +312,9 @@ def needsKaTeX (html : String) : Bool :=
 
 /-- The tags of KaTeX's files in a page head. -/
 def katexTags : List String :=
-  ["<script src=\"-verso-data/katex/katex.js\"></script>",
-    "<script src=\"-verso-data/katex/math.js\"></script>",
-    "<link rel=\"stylesheet\" href=\"-verso-data/katex/katex.css\">"]
+  ["<script src=\"-verso-data/katex/katex.js\" defer=\"defer\"></script>",
+    "<script src=\"-verso-data/katex/math.js\" defer=\"defer\"></script>",
+    "<link rel=\"stylesheet\" href=\"-verso-data/katex/katex.css\"/>"]
 
 /-- The marker that opens a picture's glyph definitions. -/
 def defsOpen : String := "<defs data-bp-glyphs=\"\">"

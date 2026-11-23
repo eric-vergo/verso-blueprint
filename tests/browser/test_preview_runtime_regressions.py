@@ -180,12 +180,17 @@ class TestPreviewRuntimeRegressions:
         for name in excluded:
             assert name not in find_html
 
-    def test_highlighted_docstrings_read_text_content_without_layout_flush(self, server: str):
+    def test_highlighted_code_script_renders_no_docstrings_and_guards_tactic_hovers(self, server: str):
+        """Docstrings are rendered when the site is built, so the page script of highlighted code
+        reads no docstring text and loads no Markdown renderer; a tactic without a tactic state
+        gets no hover."""
         with urllib.request.urlopen(f"{server}/Blueprint-Summary/") as response:
             html = response.read().decode("utf-8")
 
         assert "const str = d.innerText;" not in html
-        assert 'const str = d.textContent || "";' in html
+        assert "marked.min.js" not in html and "marked.parse" not in html
+        assert 'if (!ref.querySelector(":scope > .tactic-state")) {' in html
+        assert 'const stateSource = tgt.querySelector(":scope > .tactic-state");' in html
 
     def test_external_declaration_docstrings_render_markdown(self, server: str, page: Page):
         page.goto(f"{server}/Code-Panels/")

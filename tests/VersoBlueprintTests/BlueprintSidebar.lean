@@ -22,7 +22,7 @@ private def sidebarConfig : Informal.Sidebar.Config := {
 }
 
 private def headString (cfg : RenderConfig) : String :=
-  String.join (cfg.toHtmlConfig.extraHead.map (·.asString)).toList
+  String.join (cfg.toHtmlConfig.extraHead.map (·.render)).toList
 
 -- The sidebar announces itself, carries its configuration as JSON, and ships its CSS and JS.
 /-- info: true -/

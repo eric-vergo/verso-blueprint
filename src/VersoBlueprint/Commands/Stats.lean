@@ -206,18 +206,18 @@ def progressBuckets (c : ProgressCounts)
 
 /-! ## HTML helpers -/
 
-private def txt (s : String) : Output.Html := .text true s
+private def txt (s : String) : Output.Html := .text s
 
 private def el (tag cls : String) (content : Output.Html)
     (attrs : Array (String × String) := #[]) : Output.Html :=
-  .tag tag (#[("class", cls)] ++ attrs) content
+  .element tag (#[("class", cls)] ++ attrs) content
 
 private def link (href? : Option String) (content : Output.Html) : Output.Html :=
   match href? with
-  | some href => .tag "a" #[("href", href)] content
+  | some href => .element "a" #[("href", href)] content
   | Option.none => content
 
-private def code (s : String) : Output.Html := .tag "code" #[] (txt s)
+private def code (s : String) : Output.Html := .element "code" #[] (txt s)
 
 /-- Items separated by `", "`. -/
 private def commaList (items : Array Output.Html) : Output.Html :=
@@ -266,7 +266,7 @@ private def identityHtml (view : StatsPageView) : Output.Html :=
   let links : Output.Html :=
     if view.page.links.isEmpty then .empty
     else el "ul" "bp_stats_links" (.seq <| view.page.links.map fun l =>
-      .tag "li" #[] (.tag "a" #[("href", l.href)] (txt l.label)))
+      .element "li" #[] (.element "a" #[("href", l.href)] (txt l.label)))
   el "section" "bp_stats_band bp_stats_identity" (.seq #[
     match name with
     | some n => el "p" "bp_stats_name" (txt n)
@@ -417,7 +417,7 @@ private def nodeLink (view : StatsPageView) (label : Name) : Output.Html :=
 /-- The link to the explanation of the marks, with a space before it. -/
 private def meaningLink (view : StatsPageView) : Output.Html :=
   match view.page.meaningHref with
-  | some href => .seq #[txt " ", .tag "a" #[("href", href), ("class", "bp_meaning_link")]
+  | some href => .seq #[txt " ", .element "a" #[("href", href), ("class", "bp_meaning_link")]
       (txt Informal.Meaning.linkText)]
   | Option.none => .empty
 
@@ -547,10 +547,10 @@ private def headlineHtml (view : StatsPageView) : Output.Html :=
     let unjudged : Output.Html :=
       if h.unjudged.isEmpty then .empty
       else el "details" "bp_stats_more bp_stats_headline_unjudged" (.seq #[
-        .tag "summary" #[] (txt s!"Theorems of the challenge that are not judged \
+        .element "summary" #[] (txt s!"Theorems of the challenge that are not judged \
           ({formatCount h.unjudged.size})"),
         el "ul" "bp_stats_files" (.seq (h.unjudged.map fun (n, why) =>
-          .tag "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
+          .element "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
     band "bp_stats_headline" "Headline result"
       #[unavailable, theorems, unjudged, definitions, source]
 
@@ -608,8 +608,8 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   let listed (cls caption : String) (items : Array Output.Html) : Output.Html :=
     if items.isEmpty then .empty
     else el "details" s!"bp_stats_more {cls}" (.seq #[
-      .tag "summary" #[] (txt s!"{caption} ({formatCount items.size})"),
-      el "ul" "bp_stats_files" (.seq (items.map fun item => .tag "li" #[] item))])
+      .element "summary" #[] (txt s!"{caption} ({formatCount items.size})"),
+      el "ul" "bp_stats_files" (.seq (items.map fun item => .element "li" #[] item))])
   let byName (names : Array Name) := names.qsort (·.toString < ·.toString)
   let modules : Output.Html := match replay? with
     | some r => .seq #[
@@ -636,17 +636,17 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   let uncovered : Output.Html :=
     if view.notReplayed.isEmpty then .empty
     else el "details" "bp_stats_more bp_stats_replay_uncovered" (.seq #[
-      .tag "summary" #[] (txt s!"Nodes with Lean code that is not part of the replay \
+      .element "summary" #[] (txt s!"Nodes with Lean code that is not part of the replay \
         ({formatCount view.notReplayed.size})"),
       el "ul" "bp_stats_files" (.seq (view.notReplayed.map fun label =>
-        .tag "li" #[] (nodeLink view label)))])
+        .element "li" #[] (nodeLink view label)))])
   let resting : Output.Html :=
     if view.resting.isEmpty then .empty
     else el "details" "bp_stats_more bp_stats_replay_resting" (.seq #[
-      .tag "summary" #[] (txt s!"Nodes without sorry whose Lean code rests on an axiom outside \
+      .element "summary" #[] (txt s!"Nodes without sorry whose Lean code rests on an axiom outside \
         Lean's standard three ({formatCount view.resting.size})"),
       el "ul" "bp_stats_files" (.seq (view.resting.map fun label =>
-        .tag "li" #[] (nodeLink view label)))])
+        .element "li" #[] (nodeLink view label)))])
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
       #[("data-bp-replay", token)],
@@ -699,7 +699,7 @@ private def chapterTable (rows : Array StatsChapterRow) (site : Replay.SiteState
   let body := rows.map fun row =>
     let total := row.progress.total
     let done := row.progress.formalizedWithAncestors + row.progress.formalized
-    .tag "tr" #[("data-bp-chapter", row.title)] (.seq #[
+    .element "tr" #[("data-bp-chapter", row.title)] (.seq #[
       el "td" "bp_stats_chapter_title" (.seq #[
         match row.number with
         | some n => el "span" "bp_stats_chapter_number" (txt n)
@@ -709,12 +709,12 @@ private def chapterTable (rows : Array StatsChapterRow) (site : Replay.SiteState
       el "td" "bp_stats_chapter_bar" (progressBar row.progress site),
       el "td" "bp_stats_num" (txt s!"{formatCount done}/{formatCount total}")])
   el "table" "bp_stats_chapters" (.seq #[
-    .tag "thead" #[] (.tag "tr" #[] (.seq #[
-      .tag "th" #[("scope", "col")] (txt "Chapter"),
+    .element "thead" #[] (.element "tr" #[] (.seq #[
+      .element "th" #[("scope", "col")] (txt "Chapter"),
       el "th" "bp_stats_num" (txt "Nodes") #[("scope", "col")],
-      .tag "th" #[("scope", "col")] (txt "Progress"),
+      .element "th" #[("scope", "col")] (txt "Progress"),
       el "th" "bp_stats_num" (txt leanCompleteLabel) #[("scope", "col")]])),
-    .tag "tbody" #[] (.seq body)])
+    .element "tbody" #[] (.seq body)])
 
 /-- `n of m theorems` (or definitions), for the progress lines. -/
 private def ofKind (n : Nat) (k : KindProgress) (noun : String) : String :=
@@ -750,7 +750,7 @@ private def progressHtml (view : StatsPageView) : Output.Html :=
   let informal := informalText p
   let queue : Output.Html := match view.workQueueHref with
     | some href => el "p" "bp_stats_links_line" (.seq #[
-        .tag "a" #[("href", href)] (txt s!"{workQueuePageTitle} ({formatCount view.workQueueSize})")])
+        .element "a" #[("href", href)] (txt s!"{workQueuePageTitle} ({formatCount view.workQueueSize})")])
     | Option.none => .empty
   -- what stands behind the counts, when it is not an accepted replay of every node
   let replayCounts : Output.Html :=
@@ -813,12 +813,12 @@ private def sizeHtml (view : StatsPageView) : Output.Html :=
 private def shownFiles : Nat := 8
 
 private def fileList (files : Array SourceFile) : Output.Html :=
-  let item (f : SourceFile) : Output.Html := .tag "li" #[] (code f.path)
+  let item (f : SourceFile) : Output.Html := .element "li" #[] (code f.path)
   if files.size ≤ shownFiles then el "ul" "bp_stats_files" (.seq (files.map item))
   else .seq #[
     el "ul" "bp_stats_files" (.seq ((files.extract 0 shownFiles).map item)),
     el "details" "bp_stats_more" (.seq #[
-      .tag "summary" #[] (txt s!"and {formatCount (files.size - shownFiles)} more"),
+      .element "summary" #[] (txt s!"and {formatCount (files.size - shownFiles)} more"),
       el "ul" "bp_stats_files" (.seq ((files.extract shownFiles files.size).map item))])]
 
 private def sorryDeclarations (t : TrustLedger) : Nat :=
@@ -866,11 +866,11 @@ private def trustRow (view : StatsPageView) (key label : String) (labels : Array
   let more : Output.Html :=
     if labels.size > shownEntries then txt s!", and {formatCount (labels.size - shownEntries)} more"
     else .empty
-  .tag "tr" #[("class", if labels.isEmpty then "bp_stats_trust_clear" else "bp_stats_trust_open"),
+  .element "tr" #[("class", if labels.isEmpty then "bp_stats_trust_clear" else "bp_stats_trust_open"),
       ("data-bp-trust", key), ("data-bp-count", toString labels.size)] (.seq #[
-    .tag "th" #[("scope", "row")] (txt label),
+    .element "th" #[("scope", "row")] (txt label),
     el "td" "bp_stats_num" (txt (formatCount labels.size)),
-    .tag "td" #[] (.seq #[commaList shown, more])])
+    .element "td" #[] (.seq #[commaList shown, more])])
 
 private def trustHtml (view : StatsPageView) : Output.Html :=
   let t := view.stats.trust
@@ -882,11 +882,11 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
   band "bp_stats_trust" "What the Lean code rests on" #[
     el "p" "bp_stats_lead" (txt lead),
     el "table" "bp_stats_ledger" (.seq #[
-      .tag "thead" #[] (.tag "tr" #[] (.seq #[
-        .tag "th" #[("scope", "col")] (txt "Rests on"),
+      .element "thead" #[] (.element "tr" #[] (.seq #[
+        .element "th" #[("scope", "col")] (txt "Rests on"),
         el "th" "bp_stats_num" (txt "Nodes") #[("scope", "col")],
-        .tag "th" #[("scope", "col")] (txt "Where")])),
-      .tag "tbody" #[] (.seq #[
+        .element "th" #[("scope", "col")] (txt "Where")])),
+      .element "tbody" #[] (.seq #[
         trustRow view "sorry-direct" "a sorry of its own" (t.sorryDirect.map (·.label)),
         trustRow view "sorry-dependency" "sorry through a dependency"
           (t.sorryThroughDependency.map (·.label)),
@@ -951,8 +951,8 @@ private def meaningHtml : Output.Html :=
   el "section" "bp_stats_band bp_stats_meaning" (.seq #[
     el "h2" "bp_stats_band_title" (txt "What this page reports, and what it does not"),
     el "dl" "bp_stats_meaning_list" (.seq <| meaningItems.map fun item =>
-      .seq #[.tag "dt" #[] (txt item.1), .tag "dd" #[] (txt item.2)]),
-    el "p" "bp_stats_meaning_more" (.tag "a" #[("href", meaningViewerHref)]
+      .seq #[.element "dt" #[] (txt item.1), .element "dd" #[] (txt item.2)]),
+    el "p" "bp_stats_meaning_more" (.element "a" #[("href", meaningViewerHref)]
       (txt "More in the viewer's guide"))])
     #[("id", Informal.Meaning.anchor)]
 
@@ -962,7 +962,7 @@ private def meaningHtml : Output.Html :=
 def statsPageHtml (view : StatsPageView) : Output.Html :=
   let summary : Output.Html := match view.summaryHref with
     | some href => el "p" "bp_stats_summary_link" (.seq #[txt "Detailed breakdown: ",
-        .tag "a" #[("href", href)] (txt summaryPageTitle)])
+        .element "a" #[("href", href)] (txt summaryPageTitle)])
     | Option.none => .empty
   el "div" s!"bp_project_stats {view.site.scopeClass}" (.seq #[
     identityHtml view,
@@ -1137,8 +1137,7 @@ def withStatsPage (text : Part Manual) (data : StatsPageData := {}) : Part Manua
 
 open Verso Doc Elab Syntax in
 def mkStatsPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedPart := do
-  let titleInlines ← `(inline | "Project Stats")
-  let expandedTitle ← #[titleInlines].mapM (elabInline ·)
+  let expandedTitle := #[← ``(Verso.Doc.Inline.text "Project Stats")]
   let metadata : Option (TSyntax `term) := some (← `(term| { number := false }))
   let block ← serializedBlockTerm `Informal.Commands.Block.projectStats ({} : StatsPageData)
   pure <| FinishedPart.mk stx stx expandedTitle statsPageTitle metadata #[block] #[] endPos
@@ -1146,9 +1145,12 @@ def mkStatsPart (stx : Syntax) (endPos : String.Pos.Raw) : PartElabM FinishedPar
 open Verso Doc Elab Syntax PartElabM in
 /-- `{blueprint_stats}` places the Project Stats page; without it, generators add the page at the
 end of the document. -/
-@[part_command Lean.Doc.Syntax.command]
+@[part_command Lean.Doc.Parser.Block.command]
 public meta def blueprintStatsCmd : PartCommand
-  | stx@`(block|command{blueprint_stats}) => do
+  | .command v => do
+    unless v.name.getId == `blueprint_stats do Lean.Elab.throwUnsupportedSyntax
+    unless v.args.isEmpty do Lean.Elab.throwUnsupportedSyntax
+    let stx : Syntax := v.stx
     let endPos := stx.getTailPos?.get!
     closePartsUntil 1 endPos
     addPart (← mkStatsPart stx endPos)
