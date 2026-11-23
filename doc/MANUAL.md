@@ -2325,7 +2325,9 @@ kernel replay of what the declaration concerned depends on:
   declarations are taken from it and written to a file with everything they
   depend on, by the exporter of the Lean toolchain. Two checkers that ship with
   the toolchain (Lean 4.35 and later) then each check the whole file, one after
-  the other, starting from an empty environment: `con-leche` and `con-ron`,
+  the other, each starting from nothing but its own built-in prelude (its
+  `--help` lists it: `Eq`, `Nat`, `Empty`, `False`, `Quot`, `Bool`, `And`):
+  `con-leche` and `con-ron`,
   each run as `--verified --jobs=N FILE`, with `N` half the machine's hardware
   threads, at most 8 and at least 2. The checkers read the export, not the
   compiled modules. **The replay accepts only when both accept.**
@@ -2338,8 +2340,10 @@ kernel replay of what the declaration concerned depends on:
   checkers accept an empty, metadata-only or cut-off file with status 0. Status
   1 is a rejection only with the checker's words of rejection (`invalid: …`
   from `con-leche`, `rejected: …` from `con-ron`); status 1 with an uncaught
-  exception is an error. Status 2 is a decline. Status 3 (a usage or parse
-  error, or a reduction that ran out of fuel), any other status, a signal, or a
+  exception is an error. Status 2 is a decline. Status 3 (in `con-ron`'s
+  `--help`, which says it keeps `con-leche`'s exit codes: a usage error,
+  malformed input or an internal error; also seen for a reduction that ran out
+  of fuel), any other status, a signal, or a
   process stopped at a limit is no answer. The words of a decline differ
   between Lean 4.35 and 4.36 (4.36 says `declined (N declarations checked, M
   skipped for tolerated axioms) …`); both are read. The run times a checker
@@ -2359,7 +2363,7 @@ kernel replay of what the declaration concerned depends on:
   comparison made in another environment.
 - **Axioms**: both checkers decline a whole export that uses `sorryAx` or any
   axiom outside Lean's standard three (the axioms that `native_decide` adds
-  among them). So a declaration under which the replay finds such an axiom is
+  among them): `con-leche`'s `--help` says so, and both do so when run. So a declaration under which the replay finds such an axiom is
   **not exported and not checked**: its node gets the warning mark with "not
   checked by the kernel replay: it rests on … (X)", and the rest of the project
   is still exported and checked. A judged theorem in that state is not called
@@ -2437,7 +2441,8 @@ the record of a generator with one checker is left as it is). By default it is n
   sets it), or beside the running `lean`; `VERSO_BLUEPRINT_CON_LECHE` and
   `VERSO_BLUEPRINT_CON_RON` name other programs. `VERSO_BLUEPRINT_KERNEL_CHECKER`
   is `off` to switch the replay off; any other value of it gives no verdict and
-  says that the checkers are named by the two variables. A toolchain that ships
+  says that the checkers are named by the two variables; a variable that names
+  a file that does not exist gives no verdict and says so. A toolchain that ships
   neither (Lean before 4.35) gives no verdict: "this project's Lean (vX) ships no
   con-leche or con-ron".
 - **Switching it off**: `lake exe vbp build --no-kernel-replay`,
@@ -2552,7 +2557,7 @@ line that a challenge would add a headline.
 
 | Replay | Verdict | Line under it |
 |---|---|---|
-| accepted, covers the theorem | Lean statement proved | Kernel replay: C each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it. (Recorded: "… (in an earlier run, for an export identical to this build's)."; a reproducible build: "… (in this run, or in an earlier one for an export identical to this build's).") |
+| accepted, covers the theorem | Lean statement proved | Kernel replay: C each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it. (Recorded: "… (in an earlier run, for an export identical to this build's)."; a reproducible build: "… (in this run, or in an earlier one for an export identical to this build's).") |
 | accepted, the theorem rests on an axiom outside the standard three | Same Lean statement as the challenge; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (X), and a replay checks only what rests on the standard three alone, so it is not shown as proved | Kernel replay: not checked: it rests on an axiom outside Lean's standard three (X), and a replay checks only what rests on the standard three alone. |
 | accepted, does not cover it | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: not part of the replay: WHY. |
 | rejected | Not accepted: a kernel checker rejected this build | Kernel replay: C1 rejected this build: the checker's words |
@@ -2583,21 +2588,21 @@ clause about resting nodes only; a site whose replay leaves only uncovered
 nodes ends the sentence after E.)
 
 The replay band on the Project Stats page starts with "Accepted: C each checked
-… starting from an empty environment, and both accepted them." or "Accepted: C
+… starting from its own built-in prelude, and both accepted them." or "Accepted: C
 both accepted an export identical to this build's in an earlier run: …" (a
 reproducible build: "Accepted: C both accepted this build's export, in this run
 or, for an identical export, in an earlier one: …") after an acceptance (also
 when it does not cover every node: the band then lists those nodes, and the
 nodes not checked because they rest on an axiom); "Rejected: C1 rejected this
-build, finding a problem in what this site's declarations depend on. Nothing on
-this site counts as checked by a kernel." after a rejection; "Rejected: the two
+build (the export of this site's declarations and what they depend on). Nothing
+on this site counts as checked by a kernel." after a rejection; "Rejected: the two
 checkers disagree on this build: C1 accepted it and C2 rejected it. Nothing on
 this site counts as checked by a kernel." after a disagreement; "No verdict of
 a kernel replay: WHY. The marks on this site say what the compiled files
 report." and "Not replayed by a kernel: WHY. The marks on this site say what the
 compiled files report." otherwise. Below it the band lists each checker's
 answer ("con-leche (Lean 4.35.0) accepted the export (N declaration records)
-(12 s, at most 410 MiB of memory)", "con-ron (Lean 4.35.0) rejected the export:
+(12 s, at most 410 MiB of memory); its file's SHA-256 begins …", "con-ron (Lean 4.35.0) rejected the export:
 …"), without the time and memory in a reproducible build.
 
 These tests pin the functions that print the words and selected rendered

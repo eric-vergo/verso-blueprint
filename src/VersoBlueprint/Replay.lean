@@ -17,7 +17,7 @@ depends on. So a site says "proved", and draws a check mark in the success colou
 declaration that a kernel replay covers: the generator loads the compiled modules, exports the
 declaration together with every constant it depends on, in the project, in its dependencies and
 in Lean's own library, and two checkers that ship with the Lean toolchain, `con-leche` and
-`con-ron`, each check all of them again, starting from an empty environment
+`con-ron`, each check all of them again, starting from its own built-in prelude
 (`Informal.Stats.ProjectStats.withKernelReplayAt` runs it when the site is generated). The
 replay accepts only when both accept. A declaration that rests on an axiom outside Lean's
 standard three (`sorryAx` among them) is not exported and not checked: both checkers decline an
@@ -538,17 +538,17 @@ def Result.summary (r : Result) : String :=
     let origins := if r.origins.isEmpty then "" else s!" ({r.originsText})"
     if r.reproducible then
       s!"Accepted: {r.checkerName} both accepted this build's export, in this run or, for an \
-        identical export, in an earlier one: {r.checkedText}{origins}, each starting from an \
-        empty environment."
+        identical export, in an earlier one: {r.checkedText}{origins}, each starting from its \
+        own built-in prelude."
     else if r.recorded then
       s!"Accepted: {r.checkerName} both accepted an export identical to this build's in an \
         earlier run: {r.checkedText}{origins}."
     else
-      s!"Accepted: {r.checkerName} each checked {r.checkedText}{origins}, starting from an \
-        empty environment, and both accepted them."
+      s!"Accepted: {r.checkerName} each checked {r.checkedText}{origins}, starting from its \
+        own built-in prelude, and both accepted them."
   | .rejected =>
-    s!"Rejected: {r.rejectionText}, finding a problem in what this site's declarations depend \
-      on. Nothing on this site counts as checked by a kernel."
+    s!"Rejected: {r.rejectionText} (the export of this site's declarations and what they \
+      depend on). Nothing on this site counts as checked by a kernel."
   | .disagreed =>
     s!"Rejected: {r.rejectionText}. Nothing on this site counts as checked by a kernel."
   | o =>
@@ -563,7 +563,7 @@ def trustedText : String :=
     Each of them that rests on no axiom beyond Lean's standard three is exported together with \
     every constant it depends on, whether that is in this project, in one of its dependencies \
     or in Lean's own library, and two checkers that ship with the Lean toolchain, con-leche and \
-    con-ron, each check the whole export, starting from an empty environment; a declaration \
+    con-ron, each check the whole export, starting from its own built-in prelude; a declaration \
     counts as checked only when both accept (an export identical to one both accepted before is \
     not checked twice). A declaration that rests on another axiom, sorry among them, is not \
     exported and not checked: both checkers decline an export that uses such an axiom. \

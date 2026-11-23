@@ -354,9 +354,9 @@ info: [("proved", "Lean statement proved"),
 -- The line under the verdict: the checkers with their version, and for a rejection which one
 -- and its message.
 /--
-info: ["Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it.",
- "Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it (in an earlier run, for an export identical to this build's).",
- "Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it (in this run, or in an earlier one for an export identical to this build's).",
+info: ["Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it.",
+ "Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it (in an earlier run, for an export identical to this build's).",
+ "Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it (in this run, or in an earlier one for an export identical to this build's).",
  "Kernel replay: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build: rejected: type mismatch",
  "Kernel replay: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it: rejected: type mismatch",
  "No kernel replay: this project's Lean (v4.34.0) ships no con-leche or con-ron.",
@@ -467,7 +467,7 @@ private def page (replay? : Option Replay.Result) : String :=
     hasSubstr html "data-bp-replay=\"accepted\"" &&
     hasSubstr html "Accepted: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations \
       and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib \
-      and 2,462 of Lean's own library (Init, Std)), starting from an empty environment, and \
+      and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and \
       both accepted them." &&
     hasSubstr html "con-leche (Lean 4.35.0) accepted the export (3,402 declaration records)" &&
     hasSubstr html "con-ron (Lean 4.35.0) accepted the export (3,402 declaration records)" &&
@@ -502,7 +502,7 @@ private def page (replay? : Option Replay.Result) : String :=
     !hasSubstr html ">Lean statement proved</span>" &&
     hasSubstr html "data-bp-replay=\"rejected\"" &&
     hasSubstr html "Rejected: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this \
-      build, finding a problem in what this site's declarations depend on." &&
+      build (the export of this site's declarations and what they depend on)." &&
     hasSubstr html "class=\"bp_stats_replay_message\">rejected: type mismatch</pre>" &&
     hasSubstr html "Declarations to check (2)"
 
@@ -760,6 +760,19 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
     resting.uncovered == #[] && resting.resting == #[`assumed] &&
     resting.siteState.token == "none" && !resting.accepted `assumed &&
     ({ replay? := some (result .accepted) } : ReplayView.Index).siteState == .accepted
+
+-- A node whose data says its code has no `sorry`, while the replay found `sorryAx` under it, is
+-- counted as complete: it keeps the site's counts neutral and is named. A node reported with its
+-- `sorry` is not counted as complete, and does not.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let standings : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
+    (`covered, .accepted), (`claimed, .notChecked #[``sorryAx]), (`honest, .notChecked #[``sorryAx])]
+  let index : ReplayView.Index := { replay? := some (result .accepted), standings
+                                    reportedProved := ({} : NameHashSet).insert `claimed }
+  index.resting == #[`claimed] && index.siteState.token == "none" &&
+    index.restingAxioms == #[``sorryAx]
 
 /-! ## A code block in a module that was not replayed -/
 

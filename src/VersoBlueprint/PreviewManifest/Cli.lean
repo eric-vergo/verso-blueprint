@@ -208,7 +208,7 @@ def helpText : String := String.intercalate "\n" [
   s!"  {relativeSourcePathsFlag}  Emit manifest source paths relative to the project root.",
   "",
   "Blueprint kernel replay:",
-  s!"  {kernelReplayFlag}     Check the Lean declarations of the site, and every constant they depend on, again in Lean's kernel (leanchecker); without an accepted replay no page says \"proved\".",
+  s!"  {kernelReplayFlag}     Check the Lean declarations of the site, and every constant they depend on, again with the toolchain's con-leche and con-ron; without an accepted replay no page says \"proved\".",
   "  --kernel-replay-with <program>  The program that loads the modules and writes the export for the replay in a process of its own (vbp).",
   "",
   "Blueprint layout options:",

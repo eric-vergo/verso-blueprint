@@ -6,6 +6,7 @@ Author: Eric Vergo
 
 import VersoBlueprint.Replay
 import VersoBlueprint.TraversalIndex
+import VersoBlueprint.Informal.CodeSummary
 
 /-!
 What the kernel replay of a build establishes for the nodes of a site, read from the traversal
@@ -55,6 +56,9 @@ structure Index where
   standings : Std.HashMap Name Replay.Standing := {}
   /-- The nodes each node depends on, statement and proof sides together. -/
   uses : Std.HashMap Name (Array Name) := {}
+  /-- The nodes whose Lean code the compiled files (or the site's data) report as having no
+  `sorry`: they are counted as complete. -/
+  reportedProved : NameHashSet := {}
 deriving Inhabited
 
 /-- The index of the captured nodes of `state` under the replay `replay?`. Nodes that do not
@@ -67,6 +71,9 @@ def Index.buildWith (state : TraverseState) (replay? : Option Replay.Result) : I
     let label : Name := node.label
     if let some standing := standingOfNode replay? node then
       index := { index with standings := index.standings.insert label standing }
+    let code := node.toBlockData.codeData
+    if (CodeSummary.statusMark? .theorem code).any (·.status.isProved) then
+      index := { index with reportedProved := index.reportedProved.insert label }
     let uses := (node.statementUses ++ node.proofUses).map fun use => (use.label : Name)
     index := { index with uses := index.uses.insert label uses }
   return index
@@ -115,7 +122,10 @@ both checkers decline an export that uses such an axiom. -/
 def Index.resting (index : Index) : Array Name :=
   (index.standings.toArray.filterMap fun (label, standing) =>
     match standing with
-    | .notChecked axioms => if axioms.contains Data.sorryAxiom then none else some label
+    -- a `sorry` the replay found keeps a node out unless it is counted as complete anyway
+    | .notChecked axioms =>
+      if axioms.contains Data.sorryAxiom && !index.reportedProved.contains label then none
+      else some label
     | _ => none).qsort (·.toString < ·.toString)
 
 /-- The axioms outside Lean's standard three under the nodes of `Index.resting`, each once. -/

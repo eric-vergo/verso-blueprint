@@ -15,7 +15,7 @@ import VersoBlueprint.Replay
 Running the kernel replay of a build (`Informal.Replay`).
 
 A replay checks the Lean declarations a site reports on, and everything they depend on, again
-in Lean's kernel. It has two halves.
+by two kernel checkers. It has two halves.
 
 The first half (`prepareExport`, after `loadModules`) runs in a worker process:
 
@@ -384,10 +384,17 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
   let searchPath ← dedupDirs dirs
   let choice := ((← IO.getEnv replayCheckerVar).map (·.trimAscii.copy)).filter (!·.isEmpty)
   let off := choice == some "off"
-  let setting? := choice.bind fun value => if value == "off" then none else
-    some s!"{replayCheckerVar} is set to '{value}', and it takes only 'off': the checkers are \
-      named by {conLecheVar} and {conRonVar}"
   let checkers ← findCheckers
+  -- a variable that names a program that is not there is a setting to correct, not a toolchain
+  -- without the checker
+  let mut misnamed : Option String := none
+  for (name, var) in [("con-leche", conLecheVar), ("con-ron", conRonVar)] do
+    if let some path := ((← IO.getEnv var).map (·.trimAscii.copy)).filter (!·.isEmpty) then
+      if (checkers.find? (·.1 == name)).any (·.2.isNone) && misnamed.isNone then
+        misnamed := some s!"{var} names {path}, which does not exist"
+  let setting? := (choice.bind fun value => if value == "off" then none else
+    some s!"{replayCheckerVar} is set to '{value}', and it takes only 'off': the checkers are \
+      named by {conLecheVar} and {conRonVar}") <|> misnamed
   let jobs ← defaultJobs
   let number (var : String) : IO (Option Nat) :=
     return (← IO.getEnv var).bind (·.trimAscii.copy.toNat?)

@@ -452,8 +452,8 @@ def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing)
         " (in an earlier run, for an export identical to this build's)"
       else ""
     s!"Kernel replay: {checker} each checked this theorem and every constant it depends on, \
-      in this project, in its dependencies and in Lean's own library, starting from an empty \
-      environment, and both accepted it{earlier}."
+      in this project, in its dependencies and in Lean's own library, starting from its own \
+      built-in prelude, and both accepted it{earlier}."
   | .rejected =>
     let what := (replay?.map (·.rejectionText)).getD "a kernel checker rejected this build"
     let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
@@ -584,7 +584,9 @@ def checkerRunText (c : Replay.CheckerRun) : String :=
     | some ms, some peak => s!" ({(ms + 500) / 1000} s, at most {mib peak} MiB of memory)"
     | some ms, Option.none => s!" ({(ms + 500) / 1000} s)"
     | _, _ => ""
-  s!"{c.label} {answer}{used}"
+  -- which program it was: the file's SHA-256, also for one a setting named
+  let file := (c.sha256.map fun h => s!"; its file's SHA-256 begins {(h.take 12).copy}").getD ""
+  s!"{c.label} {answer}{used}{file}"
 
 /-- What the page says when the generator ran no replay. -/
 def noReplaySummary : String :=
@@ -914,8 +916,9 @@ def meaningItems : Array (String × String) := #[
   ("Kernel replay, and the check mark on a node",
     "a replay made while a site is generated exports the Lean declarations of its nodes and \
       every constant they depend on, in the project, in its dependencies and in Lean's own \
-      library, and checks them again in Lean's kernel with the toolchain's leanchecker, \
-      starting from an empty environment; the Kernel replay section above says whether one ran \
+      library, and checks them again with con-leche and con-ron, two checkers that ship with the \
+      Lean toolchain, each starting from its own built-in prelude; the Kernel replay section \
+      above says whether one ran \
       for this site and how it ended. A node has the check mark only when its Lean code is \
       complete, rests on no axiom outside Lean's standard three, and the replay accepted it. \
       Otherwise its mark is the diamond when no verdict of a replay stands behind its code, the \

@@ -279,9 +279,9 @@ not run | none | as the compiled files report, not replayed by a kernel | Counte
 
 -- The replay band's first sentence, per state.
 /--
-info: accepted | Accepted: con-leche and con-ron (Lean 4.35.0) each checked 3 declarations and everything they depend on, 120 constants in all, starting from an empty environment, and both accepted them.
-accepted (reproducible) | Accepted: con-leche and con-ron (Lean 4.35.0) both accepted this build's export, in this run or, for an identical export, in an earlier one: 3 declarations and everything they depend on, 120 constants in all, each starting from an empty environment.
-rejected | Rejected: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build, finding a problem in what this site's declarations depend on. Nothing on this site counts as checked by a kernel.
+info: accepted | Accepted: con-leche and con-ron (Lean 4.35.0) each checked 3 declarations and everything they depend on, 120 constants in all, starting from its own built-in prelude, and both accepted them.
+accepted (reproducible) | Accepted: con-leche and con-ron (Lean 4.35.0) both accepted this build's export, in this run or, for an identical export, in an earlier one: 3 declarations and everything they depend on, 120 constants in all, each starting from its own built-in prelude.
+rejected | Rejected: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build (the export of this site's declarations and what they depend on). Nothing on this site counts as checked by a kernel.
 disagreed | Rejected: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it. Nothing on this site counts as checked by a kernel.
 declined | No verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax]. The marks on this site say what the compiled files report.
 no answer | No verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted). The marks on this site say what the compiled files report.
@@ -315,8 +315,8 @@ private def headlineRows (h : Headline) (t : HeadlineTheorem) : List String :=
 -- A theorem that meets the comparison's conditions and that the replay checks: the state, the
 -- verdict's token, the verdict, the line under it.
 /--
-info: accepted | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it.
-accepted (reproducible) | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from an empty environment, and both accepted it (in this run, or in an earlier one for an export identical to this build's).
+info: accepted | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it.
+accepted (reproducible) | proved | Lean statement proved | Kernel replay: con-leche and con-ron (Lean 4.35.0) each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it (in this run, or in an earlier one for an export identical to this build's).
 rejected | rejected | Not accepted: a kernel checker rejected this build | Kernel replay: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build: invalid: type mismatch in theorem P.bad
 disagreed | rejected | Not accepted: the two kernel checkers disagree on this build | Kernel replay: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it: rejected: type mismatch in theorem
 declined | not-replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax].

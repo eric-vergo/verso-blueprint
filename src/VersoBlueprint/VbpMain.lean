@@ -44,7 +44,7 @@ private def buildOptionLines : List String := [
   "--pdf-runs <n>      Run the PDF engine <n> times",
   "--reproducible      Omit build time and Git metadata, emit relative source paths",
   "--no-stats-page     Leave the Project Stats page out of the site",
-  "--no-kernel-replay  Do not check the compiled modules again in Lean's kernel (no page then says \"proved\")",
+  "--no-kernel-replay  Do not check the compiled modules again with the kernel checkers (no page then says \"proved\")",
   "--verbose           Show Blueprint generation phase progress",
   "--serve             Serve the generated html-multi directory after build",
   "--port <n>          Serve on a fixed TCP port; requires --serve",
