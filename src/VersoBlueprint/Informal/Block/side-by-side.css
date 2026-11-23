@@ -437,7 +437,7 @@ details[data-bp-animating] {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--verso-code-font-family);
-  font-size: 0.82rem;
+  font-size: var(--bp-code-text-size);
   line-height: 1.6;
   background: transparent;
 }

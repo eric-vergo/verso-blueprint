@@ -49,9 +49,6 @@ def shortCommitAt? (dir : System.FilePath) : IO (Option String) :=
 def fullCommitAt? (dir : System.FilePath) : IO (Option String) :=
   Process.runTrimmedCommand? "git" #["-C", dir.toString, "rev-parse", "HEAD"]
 
-def subjectAt? (dir : System.FilePath) : IO (Option String) :=
-  Process.runTrimmedCommand? "git" #["-C", dir.toString, "log", "-1", "--pretty=%s"]
-
 def toplevelAt? (dir : System.FilePath) : IO (Option System.FilePath) := do
   let some root ← Process.runTrimmedCommand? "git" #["-C", dir.toString, "rev-parse", "--show-toplevel"]
     | return none
@@ -61,6 +58,14 @@ def repositoryUrlAt? (dir : System.FilePath) : IO (Option String) := do
   match ← Process.runTrimmedCommand? "git" #["-C", dir.toString, "remote", "get-url", "origin"] with
   | some url => pure <| githubRepositoryUrl? url
   | none => pure none
+
+/-- Whether `input`, the revision a manifest asks for, names the commit `rev` it resolved to: the
+same text, or a commit hash of at least seven digits that is a prefix of the other. A version is
+then shown once, not as `input@rev`. -/
+def sameRevision (input rev : String) : Bool :=
+  input == rev ||
+    (input.length ≥ 7 && rev.length ≥ 7 && input.all Char.isHexDigit && rev.all Char.isHexDigit &&
+      (rev.startsWith input || input.startsWith rev))
 
 def commitUrl? (repositoryUrl? commit? : Option String) : Option String :=
   match repositoryUrl?, commit? with

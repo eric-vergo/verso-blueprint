@@ -733,6 +733,8 @@ structure InformalBlockRenderModel where
   /-- The block is a statement with a written body and Lean declarations: it gets the line that
   names where its text comes from (`renderStatementSource`), under the statement. -/
   statementSourceNote : Bool := false
+  /-- The address of the explanation of the marks; the statement's source line links to it. -/
+  meaningHref? : Option String := none
   /-- The author's claim about the statement's Lean declaration, rendered
   (`Informal.ClaimView`): shown under the statement, after the source line. -/
   claim : Verso.Output.Html := .empty
@@ -841,11 +843,17 @@ def htmlClassAttrs (className : String) : Array (String × String) :=
   if className.isEmpty then #[] else #[("class", className)]
 
 /-- The line under an informal statement that stands beside Lean code: where the text comes from,
-and that nothing compared it with the Lean statement (`Informal.Meaning.sourceLine`). -/
-def renderStatementSource (source : Option String) : Verso.Output.Html :=
+and that nothing compared it with the Lean statement (`Informal.Meaning.sourceLine`), with a link
+to the explanation at `meaningHref?`. -/
+def renderStatementSource (source : Option String) (meaningHref? : Option String := none) :
+    Verso.Output.Html :=
+  let link : Verso.Output.Html := match meaningHref? with
+    | some href => .seq #[.text " · ", .element "a" #[("class", "bp_meaning_link"), ("href", href)]
+        (.text Informal.Meaning.linkText)]
+    | none => .empty
   .element "p" #[("class", "bp_statement_source"), ("data-bp-statement-source", (source.getD "blueprint")),
       ("title", Informal.Meaning.uncheckedNote)]
-    (.text (Informal.Meaning.sourceLine source))
+    (.seq #[.text (Informal.Meaning.sourceLine source), link])
 
 /--
 A node as a unit: the informal statement on the left and its Lean declarations on the right.
@@ -1025,7 +1033,8 @@ def statusLegendTemplate : Verso.Output.Html :=
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=
   let blockHtml := renderInformalBlockHtml model.data model.context model.content
     (showHeader := model.showHeader)
-  let note := if model.statementSourceNote then renderStatementSource model.data.statementSource
+  let note := if model.statementSourceNote then
+      renderStatementSource model.data.statementSource model.meaningHref?
     else .empty
   let note := Verso.Output.Html.seq #[note, model.claim]
   let blockHtml :=

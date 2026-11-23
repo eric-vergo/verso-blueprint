@@ -420,7 +420,7 @@ class TestPreviewRuntimeRegressions:
 
         panel = page.locator(".bp_code_summary_preview_panel").first
         expect(panel).to_be_visible()
-        expect(panel.locator(".bp_code_summary_preview_title")).to_have_text("used_target")
+        expect(panel.locator(".bp_code_summary_preview_title")).to_have_text("Definition 6.1")
         expect(panel.locator(".bp_code_decl_item")).to_have_count(1)
         expect(panel.locator(".bp_code_decl_item").first).to_contain_text("Nat.add")
 
@@ -455,7 +455,7 @@ class TestPreviewRuntimeRegressions:
         summary_panel = page.locator(".bp_code_summary_preview_panel:not([hidden])").first
         expect(summary_panel).to_be_visible()
         expect(summary_panel.locator(".bp_code_summary_preview_title")).to_have_text(
-            "panel_external_short_name_definition"
+            "Definition 2.4"
         )
         expect(summary_panel.locator(".bp_code_decl_item").first).to_contain_text(
             "previewExternalDefinition"
@@ -1239,7 +1239,7 @@ class TestPreviewRuntimeRegressions:
         code_panel = page.locator(".bp_code_summary_preview_panel:not([hidden])").first
         expect(code_panel).to_be_visible()
         expect(code_panel.locator(".bp_code_summary_preview_title")).to_have_text(
-            "custom_client_external_markdown_metadata"
+            "Theorem 3.1"
         )
         expect(code_panel.locator(".bp_code_summary_preview_body")).to_contain_text(
             "No associated Lean code or declarations."
