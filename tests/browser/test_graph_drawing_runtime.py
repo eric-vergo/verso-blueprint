@@ -356,58 +356,95 @@ class TestViews:
         wait_for_graph_rendered(page)
 
     def test_first_view_rule(self, page: Page, code_site_url: str):
-        # a drawing that fits at a scale between the floor and the readable minimum is shown
-        # whole and centred; one that fits only below the floor starts readable, on its roots
+        # a drawing is shown whole when its labels are at least 9 px there (labels of 12 units:
+        # a fit of 0.75 or more); one that fits only smaller opens at the scale of 9 px labels,
+        # on its roots
         goto_graph(page, code_site_url + "/Dependency-Graph/", width=1400, height=900)
         facts = page.evaluate(
             """async () => {
                 const core = await import(new URL("-verso-data/Commands/graph-runtime-core.mjs",
                     document.baseURI).href);
                 const canvas = { width: 1000, height: 600 };
-                const at = (fit) => core.initialTransform(
-                    { width: 1000 / fit, height: 300 / fit }, canvas, "LR", NaN);
-                return { floor: core.wholeGraphScaleFloor, minimum: core.minReadableGraphScale,
-                         near: at(0.42), low: at(0.3), fits: at(0.8) };
+                const svg = document.querySelector(".bp_graph_canvas > svg");
+                const at = (fit, minScale) => core.initialTransform(
+                    { width: 1000 / fit, height: 300 / fit }, canvas, "LR", NaN, minScale);
+                return { pixels: core.minLabelPixels, label: core.labelSize(svg),
+                         readableScale: core.readableScale(svg),
+                         fits: at(0.8), edge: at(0.75), near: at(0.74), low: at(0.3),
+                         given: at(0.6, 0.5) };
             }"""
         )
-        assert 0 < facts["floor"] < facts["minimum"], facts
-        assert facts["near"]["readable"] is False and abs(facts["near"]["k"] - 0.42) < 1e-9, facts
-        assert abs(facts["near"]["x"]) < 1e-6, facts
-        assert facts["low"]["readable"] is True and facts["low"]["k"] == facts["minimum"], facts
+        assert facts["pixels"] == 9 and facts["label"] == 12, facts
+        assert abs(facts["readableScale"] - 0.75) < 1e-9, facts
         assert facts["fits"]["readable"] is False and abs(facts["fits"]["k"] - 0.8) < 1e-9, facts
+        assert facts["edge"]["readable"] is False and abs(facts["edge"]["k"] - 0.75) < 1e-9, facts
+        assert abs(facts["edge"]["x"]) < 1e-6, facts
+        assert facts["near"]["readable"] is True and abs(facts["near"]["k"] - 0.75) < 1e-9, facts
+        assert facts["low"]["readable"] is True and abs(facts["low"]["k"] - 0.75) < 1e-9, facts
+        # with a scale given, the rule follows it
+        assert facts["given"]["readable"] is False and abs(facts["given"]["k"] - 0.6) < 1e-9, facts
 
-    def test_graph_that_nearly_fits_at_1400_px_is_shown_whole(self, page: Page, mid_site_url: str):
-        # the drawing fits a 1400 px window only below the readable scale, and above the floor:
-        # the first view shows all of it, not a readable part cut off at the right
+    def test_first_view_follows_the_label_rule_and_offers_the_whole_graph(
+        self, page: Page, mid_site_url: str
+    ):
+        # at 1400 px the first view of a drawing shows it whole only when its labels are at
+        # least 9 px; otherwise it opens at 9 px labels on its roots, and "Show whole graph"
+        # (or the key 0) shows all of it, after which the control is no longer offered
         goto_graph(page, mid_site_url + "/Dependency-Graph/", width=1400, height=900)
         page.locator(".bp_graph_view_select").select_option("full")
         wait_for_graph_rendered(page)
-        facts = page.evaluate(
-            """async () => {
-                const core = await import(new URL("-verso-data/Commands/graph-runtime-core.mjs",
-                    document.baseURI).href);
-                const svg = document.querySelector(".bp_graph_canvas > svg");
-                const box = document.querySelector(".bp_graph_canvas").getBoundingClientRect();
-                const nodes = Array.from(svg.querySelectorAll("g.node"));
-                const inside = nodes.filter((n) => {
-                    const r = n.getBoundingClientRect();
-                    return r.left >= box.left - 1 && r.right <= box.right + 1 &&
-                        r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
-                });
-                return { floor: core.wholeGraphScaleFloor, minimum: core.minReadableGraphScale,
-                         scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
-                         readable: svg.getAttribute("data-bp-graph-readable"),
-                         nodes: nodes.length, inside: inside.length };
-            }"""
-        )
-        assert facts["floor"] <= facts["scale"] < facts["minimum"], facts
-        assert facts["readable"] == "0", facts
-        assert facts["inside"] == facts["nodes"] == 64, facts
+        read = """async () => {
+            const core = await import(new URL("-verso-data/Commands/graph-runtime-core.mjs",
+                document.baseURI).href);
+            const svg = document.querySelector(".bp_graph_canvas > svg");
+            const box = document.querySelector(".bp_graph_canvas").getBoundingClientRect();
+            const size = core.drawingSize(svg);
+            const nodes = Array.from(svg.querySelectorAll("g.node"));
+            const inside = nodes.filter((n) => {
+                const r = n.getBoundingClientRect();
+                return r.left >= box.left - 1 && r.right <= box.right + 1 &&
+                    r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+            });
+            const label = svg.querySelector("g.node > text").getBoundingClientRect();
+            const button = document.querySelector(".bp_graph_whole_button");
+            return { fit: Math.min(box.width / size.width, box.height / size.height),
+                     readableScale: core.readableScale(svg),
+                     scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
+                     readable: svg.getAttribute("data-bp-graph-readable"),
+                     whole: svg.getAttribute("data-bp-graph-whole"),
+                     fontPixels: parseFloat(svg.querySelector("g.node > text").closest("[font-size]")
+                         .getAttribute("font-size")) * parseFloat(svg.getAttribute("data-bp-graph-scale")),
+                     buttonShown: !!button && !button.hidden && button.getBoundingClientRect().width > 0,
+                     nodes: nodes.length, inside: inside.length };
+        }"""
+        facts = page.evaluate(read)
+        assert facts["fontPixels"] >= 9 - 0.01, facts
+        if facts["fit"] >= facts["readableScale"]:
+            assert facts["readable"] == "0" and facts["whole"] == "1", facts
+            assert facts["inside"] == facts["nodes"] == 64 and not facts["buttonShown"], facts
+            return
+        assert facts["readable"] == "1" and facts["whole"] == "0", facts
+        assert abs(facts["scale"] - facts["readableScale"]) < 0.001, facts
+        assert facts["buttonShown"] and facts["inside"] < facts["nodes"], facts
+        page.locator(".bp_graph_whole_button").click()
+        shown = page.evaluate(read)
+        assert shown["whole"] == "1" and shown["inside"] == shown["nodes"], shown
+        assert not shown["buttonShown"], shown
+        # the key 0 goes back to the first view, and pressed there shows the whole drawing again
+        page.locator(".bp_graph_canvas > svg").focus()
+        page.keyboard.press("0")
+        back = page.evaluate(read)
+        assert back["readable"] == "1" and back["whole"] == "0" and back["buttonShown"], back
+        page.keyboard.press("0")
+        again = page.evaluate(read)
+        assert again["whole"] == "1" and not again["buttonShown"], again
 
     @pytest.mark.parametrize("view", ("full", "group"))
-    def test_graph_that_nearly_fits_is_shown_whole(self, page: Page, large_site_url: str, view: str):
-        # at 1400 px the first view shows the whole drawing whenever it fits at the floor or
-        # above, every node inside the canvas; only a drawing too large for that starts readable
+    def test_first_view_of_every_view_follows_the_label_rule(
+        self, page: Page, large_site_url: str, view: str
+    ):
+        # at 1400 px every view is shown whole when its labels are at least 9 px at the fit, every
+        # node inside the canvas; any other opens readable at the scale of 9 px labels
         goto_graph(page, large_site_url + "/Dependency-Graph/", width=1400, height=900)
         page.locator(".bp_graph_view_select").select_option(view)
         wait_for_graph_rendered(page)
@@ -425,18 +462,20 @@ class TestViews:
                     return r.left >= box.left - 1 && r.right <= box.right + 1 &&
                         r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
                 });
-                return { fit, floor: core.wholeGraphScaleFloor, minimum: core.minReadableGraphScale,
+                const button = document.querySelector(".bp_graph_whole_button");
+                return { fit, readableScale: core.readableScale(svg),
                          scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
                          readable: svg.getAttribute("data-bp-graph-readable"),
+                         buttonShown: !!button && !button.hidden,
                          nodes: nodes.length, inside: inside.length };
             }"""
         )
-        if facts["fit"] >= facts["floor"]:
+        if facts["fit"] >= facts["readableScale"]:
             assert facts["readable"] == "0", facts
-            assert facts["inside"] == facts["nodes"] > 0, facts
+            assert facts["inside"] == facts["nodes"] > 0 and not facts["buttonShown"], facts
         else:
-            assert facts["readable"] == "1", facts
-            assert abs(facts["scale"] - facts["minimum"]) < 0.001, facts
+            assert facts["readable"] == "1" and facts["buttonShown"], facts
+            assert abs(facts["scale"] - facts["readableScale"]) < 0.001, facts
 
     def test_large_graph_starts_readable(self, page: Page, large_site_url: str):
         goto_graph(page, large_site_url + "/Dependency-Graph/", width=1100, height=700)
@@ -455,13 +494,12 @@ class TestViews:
                 });
                 const roots = inside.filter((n) => /\\.d0$/.test(n.getAttribute("data-bp-node-name")));
                 return { scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
-                         minimum: core.minReadableGraphScale,
-                         floor: core.wholeGraphScaleFloor,
+                         minimum: core.readableScale(svg),
                          readable: svg.getAttribute("data-bp-graph-readable"),
                          inside: inside.length, roots: roots.length };
             }"""
         )
-        # too large to be shown whole above the floor: readable, on the roots
+        # too large to be shown whole with 9 px labels: readable, on the roots
         assert facts["readable"] == "1", facts
         assert facts["scale"] >= facts["minimum"] - 0.001, facts
         assert facts["inside"] > 10 and facts["roots"] >= 1, facts
@@ -649,16 +687,15 @@ class TestSmallWindows:
                 return { scrollWidth: document.documentElement.scrollWidth,
                          innerWidth: window.innerWidth, canvasWidth: canvas.width,
                          scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
-                         minimum: core.minReadableGraphScale, floor: core.wholeGraphScaleFloor,
+                         minimum: core.readableScale(svg),
                          readable: svg.getAttribute("data-bp-graph-readable"),
                          visible: visible.length };
             }"""
         )
         assert facts["scrollWidth"] <= facts["innerWidth"], facts
         assert facts["canvasWidth"] <= facts["innerWidth"], facts
-        # readable on the roots, or whole at no less than the floor
-        least = facts["minimum"] if facts["readable"] == "1" else facts["floor"]
-        assert facts["scale"] >= least - 0.001 and facts["visible"] > 0, facts
+        # readable on the roots or whole, and either way with labels of at least 9 px
+        assert facts["scale"] >= facts["minimum"] - 0.001 and facts["visible"] > 0, facts
         page.locator(".bp_graph_options_button").click()
         panel = page.locator(".bp_graph_options_popover")
         assert panel.is_visible()

@@ -286,16 +286,26 @@
     return true;
   }
 
-  // Smallest on-screen scale (CSS pixels per unit of the drawing) the first view of a
-  // graph uses. Fitting a large graph into a narrow pane can shrink nodes to a few
-  // pixels; below this scale the graph starts readable instead, showing its roots.
-  export const minReadableGraphScale = 0.5;
+  // The smallest size, in CSS pixels, of the node labels in the first view of a graph. The
+  // first view shows the whole drawing when its labels are at least this size there; a larger
+  // drawing opens at the scale where they are, on its roots, and the whole drawing is a
+  // control (and the key `0`) away.
+  export const minLabelPixels = 9;
 
-  // A drawing that fits whole at this scale or above starts whole, although the fit is below
-  // `minReadableGraphScale`: a picture cropped by a little hides more than slightly smaller
-  // labels do (12 px labels are about 4.3 px high here, still legible at a glance and read by
-  // zooming in). Below it the first view is the readable one, on the roots.
-  export const wholeGraphScaleFloor = 0.36;
+  // The size of a drawing's node labels in its own units (the `font-size` of a label or of
+  // the nearest group around it that sets one), 12 when the drawing does not say.
+  export function labelSize(svg) {
+    const text = svg && typeof svg.querySelector === "function" ? svg.querySelector("g.node > text") : null;
+    const holder = text ? text.closest("[font-size]") : null;
+    const value = holder ? parseFloat(holder.getAttribute("font-size") || "") : NaN;
+    return Number.isFinite(value) && value > 0 ? value : 12;
+  }
+
+  // The scale (CSS pixels per unit of the drawing) at which a drawing's labels are
+  // `minLabelPixels` high.
+  export function readableScale(svg) {
+    return minLabelPixels / labelSize(svg);
+  }
 
   // The largest scale a fitted view uses: a graph of a few nodes is not blown up to
   // fill the canvas.
@@ -332,14 +342,14 @@
 
   // Where the first view of a drawing of `size` goes in a canvas of `canvas` (both
   // `{ width, height }`): fitted and centred, at most `maxFittedGraphScale`, whenever the
-  // fit is at least `wholeGraphScaleFloor` (or `minScale`, when that is smaller); when the
-  // fit is smaller still, at `minScale` with the roots' layer (`lead`,
-  // the centre of the roots across the layers, in drawing units) at the canvas's
-  // leading edge. Returns `{ k, x, y, readable }`.
+  // fit is at least `minScale` (the scale at which its labels are `minLabelPixels` high,
+  // `readableScale`; 0.75 for labels of 12 units when it is not given); when the fit is
+  // smaller, at `minScale` with the roots' layer (`lead`, the centre of the roots across the
+  // layers, in drawing units) at the canvas's leading edge. Returns `{ k, x, y, readable }`.
   export function initialTransform(size, canvas, direction, lead, minScale) {
-    const wanted = Number.isFinite(minScale) && minScale > 0 ? minScale : minReadableGraphScale;
+    const wanted = Number.isFinite(minScale) && minScale > 0 ? minScale : minLabelPixels / 12;
     const fit = Math.min(canvas.width / size.width, canvas.height / size.height);
-    if (fit >= Math.min(wanted, wholeGraphScaleFloor)) {
+    if (fit >= wanted) {
       const k = Math.min(fit, maxFittedGraphScale);
       return { k: k, x: (canvas.width - k * size.width) / 2, y: (canvas.height - k * size.height) / 2, readable: false };
     }
@@ -398,12 +408,17 @@
   // the pointer, a drag pans (a press that moves less than a few pixels stays a
   // click), two fingers pinch, and the keys `+`, `-` and the arrows do the same from
   // the keyboard; `0` goes back to the first view and, pressed there, shows the whole
-  // drawing. Nothing is animated. Returns the controller:
-  // `fit()`, `resize()`, `transform()`, `setTransform({k, x, y})`, `destroy()`.
+  // drawing. Nothing is animated. The first view follows `initialTransform` at the scale where
+  // the labels are `minLabelPixels` high (`options.minScale` when given). After every change the
+  // `svg` element's `data-bp-graph-whole` says whether the whole drawing is in the canvas, and
+  // `options.onView({ whole })` is called. Returns the controller:
+  // `fit()`, `whole()`, `showsWhole()`, `resize()`, `transform()`, `setTransform({k, x, y})`,
+  // `destroy()`.
   export function createPanZoom(graphRoot, svg, options) {
     const opts = options && typeof options === "object" ? options : {};
     const group = svg.querySelector("g.graph") || svg.querySelector("g");
     const size = drawingSize(svg);
+    const minScale = Number.isFinite(opts.minScale) && opts.minScale > 0 ? opts.minScale : readableScale(svg);
     svg.setAttribute("data-bp-drawing-width", String(size.width));
     svg.setAttribute("data-bp-drawing-height", String(size.height));
     svg.removeAttribute("viewBox");
@@ -421,6 +436,16 @@
         );
       }
       svg.setAttribute("data-bp-graph-scale", state.k.toFixed(4));
+      const inside = showsWhole();
+      svg.setAttribute("data-bp-graph-whole", inside ? "1" : "0");
+      if (typeof opts.onView === "function") opts.onView({ whole: inside });
+    };
+    // whether the whole drawing lies inside the canvas (a pixel of tolerance)
+    const showsWhole = function () {
+      const canvas = canvasSize();
+      return state.x >= -1 && state.y >= -1 &&
+        state.x + state.k * size.width <= canvas.width + 1 &&
+        state.y + state.k * size.height <= canvas.height + 1;
     };
     const sizeSvg = function () {
       const canvas = canvasSize();
@@ -430,10 +455,10 @@
     };
     const fit = function () {
       const canvas = sizeSvg();
-      let first = initialTransform(size, canvas, opts.direction, NaN, opts.minScale);
+      let first = initialTransform(size, canvas, opts.direction, NaN, minScale);
       if (first.readable) {
         // a mirrored drawing's own coordinates are those of the direction it was drawn for
-        first = initialTransform(size, canvas, opts.direction, rootsCentre(svg, opts.geometry || opts.direction, size), opts.minScale);
+        first = initialTransform(size, canvas, opts.direction, rootsCentre(svg, opts.geometry || opts.direction, size), minScale);
       }
       minK = Math.min(first.k, Math.min(canvas.width / size.width, canvas.height / size.height)) * 0.5;
       state.k = first.k;
@@ -563,6 +588,7 @@
     const controller = {
       fit: fit,
       whole: whole,
+      showsWhole: showsWhole,
       // the canvas changed size: the point at its centre stays at its centre
       resize: function () {
         const before = { width: parseFloat(svg.getAttribute("width")) || 0, height: parseFloat(svg.getAttribute("height")) || 0 };
@@ -807,8 +833,9 @@
     ensureGraphBlockState,
     rememberGraphLayoutMeasurements,
     resizeRenderedGraphToCanvas,
-    minReadableGraphScale,
-    wholeGraphScaleFloor,
+    minLabelPixels,
+    labelSize,
+    readableScale,
     maxFittedGraphScale,
     drawingSize,
     initialTransform,
