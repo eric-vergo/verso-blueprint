@@ -69,7 +69,15 @@ def wrapDotted (text : String) (width : Nat := labelWidth) : Array String := Id.
 /-- The lines of a node's label: its own lines, each long dotted name (a module, a declaration
 in its namespaces) broken after dots, so that a node is not much wider than the others. -/
 def labelLines (node : GraphNode Ref) : Array String :=
-  ((node.displayLabel.splitOn "\n").toArray).flatMap wrapDotted
+  (((node.caption?.getD node.displayLabel).splitOn "\n").toArray).flatMap wrapDotted
+
+/-- The accessible name of a drawn node: the text of its label, followed by its name (the
+node's label, also its tooltip) when the label shows something else, as a numbered title does
+(`Theorem 6.5 (critical_radius)`). -/
+def accessibleName (node : PILean.Graph.WebNode) : String :=
+  let shown := String.join node.lines.toList
+  if shown == node.name || node.name.isEmpty then shown
+  else s!"{" ".intercalate node.lines.toList} ({node.name})"
 
 /-- The outline of a node. -/
 def webShape (node : GraphNode Ref) : PILean.Graph.WebShape :=
@@ -212,6 +220,29 @@ structure Drawing where
   /-- The `svg` element. -/
   svg : String
 
+/-- Text for an attribute value: `&`, `<`, `>` and `"` escaped. -/
+def escapeAttribute (text : String) : String :=
+  (((text.replace "&" "&amp;").replace "<" "&lt;").replace ">" "&gt;").replace "\"" "&quot;"
+
+/-- A drawing whose nodes are images named for a reader of the page (`role="img"` and their
+`accessibleName` as `aria-label`), found by the nodes' ids. -/
+def withAccessibleNames (nodes : Array PILean.Graph.WebNode) (svg : String) : String :=
+  let names : Std.HashMap String String := nodes.foldl (init := {}) fun m n =>
+    if n.id.isEmpty then m else m.insert n.id (accessibleName n)
+  match svg.splitOn "<g id=\"" with
+  | [] | [_] => svg
+  | first :: rest =>
+    let rest := rest.map fun piece =>
+      let id := (piece.splitOn "\"").head?.getD ""
+      let after := (piece.drop (id.length + 1)).toString
+      match names.get? id, after.splitOn ">" with
+      | some name, attrs :: rest@(_ :: _) =>
+        if attrs.startsWith " class=\"node" then
+          s!"{id}\"{attrs} role=\"img\" aria-label=\"{escapeAttribute name}\">" ++ ">".intercalate rest
+        else piece
+      | _, _ => piece
+    "<g id=\"".intercalate (first :: rest)
+
 /-- A layout written for a direction: the layout of the top-down or left-to-right direction,
 mirrored for the opposite one. -/
 def svgFor (layout : PILean.Graph.Layout) (nodes : Array PILean.Graph.WebNode)
@@ -220,7 +251,7 @@ def svgFor (layout : PILean.Graph.Layout) (nodes : Array PILean.Graph.WebNode)
     | .BT => layout.mirror true
     | .RL => layout.mirror false
     | _ => layout
-  mirrored.toWebSvg nodes edges
+  withAccessibleNames nodes <| mirrored.toWebSvg nodes edges
     { classes := "bp_graph_drawing", fontSize, titlesBelow := direction == .BT
       attrs := #[("data-bp-direction", direction.rankdir)] }
 

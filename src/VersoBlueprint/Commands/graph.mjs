@@ -680,6 +680,15 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
   if (fromLocation && panel.hidden) graphState.openNodeView(fromLocation);
 }
 
+// A node the keyboard reaches opens its view or preview: a button for assistive technology,
+// keeping the name the drawing gives it.
+function markFocusableNodesAsButtons(svg) {
+  if (!(svg instanceof Element)) return;
+  svg.querySelectorAll("g.node[tabindex]").forEach(function (node) {
+    node.setAttribute("role", "button");
+  });
+}
+
 // Links between node views (`data-bp-node-link`) switch the panel to the other
 // node when it is in this graph; the fragment follows Back / Forward.
 function bindNodeViewNavigation(graphBlock, previewController) {
@@ -1505,7 +1514,9 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           graphRoot.removeAttribute("data-bp-graph-rendering");
           const svg = drawing.svg;
           if (!svg) return;
-          svg.setAttribute("role", "img");
+          // a group, not an image: its nodes are named (`role="img"`, `aria-label`, written with
+          // the drawing) and the ones that open a view are buttons a keyboard reaches
+          svg.setAttribute("role", "group");
           svg.setAttribute("aria-label", activeVariant.label || "Dependency graph");
           // a node's name is kept for the page's scripts; its tooltip, when it has one, is what
           // a pointer resting on it shows
@@ -1529,6 +1540,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
             previewController,
             activeVariant.previewKeyByNodeId
           );
+          markFocusableNodesAsButtons(svg);
           attachVariantSelectors(
             graphContainer,
             variantsByKey,
