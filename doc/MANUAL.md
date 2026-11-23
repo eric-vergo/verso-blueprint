@@ -1707,6 +1707,7 @@ or with explicit graph layout options:
 ```lean
 {blueprint_graph (direction := LR)}
 {blueprint_graph (direction := LR) (pack := true)}
+{blueprint_graph (routing := spline)}
 {blueprint_graph (preview := hover)}
 {blueprint_graph (preview := hover) (previewPlacement := anchored)}
 ```
@@ -1719,6 +1720,11 @@ each connected component is laid out on its own and the drawings are packed
 into rows; with `false` the whole graph is laid out in one set of layers. It
 defaults to `verso.blueprint.graph.defaultPack`, which is `true`. A view with
 one connected component has a single drawing for both settings.
+The `(routing := bundled | spline)` option chooses how edges are drawn:
+`bundled` (the default) draws them as horizontal and vertical lanes, and
+`spline` as one smooth curve per edge (see "How the graph is laid out"). It
+defaults to `verso.blueprint.graph.defaultRouting`, which is `bundled`; a site
+generated from compiled code takes `--graph-routing spline` (`vbp code-site`).
 The `(preview := pinned | hover)` option chooses the initial graph-node preview
 behavior. The default is `pinned`: clicking a node opens a persistent preview
 panel that stays open until closed. `hover` opens a transient preview that
@@ -1844,16 +1850,72 @@ out alone and the drawings are placed on shelves, tallest first, each filling a
 row before the next begins (next-fit decreasing height; Coffman, Garey, Johnson
 and Tarjan, 1980).
 
-An edge is routed as in section 5 of Gansner et al.: its room is the free space
-beside the nodes of every layer it passes, the route is the shortest polyline
-through that room (an edge with nothing in its way is a straight line), and the
-edge is drawn as one smooth curve that rounds the bends of that route and stays
-clear of every node and group it does not end in. An edge never turns back
-across the layers, so none runs round the outside of the drawing. The ends of the
-edges are spread along a node's side in the order of their other ends, and an
-arrowhead lies along the end of its curve. The line styles keep their meaning:
-an edge from a definition is dashed, an edge that only a proof uses is dotted,
-and an edge that both the statement and the proof use is thicker.
+Edges are drawn in **bundled lanes** by default. Every node has one exit port
+(the middle of its side towards the next layers) and one entry port (the middle
+of the opposite side). The edges that leave a node share a straight *stem* from
+its exit port and then split onto their own tracks; the edges that enter a node
+join one stem that ends in a single arrowhead, so a node has one arrowhead
+however many edges reach it. Between two layers the horizontal runs of the
+edges are given tracks of a routing channel (the channel routing of circuit
+layout), long edges run as parallel vertical lanes beside the nodes they pass,
+and a bundle of lanes that turns does so with concentric corners. The look is
+fixed: neighbouring lanes 8 pixels apart, the innermost corner of a turning
+bundle of radius 10, stems of 14 pixels, and at least 16 pixels between two runs
+on one track. Stems are solid and one pixel wide in the edges' colour; the edges
+keep their line styles: an edge from a definition is dashed, an edge that only a
+proof uses is dotted, and an edge that both the statement and the proof use is
+thicker. An edge never turns back across the layers.
+
+With `(routing := spline)` an edge is routed as in section 5 of Gansner et al.:
+its room is the free space beside the nodes of every layer it passes, the route
+is the shortest polyline through that room (an edge with nothing in its way is a
+straight line), and the edge is drawn as one smooth curve that rounds the bends
+of that route and stays clear of every node and group it does not end in. The
+ends of the edges are spread along a node's side in the order of their other
+ends, and every edge has its own arrowhead along the end of its curve.
+
+**Limits of bundled lanes.** A bundled drawing is taller than a drawing with
+curves, since the runs between two layers take tracks of their own, and a node
+with very many edges makes a bundle as wide as its lanes. A view with more than
+2,000 edges, or with a node of more than 60 edges, is therefore drawn with
+curves even when bundled lanes are asked for, and the page says so under the
+graph controls ("A node of this view has 70 edges, so the view is drawn with
+curved edges: …"). The limits come from measurements of the layouts of real
+graphs (the time of the layout and of the drawing, the size of the SVG and its
+area; Apple M2 Ultra, a load average of 5 to 16):
+
+| Graph | Nodes | Edges | Largest degree | Bundled: ms, KiB, Mpx² | Curves: ms, KiB, Mpx² |
+|---|---|---|---|---|---|
+| a blueprint | 67 | 171 | 16 | 58, 89, 5.8 | 55, 70, 3.2 |
+| the same, by chapter | 67 | 171 | 16 | 269, 100, 8.9 | 275, 85, 5.4 |
+| a code site's modules | 85 | 159 | 16 | 110, 96, 7.9 | 112, 78, 3.6 |
+| a neighbourhood | 150 | 468 | 51 | 898, 260, 29.0 | 907, 207, 17.8 |
+| a neighbourhood | 290 | 793 | 45 | 2,341, 477, 84.2 | 2,346, 384, 33.6 |
+| a code site's largest module | 561 | 422 | 400 | 1,347, 445, 55.8 | 1,507, 484, 27.3 |
+| a node with 400 neighbours | 401 | 400 | 400 | 769, 358, 60.7 | 580, 401, 30.5 |
+| a code site, by module | 2,866 | 5,516 | 400 | 12,406, 3,939, 11,237 | 13,318, 3,800, 4,049 |
+
+The time is about the same for both; bundled drawings are up to a third larger
+as SVG for ordinary graphs, and their area is 1.6 to 2.5 times that of curves,
+growing fastest with a node of hundreds of edges and on the largest graphs
+(the layout gives up the constraints between the runs of a channel of more than
+4,000 runs, and its promises about them then lapse).
+
+**Following a route.** Pointing at an edge, or pointing at or focusing a node
+(the nodes that open a view are reached with the Tab key), highlights the whole
+route of each edge concerned, from the port it leaves to the arrowhead it
+reaches, its parts of the shared stems included, and dims the rest of the
+drawing; Escape or moving away clears it. Everything this needs is written into
+the drawing when the site is built: every `path.edge` carries `data-edge` (its
+number), `data-from` and `data-to` (the ids of its nodes) and, when it shares a
+stem, `data-stems` (the path data of its own parts of the shared stems); every
+`path.stem` carries `data-node` and `data-port` (`out` or `in`); an arrowhead
+carries `data-node` and `data-port="in"` (bundled lanes) or `data-edge` (curves).
+The page draws those parts as given and computes nothing about the layout; a
+drawing is the same picture without scripts. The `svg` element says how its
+edges are drawn (`data-bp-routing`: `bundled` or `spline`) and, for a view drawn
+with curves because of the limits, why (`data-bp-routing-note`, also shown under
+the first drawing of a page read without scripts).
 
 Labels are drawn at 12 pixels. A node of a statement the document numbers is
 labelled with its numbered title (`Theorem 6.5`); its label (`critical_radius`)

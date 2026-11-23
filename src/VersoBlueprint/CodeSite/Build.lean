@@ -605,15 +605,17 @@ def pagePart (title : String) (block : Block Manual) : Part Manual :=
     content := #[block], subParts := #[] }
 
 /-- The document: the front page, a chapter per module that has declarations, the dependency
-graph (on its module view above `moduleViewThreshold` declarations) and the summary page. -/
+graph (on its module view above `moduleViewThreshold` declarations, its edges drawn as
+`routing` says) and the summary page. -/
 def documentOf (title : String) (project : Project)
-    (sources : Name → Option String := fun _ => none) : Part Manual :=
+    (sources : Name → Option String := fun _ => none)
+    (routing : Graph.GraphRouting := .bundled) : Part Manual :=
   let chapters := project.modules.filter (!·.declarations.isEmpty) |>.map fun m =>
     moduleChapter m (sources m.module) project.texPrelude
   let decls := project.modules.foldl (· + ·.declarations.size) 0
   let initialView := if decls > moduleViewThreshold then some Graph.groupVariantKey else none
   let graph := pagePart "Dependency Graph"
-    (.other (Informal.Commands.Block.graph { initialView }) #[])
+    (.other (Informal.Commands.Block.graph { initialView, options := { routing } }) #[])
   let summary := pagePart Commands.summaryPageTitle
     (.other (Informal.Commands.Block.summary {}) #[])
   { title := #[.text title]

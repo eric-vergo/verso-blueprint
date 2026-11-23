@@ -668,6 +668,132 @@
     };
   }
 
+  // Route tracing. Pointing at an edge, or pointing at or focusing a node, highlights the whole
+  // route of each edge concerned, from the port it leaves to the arrowhead it reaches, and dims
+  // the rest of the drawing. Everything it needs was written into the drawing when the site was
+  // built (`Informal.GraphLayout.withRouteData`): an edge's `data-from` and `data-to`, the path
+  // data of its own parts of shared stems (`data-stems`), and the arrowheads by port
+  // (`data-node`) or by edge (`data-edge`). The page draws those stem parts as given and
+  // computes nothing about the layout.
+  const traceNamespace = "http://www.w3.org/2000/svg";
+
+  function traceGroup(svg) {
+    let group = svg.querySelector("g.edges > g.bp_graph_trace");
+    if (!group) {
+      const edges = svg.querySelector("g.edges");
+      if (!edges) return null;
+      group = document.createElementNS(traceNamespace, "g");
+      group.setAttribute("class", "bp_graph_trace");
+      edges.appendChild(group);
+    }
+    return group;
+  }
+
+  // Highlight the routes of `edges` (elements `path.edge`) and their nodes; an empty list
+  // clears the highlight.
+  export function traceRoutes(svg, edges) {
+    svg.querySelectorAll("[data-bp-traced]").forEach(function (el) {
+      el.removeAttribute("data-bp-traced");
+    });
+    const group = traceGroup(svg);
+    if (group) group.replaceChildren();
+    if (!edges || edges.length === 0) {
+      svg.removeAttribute("data-bp-tracing");
+      return;
+    }
+    svg.setAttribute("data-bp-tracing", "1");
+    const nodeIds = new Set();
+    edges.forEach(function (edge) {
+      edge.setAttribute("data-bp-traced", "1");
+      const from = edge.getAttribute("data-from") || "";
+      const to = edge.getAttribute("data-to") || "";
+      if (from) nodeIds.add(from);
+      if (to) nodeIds.add(to);
+      const stems = edge.getAttribute("data-stems") || "";
+      if (stems && group) {
+        const piece = document.createElementNS(traceNamespace, "path");
+        piece.setAttribute("d", stems);
+        piece.setAttribute("data-bp-traced", "1");
+        const width = edge.getAttribute("stroke-width");
+        if (width) piece.setAttribute("stroke-width", width);
+        group.appendChild(piece);
+      }
+      const index = edge.getAttribute("data-edge");
+      svg.querySelectorAll("g.heads > path").forEach(function (head) {
+        const own = index !== null && head.getAttribute("data-edge") === index;
+        const port = to && head.getAttribute("data-port") === "in" && head.getAttribute("data-node") === to;
+        if (own || port) head.setAttribute("data-bp-traced", "1");
+      });
+    });
+    svg.querySelectorAll("g.node").forEach(function (node) {
+      if (nodeIds.has(node.getAttribute("id") || "")) node.setAttribute("data-bp-traced", "1");
+    });
+  }
+
+  // The edges whose route starts or ends at a node.
+  function edgesOfNode(svg, node) {
+    const id = node.getAttribute("id") || "";
+    if (!id) return [];
+    return Array.from(svg.querySelectorAll("g.edges > path.edge")).filter(function (edge) {
+      return edge.getAttribute("data-from") === id || edge.getAttribute("data-to") === id;
+    });
+  }
+
+  // Bind route tracing to a drawing shown in the page: pointer over an edge or a node, and
+  // keyboard focus on a node. An edge is hard to hit at its drawn width, so a transparent wider
+  // copy of every edge lies under the pointer (`g.bp_graph_edge_hits`).
+  export function bindRouteTracing(svg) {
+    if (!svg || svg.getAttribute("data-bp-route-tracing") === "1") return;
+    const edges = Array.from(svg.querySelectorAll("g.edges > path.edge"));
+    if (edges.length === 0 || !edges[0].hasAttribute("data-from")) return;
+    svg.setAttribute("data-bp-route-tracing", "1");
+    const edgesGroup = svg.querySelector("g.edges");
+    const hits = document.createElementNS(traceNamespace, "g");
+    hits.setAttribute("class", "bp_graph_edge_hits");
+    edges.forEach(function (edge) {
+      const hit = document.createElementNS(traceNamespace, "path");
+      hit.setAttribute("d", edge.getAttribute("d") || "");
+      hit.setAttribute("data-bp-hit-edge", edge.getAttribute("data-edge") || "");
+      hits.appendChild(hit);
+    });
+    edgesGroup.parentNode.insertBefore(hits, edgesGroup.nextSibling);
+    const byIndex = new Map(edges.map(function (edge) { return [edge.getAttribute("data-edge"), edge]; }));
+    let current = null;
+    const show = function (key, list) {
+      if (current === key) return;
+      current = key;
+      traceRoutes(svg, list);
+    };
+    svg.addEventListener("pointerover", function (ev) {
+      const target = ev.target instanceof Element ? ev.target : null;
+      if (!target) return;
+      const hit = target.closest("[data-bp-hit-edge]");
+      if (hit) {
+        const edge = byIndex.get(hit.getAttribute("data-bp-hit-edge"));
+        show("edge:" + hit.getAttribute("data-bp-hit-edge"), edge ? [edge] : []);
+        return;
+      }
+      const node = target.closest("g.node");
+      if (node) {
+        show("node:" + (node.getAttribute("id") || ""), edgesOfNode(svg, node));
+        return;
+      }
+      show(null, []);
+    });
+    svg.addEventListener("pointerleave", function () { show(null, []); });
+    svg.addEventListener("focusin", function (ev) {
+      const node = ev.target instanceof Element ? ev.target.closest("g.node") : null;
+      if (node) show("node:" + (node.getAttribute("id") || ""), edgesOfNode(svg, node));
+    });
+    svg.addEventListener("focusout", function (ev) {
+      const next = ev.relatedTarget instanceof Element ? ev.relatedTarget.closest("g.node") : null;
+      if (!next || !svg.contains(next)) show(null, []);
+    });
+    svg.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") show(null, []);
+    });
+  }
+
   export const graphRuntimeCore = {
     debounce,
     normalizeGraphOptions,
@@ -688,6 +814,8 @@
     initialTransform,
     createPanZoom,
     fitDrawingLabels,
+    traceRoutes,
+    bindRouteTracing,
     makeGroupPanelPositioner
   };
 

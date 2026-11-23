@@ -121,6 +121,7 @@ def blueprintLightTokensCss : String :=
   --bp-color-rust-comment: #64748b;
   --bp-color-graph-bg: #ffffff;
   --bp-color-graph-edge: #6b7280;
+  --bp-color-graph-trace: #1d4ed8;
   --bp-color-graph-cluster: #cbd5e1;
   --bp-color-graph-label: #000000;
   --bp-radius-sm: 0.35rem;
@@ -250,6 +251,7 @@ def darkTokens : List (String × String) := [
   ("--bp-color-rust-comment", "#8b9ab0"),
   ("--bp-color-graph-bg", "#1b1f27"),
   ("--bp-color-graph-edge", "#94a3b8"),
+  ("--bp-color-graph-trace", "#93c5fd"),
   ("--bp-color-graph-cluster", "#475569"),
   ("--bp-color-graph-label", "#e5e7eb"),
   ("--bp-shadow-sm", "0 4px 14px rgba(0, 0, 0, 0.45)"),
