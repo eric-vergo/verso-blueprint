@@ -562,6 +562,26 @@ def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
   pure (.seq (← renderDeclarationSourcePartsWith renderedHtmlWithPageHovers externalDecls
     getDeclHref getDeclAnchorAttrs))
 
+/-- A whole source file's highlighted code, rendered as the cards of the side-by-side Lean column
+render a declaration's source (one block per line, wrapped lines indented beyond the line's own
+indentation), with its hovers in the page's hover table. Proof states and messages are left out
+(`DeclarationSource.presentation`). -/
+def renderSourceWithPageHovers [Monad m] (code : SubVerso.Highlighting.Highlighted)
+    (cls : String := "") :
+    Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
+  let lines := DeclarationSource.lines (DeclarationSource.presentation code)
+  let indents := lines.map DeclarationSource.lineIndent
+  let rendered := renderHighlightedTemplate (lines.map SubVerso.Highlighting.Highlighted.seq)
+    fun htmls =>
+      let line (i : Nat) : Output.Html :=
+        let indent := indents[i]?.getD 0
+        let attrs := if indent == 0 then #[("class", "bp_code_line")]
+          else #[("class", "bp_code_line"), ("style", s!"--bp-indent: {indent}")]
+        .element "span" attrs (htmls[i]?.getD .empty)
+      .element "code" #[("class", s!"hl lean block bp_decl_source_code {cls}".trimAscii.toString)]
+        (.seq ((List.range htmls.size).toArray.map line))
+  pure (.raw (← renderedHtmlWithPageHovers rendered))
+
 /--
 The Lean column of a node view (`Informal.NodeView`), one part per defining command (or, without
 highlighted source, per declaration row), for the generated cache: hover payloads go into the

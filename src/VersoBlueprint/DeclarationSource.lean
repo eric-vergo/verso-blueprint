@@ -149,6 +149,11 @@ def find? (decl : Data.ExternalRef) : IO (Option DeclSource) := do
   let some (some mod) := (← stateRef.get).modules[moduleName]? | return none
   return mod.findDecl? decl.canonical (decl.range?.map (·.pos))
 
+/-- The whole highlighted source of a loaded module: the code of its items in order. -/
+def moduleCode? (moduleName : Name) : IO (Option Highlighted) := do
+  let some (some mod) := (← stateRef.get).modules[moduleName]? | return none
+  return some (.seq (mod.items.map (·.code)))
+
 /-! ## Presentation helpers -/
 
 /--

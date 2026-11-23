@@ -216,7 +216,7 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
     stats.layout.projectRoot == none
 
 -- JSON round trip, and the schema version.
-/-- info: (true, 7) -/
+/-- info: (true, 8) -/
 #guard_msgs in
 #eval
   match fromJson? (α := ProjectStats) (toJson stats) with
@@ -379,9 +379,10 @@ private partial def schemaFieldsAgree (root s v : Json) (at_ : String := "") : E
   let sample := { sample with
     identity := { sample.identity with license := some { file := "LICENSE", spdx := some "MIT" } }
     trust := { sample.trust with missingDeclarations := #[{ label := `l, declaration := `d }] }
-    headline := some {
-      challengeModule := `C, solutionModule := `S, theorems := #[{ name := `t, node := some `n }]
-      definitions := #[{ name := `d, solution := .same }] }
+    challenges := #[{
+      name := "C", challengeModule := `C, solutionModule := `S
+      theorems := #[{ name := `t, node := some `n }]
+      definitions := #[{ name := `d, solution := .same }] }]
     hasComparatorChallenge := true }
   let version := (schema.getObjVal? "properties" >>= (·.getObjVal? "schemaVersion") >>=
     (·.getObjValAs? Nat "const")).toOption

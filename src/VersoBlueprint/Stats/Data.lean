@@ -24,7 +24,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 7
+def projectStatsSchemaVersion : Nat := 8
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -264,6 +264,13 @@ inductive Unavailable where
   | importsNotAvailable
   /-- The compiled modules the comparison needs could not be loaded for the kernel replay. -/
   | modulesNotLoaded
+  /-- The solution's source differs from the one its compiled module was compiled from (an
+  edit that was not built), so the file a page shows is not the one compared. -/
+  | solutionOutOfDate
+  /-- It is not known which source the compiled solution module was compiled from: Lake's
+  build record of it is missing, cannot be read, does not name the source, or describes other
+  compiled files. -/
+  | solutionProvenanceUnknown
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- A theorem a Comparator challenge states, and what the solution does with it. -/
@@ -304,17 +311,20 @@ structure HeadlineDefinition where
   solution : Correspondence := .notCompared
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
-/-- The project's headline result: the theorems its Comparator challenge states, compared with the
-solution. The challenge and solution modules follow `lake comparator`: they are named by
-`comparator.json` at the project root, or are `Comparator.Challenge` and `Comparator.Solution`. -/
+/-- A headline result: the theorems one Comparator challenge of the project states, compared with
+its solution. The challenge lives in `Comparator/<name>/` (`Informal.Stats.ComparatorLayout`):
+its modules are `Comparator.<name>.Challenge` and `Comparator.<name>.Solution`, configured by
+`Comparator/<name>/comparator.json`, which `lake comparator` reads. -/
 structure Headline where
+  /-- The challenge's name: its folder's name under `Comparator/`. -/
+  name : String := ""
   challengeModule : Name
   solutionModule : Name
   /-- The challenge's source file, relative to the project root, when it was found. -/
   challengeFile : Option String := none
   /-- The solution's source file, relative to the project root, when it was found. -/
   solutionFile : Option String := none
-  /-- `comparator.json` when the challenge is configured by it; none for the default modules. -/
+  /-- The challenge's `comparator.json`, relative to the project root. -/
   config : Option String := none
   /-- The axioms the challenge permits (`permitted_axioms`), when it states them. -/
   permittedAxioms : Option (Array Name) := none
@@ -397,8 +407,9 @@ structure ProjectStats where
   chapters : Array ChapterProgress := #[]
   graph : GraphSize := {}
   trust : TrustLedger := {}
-  /-- The project's headline result: its Comparator challenge, when it has one. -/
-  headline : Option Headline := none
+  /-- The project's headline results: one for each of its Comparator challenges, in the order of
+  their names. -/
+  challenges : Array Headline := #[]
   /-- Whether the project has a Comparator challenge. Pages use it to say, without one, that a
   challenge would add a headline. -/
   hasComparatorChallenge : Bool := false

@@ -43,7 +43,7 @@ REPORTED_BORDER = ("rgb(100, 116, 139)", "rgb(148, 163, 184)")
 REPORTED_NOTE = "as the compiled files report, not replayed by a kernel"
 REJECTED_NOTE = "this build was rejected by a kernel checker"
 
-PAGES = ("/", "/Project-Stats/", "/Blueprint-Summary/", "/Comparator___Solution/", "/Demo___Basic/")
+PAGES = ("/", "/Project-Stats/", "/Blueprint-Summary/", "/Comparator___Double___Solution/", "/Demo___Basic/")
 
 # Every element (and its ::before / ::after) with a greenish computed colour, as
 # "selector property value". Tokens of highlighted Lean code are syntax colours, not statuses.
@@ -119,7 +119,7 @@ def build_project(root: Path, forged: bool, axiom: bool = False) -> None:
         shutil.rmtree(root)
     shutil.copytree(FIXTURE, root)
     if forged:
-        shutil.copy(FIXTURE / "forged" / "Solution.lean", root / "Comparator" / "Solution.lean")
+        shutil.copy(FIXTURE / "forged" / "Solution.lean", root / "Comparator" / "Double" / "Solution.lean")
         shutil.copy(FIXTURE / "forged" / "code-site.json", root / "code-site.json")
     if axiom:
         add_axiom(root)

@@ -249,7 +249,7 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
 /-- info: true -/
 #guard_msgs in
 #eval withProject fun root => do
-  return (← headlineOf? root fixture {}).isNone
+  return (← headlinesOf root fixture {}).isEmpty
 
 /-- The fork's root, three directories above this test file. -/
 def packageRoot : IO System.FilePath := do
@@ -284,7 +284,9 @@ partial def removeTreeNoFollow (p : System.FilePath) : IO Unit := do
   return kept && gone
 
 /-- A project whose challenge is the `Match` fixture (compiled with this package's tests): the
-challenge and solution sources, `comparator.json`, and the compiled modules beside them. -/
+challenge and solution sources and the compiled modules beside them. The fixture's modules are not
+named as a project's challenges are (`Comparator.<Name>.Challenge`), so its configuration is given
+to the comparison (`matchConfig`) rather than found under the root. -/
 def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
   let pkg ← packageRoot
   let root := System.FilePath.mk s!"/tmp/vbp-code-site-cmp-test-{← IO.monoNanosNow}"
@@ -297,10 +299,6 @@ def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
   let _ ← IO.Process.output { cmd := "ln", args := #["-s",
     (pkg / ".lake" / "build" / "lib" / "lean").toString,
     (root / ".lake" / "build" / "lib" / "lean").toString] }
-  IO.FS.writeFile (root / "comparator.json") (Json.compress <| json% {
-    "challenge_module": "VersoBlueprintTests.ComparatorFixtures.Match.Challenge",
-    "solution_module": "VersoBlueprintTests.ComparatorFixtures.Match.Solution",
-    "theorem_names": ["CmpMatch.double_eq"], "permitted_axioms": ["propext"] })
   let project : Project := { modules := #[{
     module := `VersoBlueprintTests.ComparatorFixtures.Match.Solution
     source := "tests/VersoBlueprintTests/ComparatorFixtures/Match/Solution.lean"
@@ -308,12 +306,20 @@ def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
   -- the tree holds a link to this package's build: it is removed without following links
   try k root project finally removeTreeNoFollow root
 
+/-- The configuration of the `Match` fixture's challenge. -/
+def matchConfig : Informal.Stats.ChallengeConfig := {
+  name := "Match"
+  challengeModule := `VersoBlueprintTests.ComparatorFixtures.Match.Challenge
+  solutionModule := `VersoBlueprintTests.ComparatorFixtures.Match.Solution
+  theoremNames := some #[`CmpMatch.double_eq], permittedAxioms := some #[`propext] }
+
 -- With a challenge, the headline compares it as a Blueprint site does; the theorem's node is
 -- its declaration.
 /-- info: true -/
 #guard_msgs in
 #eval withChallenge fun root project => do
-  match ← headlineOf? root project ((({} : NameSet).insert `CmpMatch.double_eq)) with
+  match (← headlinesOf root project ((({} : NameSet).insert `CmpMatch.double_eq))
+      (configs? := some #[matchConfig]))[0]? with
   | some h => return h.unavailable.isNone && h.theorems.any fun t =>
       t.name == `CmpMatch.double_eq && t.solution == .same && t.node == some `CmpMatch.double_eq
   | none => return false
@@ -323,7 +329,7 @@ def withChallenge (k : System.FilePath → Project → IO Bool) : IO Bool := do
 #guard_msgs in
 #eval withChallenge fun root project => do
   IO.FS.removeFile (root / ".lake" / "build" / "lib" / "lean")
-  match ← headlineOf? root project {} with
+  match (← headlinesOf root project {} (configs? := some #[matchConfig]))[0]? with
   | some h => return h.unavailable == some .challengeNotBuilt
   | none => return false
 

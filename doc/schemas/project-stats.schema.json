@@ -5,11 +5,11 @@
   "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 3. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
-    "progress", "leanProgress", "chapters", "graph", "trust", "headline", "hasComparatorChallenge",
+    "progress", "leanProgress", "chapters", "graph", "trust", "challenges", "hasComparatorChallenge",
     "claims", "replay"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 7 },
+    "schemaVersion": { "const": 8 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -165,12 +165,13 @@
         }
       }
     },
-    "headline": {
-      "description": "The project's headline result: the theorems its Comparator challenge states, compared with the solution. Null when the project has no Comparator challenge.",
-      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/headline" }]
+    "challenges": {
+      "description": "The project's headline results: one for each of its Comparator challenges (a folder Comparator/<Name>/ each), in the order of their names. Empty when the project has no Comparator challenge.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/headline" }
     },
     "hasComparatorChallenge": {
-      "description": "Whether the project has a Comparator challenge: comparator.json at the root, or the source of Comparator.Challenge. Without one a page can say that a challenge would add a headline.",
+      "description": "Whether the project has a Comparator challenge: a folder Comparator/<Name>/ that follows the layout. Without one a page can say that a challenge would add a headline.",
       "type": "boolean"
     },
     "replay": {
@@ -497,19 +498,20 @@
       "enum": ["same", "hole", "differs", "missing", "notCompared", "notTheorem"]
     },
     "headline": {
-      "description": "A Comparator challenge as lake comparator reads it: comparator.json at the project root (challenge_module, solution_module, theorem_names, definition_names, permitted_axioms), or else the modules Comparator.Challenge and Comparator.Solution with every theorem of the challenge judged and no axiom list.",
+      "description": "One Comparator challenge as lake comparator reads it, compared with its solution: the folder Comparator/<name>/ with Challenge.lean (module Comparator.<name>.Challenge), Solution.lean (module Comparator.<name>.Solution) and comparator.json (challenge_module, solution_module, theorem_names, permitted_axioms; optionally definition_names and external_kernels).",
       "type": "object",
-      "required": ["challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
+      "required": ["name", "challengeModule", "solutionModule", "challengeFile", "solutionFile", "config",
         "permittedAxioms", "unavailable", "unavailableDetail", "theorems", "unjudged",
         "definitions"],
       "additionalProperties": false,
       "properties": {
+        "name": { "description": "The challenge's name: its folder's name under Comparator/.", "type": "string" },
         "challengeModule": { "$ref": "#/$defs/name" },
         "solutionModule": { "$ref": "#/$defs/name" },
         "challengeFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
         "solutionFile": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/path" }] },
         "config": {
-          "description": "comparator.json when the challenge is configured by it; null for the default modules.",
+          "description": "The challenge's comparator.json, relative to the project root.",
           "$ref": "#/$defs/nullableString"
         },
         "permittedAxioms": {
@@ -517,12 +519,13 @@
           "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
         },
         "unavailable": {
-          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source (also by Lake's build record of it), is not known to come from its source (challengeProvenanceUnknown: no usable build record), or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay. Null when the comparison was made.",
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source (also by Lake's build record of it), is not known to come from its source (challengeProvenanceUnknown: no usable build record), or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay; the solution's source differs from the one its compiled module was compiled from (solutionOutOfDate) or is not known to be it (solutionProvenanceUnknown). Null when the comparison was made.",
           "oneOf": [
             { "type": "null" },
             { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate", "challengeProvenanceUnknown",
                 "challengeUnreadable", "solutionNotImported", "importsNotAvailable",
-                "modulesNotLoaded"] }
+                "modulesNotLoaded", "solutionOutOfDate",
+                "solutionProvenanceUnknown"] }
           ]
         },
         "unavailableDetail": {
