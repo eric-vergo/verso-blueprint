@@ -183,7 +183,9 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
     let json := (json.setObjVal! "challenge_module" (.str newChallenge.toString)).setObjVal!
       "solution_module" (.str newSolution.toString)
     changes := changes.push (.write configPath (json.pretty ++ "\n"))
-  | .error _ =>
+  | .error why =>
+    if (← entryAt (root / comparatorConfigFile)) != .missing then
+      return .error s!"{comparatorConfigFile} cannot be moved: {why}; correct it first"
     let challengeText ← match ← readLimited (root / legacyChallenge) leanFileLimit with
       | .ok text => pure text
       | .error why => return .error s!"{legacyChallenge}: {why}"

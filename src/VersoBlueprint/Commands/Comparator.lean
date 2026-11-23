@@ -143,7 +143,8 @@ def ciRunHref? : IO (Option String) := do
   let host := (server.drop 8).toString
   let hostOk := server.startsWith "https://" && !host.isEmpty &&
     host.all fun c => c.isAlphanum || c == '.' || c == '-'
-  let repoOk := (repo.splitOn "/").length == 2 && !repo.startsWith "/" && !repo.endsWith "/" &&
+  let parts := repo.splitOn "/"
+  let repoOk := parts.length == 2 && parts.all (fun p => !p.isEmpty && p != "." && p != "..") &&
     repo.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.' || c == '/'
   let runOk := !run.isEmpty && run.all Char.isDigit
   if hostOk && repoOk && runOk then return some s!"{server}/{repo}/actions/runs/{run}"

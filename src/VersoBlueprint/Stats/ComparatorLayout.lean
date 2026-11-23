@@ -285,7 +285,7 @@ def theoremsOf (code : String) : Array Name := Id.run do
       else if scopes.back? == some .anonymous then scopes := scopes.pop
     | "theorem", some n =>
       let pre := scopes.foldl (fun acc s => s.components.foldl (fun a c => a ++ c) acc) Name.anonymous
-      let written := (n.stripPrefix "_root_.").toName
+      let written := (n.dropPrefix "_root_.").toString.toName
       out := out.push (if n.startsWith "_root_." then written else pre ++ written)
     | _, _ => pure ()
   return out
@@ -524,9 +524,9 @@ def checkChallenge (root : System.FilePath) (name : String) :
     match ← readLimited (dir / file) limit with
     | .ok text => pure (some text, #[])
     | .error why =>
-      let rule := if file == comparatorConfigFile then Rule.configSyntax
-        else if why == "it is missing" || why.startsWith "it is a symbolic" ||
-          why == "it is not a regular file" then .folderContents else .leanFile
+      let rule := if why == "it is missing" || why.startsWith "it is a symbolic" ||
+          why == "it is not a regular file" then Rule.folderContents
+        else if file == comparatorConfigFile then .configSyntax else .leanFile
       let fix := if why == "it is missing" then s!"; add {rel}/{file}" else ""
       pure (none, #[({ file := s!"{rel}/{file}", rule, message := why ++ fix } : Violation)])
   let (configText, v1) ← read comparatorConfigFile configLimit
@@ -578,7 +578,6 @@ def check (root : System.FilePath) : IO Report := do
   let mut out : Array Violation := #[]
   let mut challenges := #[]
   for stray in strays do
-    unless (stray.splitOn "/").length == 3 && stray.startsWith s!"{folder}/" do
       out := out.push { file := stray, rule := .strayConfig
                         message := s!"a comparator.json belongs in a challenge's folder \
                           Comparator/<Name>/; move it there or remove it" }
