@@ -1,0 +1,7 @@
+{
+  "challenge_module": "Comparator.Differs.Challenge",
+  "solution_module": "Comparator.Differs.Solution",
+  "theorem_names": ["Dif.add_swap"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "definition_names": []
+}

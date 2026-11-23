@@ -1,0 +1,6 @@
+{
+  "challenge_module": "Comparator.Double.Challenge",
+  "solution_module": "Comparator.Double.Solution",
+  "theorem_names": ["Cmp.double_even"],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+}

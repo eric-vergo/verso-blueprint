@@ -113,18 +113,24 @@ def sourceLinkText : String := "source at the commit this site is built from"
 
 /-! ## Reading the files -/
 
-/-- The repository path of `path` (relative to the project root `root`) and its address at the
-commit the site is built from, when `root` is in a Git checkout with a GitHub `origin`. -/
+/-- The address of `path` (relative to the project root `root`) in the project's repository at the
+commit the site is built from, when `root` is in a Git checkout with a GitHub `origin` and the
+repository tracks the file. -/
 def repositoryHref? (root : System.FilePath) (path : String) : IO (Option String) := do
   let some top ← Informal.Git.toplevelAt? root | return none
   let realRoot ← (try IO.FS.realPath root catch _ => pure root)
   let realTop ← (try IO.FS.realPath top catch _ => pure top)
   let rootText := realRoot.toString
   let topText := realTop.toString
-  if rootText == topText then return ← Informal.RepoFile.href? root path
-  unless rootText.startsWith (topText ++ "/") do return none
-  let prefix_ := (rootText.drop (topText.length + 1)).toString ++ "/"
-  Informal.RepoFile.href? root (prefix_ ++ path)
+  let repoPath ← if rootText == topText then pure path
+    else if rootText.startsWith (topText ++ "/") then
+      pure ((rootText.drop (topText.length + 1)).toString ++ "/" ++ path)
+    else return none
+  -- a file the repository does not track has no address there
+  let tracked ← Informal.Process.runTrimmedCommand? "git"
+    #["-C", topText, "ls-files", "--error-unmatch", "--", repoPath]
+  if tracked.isNone then return none
+  Informal.RepoFile.href? root repoPath
 
 /-- The continuous-integration run that is building the site: in GitHub Actions, from
 `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and `GITHUB_RUN_ID`, when all three are there and

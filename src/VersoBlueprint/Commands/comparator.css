@@ -76,3 +76,23 @@
   outline: 2px solid var(--bp-color-accent, #0f766e);
   outline-offset: 2px;
 }
+
+/* A file in full: one block per source line, wrapped lines with a hanging indent of four columns
+   beyond the line's own leading whitespace (--bp-indent, set per line), as in the Lean column. */
+.bp_comparator_code code.hl.lean.block {
+  display: block;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--verso-code-font-family);
+  font-size: var(--bp-code-text-size, 0.85rem);
+  line-height: 1.6;
+  background: transparent;
+}
+
+.bp_comparator_code code.hl.lean.block .bp_code_line {
+  display: block;
+  min-height: 1.6em;
+  padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
+  text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
+}

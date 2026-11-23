@@ -564,12 +564,13 @@ def renderDeclarationSourceColumn [Monad m] [MonadLiftT IO m]
 
 /-- A whole source file's highlighted code, rendered as the cards of the side-by-side Lean column
 render a declaration's source (one block per line, wrapped lines indented beyond the line's own
-indentation), with its hovers in the page's hover table. Proof states and messages are left out
-(`DeclarationSource.presentation`). -/
+indentation), with its hovers in the page's hover table. Every line is shown, comments and
+docstrings included, as the file has it (blank lines at its end aside); proof states and messages
+are left out (`DeclarationSource.leaves`). -/
 def renderSourceWithPageHovers [Monad m] (code : SubVerso.Highlighting.Highlighted)
     (cls : String := "") :
     Verso.Doc.Html.HtmlT Verso.Genre.Manual m Output.Html := do
-  let lines := DeclarationSource.lines (DeclarationSource.presentation code)
+  let lines := DeclarationSource.lines (DeclarationSource.trimEnd (DeclarationSource.leaves code))
   let indents := lines.map DeclarationSource.lineIndent
   let rendered := renderHighlightedTemplate (lines.map SubVerso.Highlighting.Highlighted.seq)
     fun htmls =>
