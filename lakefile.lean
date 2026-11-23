@@ -18,7 +18,7 @@ require lean_vir from git "https://github.com/ejgallego/lean-vir"@"64497b98aaa39
 require leantex from git "https://github.com/eric-vergo/LeAnTeX"@"be3eb1be7bc199d1649e5638bf700641b90a0fdb"
 
 -- Lays out and draws the dependency graph when the site is built (`VersoBlueprint.GraphLayout`).
-require pilean from git "https://github.com/eric-vergo/PILean"@"a3d961d432bdf17da516a42bbc1f7e0c5cd11f1f"
+require pilean from git "https://github.com/eric-vergo/PILean"@"c23ec7b7646ed8fef18e4731ac7f246cbd2a96d2"
 
 package VersoBlueprint where
   leanOptions := #[⟨`experimental.module, true⟩]
