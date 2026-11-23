@@ -1243,13 +1243,13 @@ class TestGraphLayoutRuntime:
                     const r = n.getBoundingClientRect();
                     return r.right > canvas.left && r.left < canvas.right && r.bottom > canvas.top && r.top < canvas.bottom;
                 }).length;
-                return { scale, minimum: core.minReadableGraphScale, floor: core.wholeGraphScaleFloor,
+                return { scale, minimum: core.readableScale(svg),
                          readable: svg.getAttribute("data-bp-graph-readable"), visible,
                          canvasHeight: canvas.height, viewport: window.innerHeight };
             }"""
         )
-        least = metrics["minimum"] if metrics["readable"] == "1" else metrics["floor"]
-        assert metrics["scale"] >= least - 0.001, metrics
+        # whole or readable on the roots, and either way with labels of at least 9 px
+        assert metrics["scale"] >= metrics["minimum"] - 0.001, metrics
         assert metrics["visible"] > 0, metrics
         assert metrics["canvasHeight"] >= 0.6 * metrics["viewport"] - 2, metrics
         assert_graph_has_zoom_handlers(page)

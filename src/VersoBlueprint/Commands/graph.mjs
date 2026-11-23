@@ -1465,6 +1465,24 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         notice.hidden = !text;
       };
 
+      // The control that shows the whole drawing, offered while part of it is out of view (the
+      // first view of a drawing too large to show whole with readable labels, or after zooming
+      // in); the key `0` does the same from the canvas.
+      const wholeButton = document.createElement("button");
+      wholeButton.type = "button";
+      wholeButton.className = "bp_graph_controls_button bp_graph_whole_button";
+      wholeButton.textContent = "Show whole graph";
+      wholeButton.hidden = true;
+      const controlActions = graphBlock.querySelector(".bp_graph_controls_actions");
+      if (controlActions) controlActions.insertBefore(wholeButton, controlActions.firstChild);
+      else graphBlock.insertBefore(wholeButton, notice);
+      wholeButton.addEventListener("click", function () {
+        if (!graphState.panZoom) return;
+        graphState.panZoom.whole();
+        const svg = graphRoot.querySelector(":scope > svg");
+        if (svg && typeof svg.focus === "function") svg.focus({ preventScroll: true });
+      });
+
       function renderGraph() {
         const activeVariant = getActiveVariant();
         const options = getActiveOptions();
@@ -1534,7 +1552,8 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           bindRouteTracing(svg);
           graphState.panZoom = createPanZoom(graphRoot, svg, {
             direction: drawing.direction || options.direction,
-            geometry: drawing.geometry || drawing.direction || options.direction
+            geometry: drawing.geometry || drawing.direction || options.direction,
+            onView: function (view) { wholeButton.hidden = view.whole; }
           });
           graphState.renderFinalizedToken = renderToken;
           attachPreviewHandlers(

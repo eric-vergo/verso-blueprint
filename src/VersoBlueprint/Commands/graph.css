@@ -445,6 +445,11 @@
   background: var(--bp-color-surface-subtle);
 }
 
+/* Offered only while part of the drawing is out of view (`graph.mjs`). */
+.bp_graph_whole_button[hidden] {
+  display: none;
+}
+
 .bp_graph_legend_popover {
   position: absolute;
   top: 0;
