@@ -292,11 +292,12 @@
   // control (and the key `0`) away.
   export const minLabelPixels = 9;
 
-  // The size of a drawing's node labels in its own units (their `font-size`), 12 when it
-  // does not say.
+  // The size of a drawing's node labels in its own units (the `font-size` of a label or of
+  // the nearest group around it that sets one), 12 when the drawing does not say.
   export function labelSize(svg) {
     const text = svg && typeof svg.querySelector === "function" ? svg.querySelector("g.node > text") : null;
-    const value = text ? parseFloat(text.getAttribute("font-size") || "") : NaN;
+    const holder = text ? text.closest("[font-size]") : null;
+    const value = holder ? parseFloat(holder.getAttribute("font-size") || "") : NaN;
     return Number.isFinite(value) && value > 0 ? value : 12;
   }
 

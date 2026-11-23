@@ -412,8 +412,8 @@ class TestViews:
                      scale: parseFloat(svg.getAttribute("data-bp-graph-scale")),
                      readable: svg.getAttribute("data-bp-graph-readable"),
                      whole: svg.getAttribute("data-bp-graph-whole"),
-                     fontPixels: parseFloat(svg.querySelector("g.node > text").getAttribute("font-size")) *
-                         parseFloat(svg.getAttribute("data-bp-graph-scale")),
+                     fontPixels: parseFloat(svg.querySelector("g.node > text").closest("[font-size]")
+                         .getAttribute("font-size")) * parseFloat(svg.getAttribute("data-bp-graph-scale")),
                      buttonShown: !!button && !button.hidden && button.getBoundingClientRect().width > 0,
                      nodes: nodes.length, inside: inside.length };
         }"""
