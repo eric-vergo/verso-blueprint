@@ -279,7 +279,7 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
         | .accepted => view.codeEntrySymbol
         | .rejected => "⊘"
         | .notReplayed _ | .noVerdict _ => "◇"
-        | .assumed _ => "⚠"
+        | .notChecked _ => "⚠"
     { classSuffix := view.codeEntryClassSuffix, symbol }
 
 private structure ExternalRenderHealth where

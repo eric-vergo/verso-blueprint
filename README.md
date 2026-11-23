@@ -242,13 +242,14 @@ Blueprint supports inline math such as ``$`n + 0 = n` `` and display math such a
 When the site is generated, formulas are typeset by
 [LeAnTeX](https://github.com/eric-vergo/LeAnTeX)'s KaTeX-compatible layout and
 written into the page as inline SVG, so they need no script. A formula LeAnTeX
-does not accept is rendered by KaTeX in the browser as before, and `set_option
+does not accept is rendered by KaTeX in the browser instead (where the browser
+loads it; a formula KaTeX rejects too is shown as its source), and `set_option
 verso.blueprint.math.static false` (in a file, or for a whole project in the
 lakefile's `leanOptions`) sends every formula to KaTeX.
 
-- Each formula carries its MathML for screen readers and its TeX source for
-  copying, both hidden from sight; the picture itself is hidden from screen
-  readers.
+- Each formula LeAnTeX typesets carries its MathML for screen readers and its
+  TeX source for copying, both hidden from sight; the picture itself is hidden
+  from screen readers.
 - An inline formula wraps where KaTeX allows a line break (after relations and
   binary operators); a display formula wider than its column scrolls.
 - Glyph outlines are written once per page, and KaTeX's style sheet and script

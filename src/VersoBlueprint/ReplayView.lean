@@ -109,13 +109,13 @@ def Index.uncovered (index : Index) : Array Name :=
       | .notReplayed _ => some label
       | _ => none).qsort (·.toString < ·.toString)
 
-/-- The nodes whose Lean code an accepted replay covers and has no `sorry`, but under which the
-replay found an axiom outside Lean's standard three, sorted: checked by a kernel, and proved only
-from that axiom. -/
+/-- The nodes whose Lean code has no `sorry` but rests on an axiom outside Lean's standard three,
+as an accepted replay found by walking the terms, sorted: not exported and not checked, since
+both checkers decline an export that uses such an axiom. -/
 def Index.resting (index : Index) : Array Name :=
   (index.standings.toArray.filterMap fun (label, standing) =>
     match standing with
-    | .assumed axioms => if axioms.contains Data.sorryAxiom then none else some label
+    | .notChecked axioms => if axioms.contains Data.sorryAxiom then none else some label
     | _ => none).qsort (·.toString < ·.toString)
 
 /-- The axioms outside Lean's standard three under the nodes of `Index.resting`, each once. -/
@@ -123,7 +123,7 @@ def Index.restingAxioms (index : Index) : Array Name :=
   let resting := index.resting
   Data.sortAxioms <| index.standings.fold (init := #[]) fun acc label standing =>
     match standing with
-    | .assumed axioms => if resting.contains label then acc ++ axioms else acc
+    | .notChecked axioms => if resting.contains label then acc ++ axioms else acc
     | _ => acc
 
 /-- What the site as a whole may show in the success colour. -/

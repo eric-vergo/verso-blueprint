@@ -4,13 +4,13 @@ Green is a statement: it is drawn only where a kernel replay accepted the Lean c
 Three sites are generated from `replay_site_fixture/` (a small library and a Comparator challenge
 with its solution, no dependencies), built here with the toolchain's own `lake`:
 
-* `accepted`: the honest solution, replayed and accepted;
+* `accepted`: the honest solution, replayed and accepted by both checkers;
 * `rejected`: the forged solution of `replay_site_fixture/forged/` (no `sorry`, no axiom, and a
   constant no kernel saw), which the replay rejects;
 * `none`: the honest solution, generated without a replay;
-* `axiom`: the honest solution and a theorem that rests on an axiom of the project, replayed and
-  accepted: the counts are grey, and their words say that the replay accepted the build and name
-  the axiom, never that nothing was replayed.
+* `axiom`: the honest solution and a theorem that rests on an axiom of the project, which is left
+  out of the replay while the rest is accepted: the counts are grey, and their words say that the
+  replay accepted the build and name the axiom, never that nothing was replayed.
 
 Each site is read in the light and in the dark theme. On the accepted site the headline's
 verdict, the progress bar, the summary's cards, the graph's nodes and legend and the node view's
@@ -41,7 +41,7 @@ ACCEPTED_BORDER = ("rgb(22, 163, 74)", "rgb(74, 222, 128)")
 REPORTED_FILL = ("rgb(100, 116, 139)", "rgb(100, 116, 139)")
 REPORTED_BORDER = ("rgb(100, 116, 139)", "rgb(148, 163, 184)")
 REPORTED_NOTE = "as the compiled files report, not replayed by a kernel"
-REJECTED_NOTE = "this build was rejected by the kernel checker"
+REJECTED_NOTE = "this build was rejected by a kernel checker"
 
 PAGES = ("/", "/Project-Stats/", "/Blueprint-Summary/", "/Comparator___Solution/", "/Demo___Basic/")
 
@@ -144,7 +144,8 @@ def replay_sites() -> dict[str, Path]:
         out = base / f"site-{state}"
         if out.exists():
             shutil.rmtree(out)
-        # through `lake env`, which names the toolchain whose `leanchecker` replays the modules
+        # through `lake env`, which names the toolchain whose `con-leche` and `con-ron` replay the
+        # modules
         subprocess.run(
             ["lake", "env", str(vbp_executable()), "code-site", "--data", str(root / "code-site.json"),
              "--root", str(root), "--output", str(out), "--reproducible", *flags],
@@ -266,7 +267,7 @@ def test_without_an_accepted_replay_nothing_is_green(
     legend = page.locator(".bp_stats_legend").inner_text()
     assert f"Lean complete, dependencies too ({note})" in legend
     if state == "rejected":
-        assert "This build was rejected by the kernel checker" in counts.inner_text()
+        assert "This build was rejected by a kernel checker" in counts.inner_text()
         # the headline and the sentence beside the counts are in the error colour
         for selector in (".bp_stats_replay_counts", ".bp_stats_replay_summary"):
             r, g, b = [int(v) for v in computed(page, selector, "color")[4:-1].split(", ")[:3]]
@@ -280,7 +281,7 @@ def test_without_an_accepted_replay_nothing_is_green(
     assert page.locator(".bp_summary_replay_note").count() == 1
     closed = page.locator(".bp_summary_card_status", has_text="Fully closed").first
     assert closed.evaluate("e => getComputedStyle(e).borderLeftColor") == REPORTED_FILL[i]
-    sentence = ("The kernel checker rejected this build." if state == "rejected"
+    sentence = ("A kernel checker rejected this build." if state == "rejected"
                 else "Counted as the compiled files report, not replayed by a kernel.")
     assert sentence in closed.inner_text()
 
@@ -312,7 +313,7 @@ def test_accepted_replay_with_an_axiom_says_so(page: Page, replay_urls: dict[str
     counts = page.locator(".bp_stats_replay_counts").inner_text()
     assert counts.startswith("The kernel replay accepted the build, and the counts are as the "
                              "compiled files report: "), counts
-    assert "rest on the axiom Demo.assumed, which a kernel accepts without a proof" in counts, counts
+    assert "rest on the axiom Demo.assumed, so it was not checked" in counts, counts
     legend = page.locator(".bp_stats_legend").inner_text()
     assert "(the kernel replay accepted the build; on this site " in legend, legend
     for text in (counts, legend):
@@ -331,5 +332,21 @@ def test_accepted_replay_with_an_axiom_says_so(page: Page, replay_urls: dict[str
     glyph = page.locator(".bp_graph_preview .bp_node_view .bp_status_glyph")
     assert glyph.inner_text() == "⚠"
     title = glyph.get_attribute("title")
-    assert "replayed and accepted by leanchecker" in title and "Demo.assumed" in title, title
+    assert "not checked by the kernel replay" in title and "Demo.assumed" in title, title
     assert "not shown as proved" in title, title
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+@pytest.mark.parametrize("state", ("rejected", "none"))
+def test_status_legend_sample_is_neutral_without_an_accepted_replay(
+        page: Page, replay_urls: dict[str, str], state: str, scheme: str):
+    """The status legend's sample check mark is about no node: on a page without an accepted
+    replay behind it, it is drawn in the neutral colour, never green."""
+    open_page(page, replay_urls[state] + "/Demo___Basic/", scheme)
+    summary = page.locator(".bp_status_legend summary")
+    if summary.count() == 0:
+        pytest.skip("no status legend on this page")
+    summary.first.click()
+    colour = computed(page, ".bp_status_legend .bp_status_glyph_proved", "color")
+    assert colour not in ACCEPTED_BORDER, colour
+

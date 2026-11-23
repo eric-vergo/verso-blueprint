@@ -42,7 +42,7 @@
       "type": "object", "required": ["module"],
       "properties": {
         "module": { "type": "string" },
-        "source": { "description": "The module's source file relative to the project root ('' when unknown).", "type": "string" },
+        "source": { "description": "The module's source file relative to the project root ('' when unknown): no absolute path, no '..' component; a path whose real file lies outside the root is not read.", "type": "string" },
         "declarations": { "description": "In source order.", "type": "array", "items": { "$ref": "#/$defs/declaration" } }
       }
     },
@@ -57,7 +57,7 @@
         "selection": { "oneOf": [{ "$ref": "#/$defs/range" }, { "type": "null" }] },
         "signature": { "description": "The printed signature, keyword and name included.", "type": "string" },
         "doc": { "type": ["string", "null"] },
-        "status": { "enum": ["proved", "sorry-here", "depends-on-sorry", "axiom", "opaque", "unverified"] },
+        "status": { "description": "What the compiled files report; absent means unverified, never proved.", "enum": ["proved", "sorry-here", "depends-on-sorry", "axiom", "opaque", "unverified"] },
         "axioms": { "type": "array", "items": { "type": "string" } },
         "attrs": { "type": "array", "items": { "type": "string" } },
         "uses": {

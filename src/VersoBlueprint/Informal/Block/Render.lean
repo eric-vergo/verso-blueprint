@@ -887,8 +887,8 @@ everything it depends on, while the site was generated, and under which it found
 outside Lean's standard three. -/
 def proved : StatusGlyphKind :=
   ⟨"✓", "proved", "Lean code complete: no sorry in it or in what it uses, no axiom outside \
-    Lean's standard three under it, and it was checked again in Lean's kernel for this site, \
-    with everything it depends on"⟩
+    Lean's standard three under it, and two kernel checkers each checked it again for this site, \
+    with everything it depends on, and both accepted it"⟩
 /-- What the compiled files report, with no verdict of a kernel replay behind it (none was run,
 it stopped without one, or it does not cover the code): not a check mark. -/
 def reported : StatusGlyphKind :=
@@ -896,13 +896,13 @@ def reported : StatusGlyphKind :=
     kernel replay stands behind it"⟩
 /-- The kernel replay rejected the build. -/
 def rejected : StatusGlyphKind :=
-  ⟨"⊘", "rejected", "Lean code not accepted: the kernel checker rejected this build"⟩
+  ⟨"⊘", "rejected", "Lean code not accepted: a kernel checker rejected this build"⟩
 def incomplete : StatusGlyphKind :=
   ⟨"◐", "partial", "Lean code incomplete: a sorry in the proof or in what it uses"⟩
 def problem : StatusGlyphKind :=
   ⟨"⚠", "problem", "Lean code needs a look: a sorry in the statement, an axiom (declared, or \
-    used beyond Lean's standard three, whether or not a kernel replay accepted the code), or \
-    code that could not be inspected"⟩
+    used beyond Lean's standard three, which a kernel replay does not check), or code that \
+    could not be inspected"⟩
 def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"⟩
 def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 
@@ -928,24 +928,24 @@ def extraAxiomsText (axioms : Array Lean.Name) : String :=
     (if compiled.isEmpty then [] else [s!"the result of compiled code ({names compiled})"])
   " and ".intercalate parts
 
-/-- The text for `sorry`-free Lean code that the replay accepted and that rests on `axioms`,
-outside Lean's standard three: what the checker did, the axioms, and why there is no check
-mark. -/
-private def acceptedResting (noun checker : String) (axioms : Array Lean.Name)
-    (source : String) : String :=
-  s!"{noun} without sorry, as the compiled files report; replayed and accepted by {checker}, \
-    with everything it depends on; it rests on {extraAxiomsText axioms}, which a kernel accepts \
-    without a proof, so it is not shown as proved{source}"
+/-- The text for `sorry`-free Lean code that rests on `axioms`, outside Lean's standard three:
+the axioms, that the replay did not check it, and why there is no check mark. -/
+private def notCheckedText (noun : String) (axioms : Array Lean.Name) (source : String) :
+    String :=
+  s!"{noun} without sorry, as the compiled files report; not checked by the kernel replay: it \
+    rests on {extraAxiomsText axioms}, and a replay checks only what rests on Lean's standard \
+    three axioms alone, so it is not shown as proved{source}"
 
 /-- The status glyph of a node and its text (the glyph's meaning for this node, then the
 detailed status where it adds something). A node whose Lean code has no `sorry` but depends on
 an axiom outside Lean's standard three, as the compiled files report it or as the replay found
-it in the terms, gets the warning mark: the text names the axiom and says what the replay did.
-Nor does a node that no kernel replay covers (`replay?`, the replay made while the site was
-generated, of the node's declarations and everything they depend on) get the check mark: its
-mark says what the compiled files report, or that the replay rejected the build. Every text is
-true of the state it is shown in: "not replayed by a kernel" only when nothing was replayed for
-the node, "no verdict" when a replay stopped without one, "accepted" only after an acceptance. -/
+it in the terms, gets the warning mark: the text names the axiom and says that the replay did
+not check it. Nor does a node that no kernel replay covers (`replay?`, the replay made while the
+site was generated, of the node's declarations and everything they depend on) get the check
+mark: its mark says what the compiled files report, or that a checker rejected the build. Every
+text is true of the state it is shown in: "not replayed by a kernel" only when nothing was
+replayed for the node, "no verdict" when a replay stopped without one, "accepted" only after both
+checkers accepted. -/
 def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result := none) :
     StatusGlyphKind × String :=
   match mark? with
@@ -954,7 +954,8 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
     let status := mark.status
     if status.isProved then
       let noun := leanCodeNoun mark.kind
-      let checker := (replay?.map (·.checkerName)).getD "the kernel checker"
+      let checker := (replay?.map (·.checkerName)).getD "the kernel checkers"
+      let rejection := (replay?.map (·.rejectionText)).getD "a kernel checker rejected this build"
       let reported := mark.extraAxioms
       let resting (s : String) : String :=
         if reported.isEmpty then s else s!"{s}, resting on {extraAxiomsText reported}"
@@ -962,18 +963,21 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
       match Replay.provedStanding replay? mark.declarations mark.unplaced with
       | .accepted =>
         if reported.isEmpty then
-          (.proved, s!"{noun} complete: no sorry in it or in what it uses; checked again in \
-            Lean's kernel by {checker}, with everything it depends on")
-        else (.problem, acceptedResting noun checker reported "")
-      | .assumed found =>
+          (.proved, s!"{noun} complete: no sorry in it or in what it uses; checked again by \
+            {checker}, with everything it depends on, and both accepted it")
+        else (.problem, s!"{noun} without sorry; checked again by {checker}, with everything \
+          it depends on, and both accepted it; the compiled files report that it rests on \
+          {extraAxiomsText reported}, which the replay did not find in the terms, so it is not \
+          shown as proved")
+      | .notChecked found =>
         let all := Data.sortAxioms (reported ++ found)
         let source := if reported.isEmpty then
             " (the replay found it in the terms; the compiled files report none)"
           else ""
-        (.problem, acceptedResting noun checker all source)
+        (.problem, notCheckedText noun all source)
       | .rejected =>
-        if reported.isEmpty then (.rejected, s!"{noun} not accepted: {checker} rejected this build")
-        else (.problem, s!"{resting base}; not accepted: {checker} rejected this build")
+        if reported.isEmpty then (.rejected, s!"{noun} not accepted: {rejection}")
+        else (.problem, s!"{resting base}; not accepted: {rejection}")
       | standing =>
         let clause := standing.unreplayed?.getD "not replayed by a kernel"
         (if reported.isEmpty then .reported else .problem, s!"{resting base}; {clause}")

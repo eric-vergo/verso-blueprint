@@ -87,6 +87,7 @@ lean_lib VersoBlueprintComparatorFixtures where
     `VersoBlueprintTests.ComparatorFixtures.Forged.Solution,
     `VersoBlueprintTests.ReplayFixtures.Nested,
     `VersoBlueprintTests.ReplayFixtures.Reach,
+    `VersoBlueprintTests.ReplayFixtures.Mixed,
     `VersoBlueprintReplayDependency.Lemmas
   ]
 

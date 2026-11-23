@@ -16,17 +16,20 @@ declaration at all (`set_option debug.skipKernelTC true`), in the project or in 
 depends on. So a site says "proved", and draws a check mark in the success colour, only for a
 declaration that a kernel replay covers: the generator loads the compiled modules, exports the
 declaration together with every constant it depends on, in the project, in its dependencies and
-in Lean's own library, and Lean's `leanchecker`, the toolchain's own program, checks all of them
-again in Lean's kernel, starting from an empty environment (`Informal.Stats.ProjectStats.withKernelReplayAt` runs
-it when the site is generated). Everywhere else the words are what the compiled files report,
-with a mark that is not a check mark.
+in Lean's own library, and two checkers that ship with the Lean toolchain, `con-leche` and
+`con-ron`, each check all of them again, starting from an empty environment
+(`Informal.Stats.ProjectStats.withKernelReplayAt` runs it when the site is generated). The
+replay accepts only when both accept. A declaration that rests on an axiom outside Lean's
+standard three (`sorryAx` among them) is not exported and not checked: both checkers decline an
+export that uses one. Everywhere else the words are what the compiled files report, with a mark
+that is not a check mark.
 
 This module holds the result of a replay and the words for it; nothing here runs anything.
 
-What a replay leaves trusted is said on the page (`trustedText`): the checker and Lean's kernel
-in it; the export, which the generator writes from the modules it loaded with the toolchain's
-exporter; and Lean's elaborator for the step from the source text to the compiled module. No
-replay says anything about what a statement means.
+What a replay leaves trusted is said on the page (`trustedText`): the exporter, which the
+generator runs on the modules it loaded; each checker with the compiler and runtime it is built
+with; and Lean's elaborator for the step from the source text to the compiled module. No replay
+says anything about what a statement means.
 -/
 
 namespace Informal.Replay
@@ -35,17 +38,23 @@ open Lean
 
 /-- How a kernel replay ended. -/
 inductive Outcome where
-  /-- The checker accepted the export: every declaration of `Result.declarations` and every
+  /-- Both checkers accepted the export: every declaration of `Result.declarations` and every
   constant it depends on. -/
   | accepted
-  /-- The checker rejected the export (`Result.message`). -/
+  /-- A checker rejected the export, and neither accepted it (`Result.checkers` says which, and
+  `Result.message` what it said). -/
   | rejected
-  /-- No checker was found: nothing was replayed. -/
+  /-- One checker accepted the export and the other rejected it. -/
+  | disagreed
+  /-- A checker declined to check the export (`Result.message`), and neither rejected it. -/
+  | declined
+  /-- The project's Lean toolchain ships no checker (`Result.message` says which it lacks):
+  nothing was replayed. -/
   | noChecker
   /-- The replay was stopped at the time limit (`Result.limitSeconds`) without a verdict. -/
   | timedOut
-  /-- The checker was stopped because it went over its memory limit (`Result.memoryLimit`),
-  without a verdict. -/
+  /-- A process of the replay was stopped because it went over its memory limit
+  (`Result.memoryLimit`), without a verdict. -/
   | overMemory
   /-- The export went over its size limit (`Result.exportLimit`); the checker was not run. -/
   | overExport
@@ -59,8 +68,66 @@ deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 or on an error), as opposed to never checking anything (no checker, an export over its limit,
 switched off). The words differ: "not replayed by a kernel" is said only when nothing was. -/
 def Outcome.stoppedWithoutVerdict : Outcome → Bool
-  | .timedOut | .overMemory | .failed => true
+  | .timedOut | .overMemory | .failed | .declined => true
   | _ => false
+
+/-- Whether a checker rejected the build: alone (`rejected`) or against the other's acceptance
+(`disagreed`). Nothing is counted as checked then. -/
+def Outcome.isRejection : Outcome → Bool
+  | .rejected | .disagreed => true
+  | _ => false
+
+/-- What one checker answered, by its exit status first and its words second. -/
+inductive Answer where
+  /-- Exit status 0 with its line `accepted N declarations`, `N` at least the declaration
+  records of the export. -/
+  | accepted
+  /-- Exit status 1 with its words of rejection. -/
+  | rejected
+  /-- Exit status 2: it declined to check the export. -/
+  | declined
+  /-- Exit status 1 with an uncaught exception: an error of the checker. -/
+  | error
+  /-- Any other ending: a usage or parse error, a reduction that ran out of fuel, an exit
+  status 0 without its line or with too short a count, another status or a signal. -/
+  | noAnswer
+  /-- It was stopped at the time limit. -/
+  | timedOut
+  /-- It was stopped over its memory limit. -/
+  | overMemory
+  /-- It could not be started. -/
+  | notStarted
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The run of one checker on an export. -/
+structure CheckerRun where
+  /-- The program's name: `con-leche` or `con-ron`. -/
+  name : String
+  /-- The Lean version of the toolchain the program ships with. -/
+  version : Option String := none
+  /-- The SHA-256 of the program's file, in hexadecimal. -/
+  sha256 : Option String := none
+  answer : Answer
+  /-- The declaration records it said it accepted, or checked before it declined. -/
+  declarations : Option Nat := none
+  /-- What it said, when it did not accept. -/
+  message : Option String := none
+  /-- How long it ran, in milliseconds; `none` when not measured or left out of a reproducible
+  build. -/
+  ms : Option Nat := none
+  /-- The most memory it was seen to hold, in bytes; `none` when never read or left out of a
+  reproducible build. -/
+  peakBytes : Option Nat := none
+deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
+
+/-- The checker with its toolchain: `con-ron (Lean 4.35.0)`. -/
+def CheckerRun.label (c : CheckerRun) : String :=
+  match c.version with
+  | some v => s!"{c.name} (Lean {v})"
+  | none => c.name
+
+/-- The two checkers of a replay, in the order they run. -/
+def checkerNames : Array String := #["con-leche", "con-ron"]
 
 /-- Where the constants of an export come from. -/
 inductive OriginKind where
@@ -85,31 +152,40 @@ deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 /-- The kernel replay of one build. -/
 structure Result where
   outcome : Outcome
-  /-- The checker's name. -/
-  checker : String := "leanchecker"
-  /-- The Lean version of the toolchain the checker belongs to. -/
+  /-- The checkers' names, for a sentence. -/
+  checker : String := "con-leche and con-ron"
+  /-- The Lean version of the toolchain the checkers belong to. -/
   version : Option String := none
   /-- The declarations the replay covers, in `Name.quickLt` order: with `accepted`, each was
-  exported with every constant it depends on, and the checker accepted them all; otherwise the
+  exported with every constant it depends on, and both checkers accepted them all; otherwise the
   declarations that were to be checked. -/
   declarations : Array Name := #[]
   /-- Declarations the replay was asked for and does not cover, each with the reason (it is not
   in the compiled modules that were loaded, it is in another module there, it is unsafe). -/
   notCovered : Array (Name × String) := #[]
-  /-- For each declaration of `declarations` that depends on an axiom outside Lean's standard
-  three: those axioms, sorted, as found by walking the terms of the loaded modules (`sorryAx`
-  among them). A kernel accepts an axiom without a proof, so an accepted replay proves such a
-  declaration only from them. -/
+  /-- Declarations the replay was asked for that rest on an axiom outside Lean's standard three,
+  with those axioms, sorted, as found by walking the terms of the loaded modules (`sorryAx` among
+  them). They are not exported and not checked: both checkers decline an export that uses such
+  an axiom. -/
   axioms : Array (Name × Array Name) := #[]
+  /-- What each checker answered, in the order they ran; empty when none ran. -/
+  checkers : Array CheckerRun := #[]
+  /-- The declaration records of the export (`def`, `thm`, `opaque`, `axiom`, `inductive`,
+  `quot`), as the generator counted them in the file. -/
+  records : Nat := 0
   /-- The number of constants in the export. -/
   constants : Nat := 0
   /-- Where the exported constants come from, the largest group first. -/
   origins : Array Origin := #[]
-  /-- With `accepted`: the checker accepted an identical export in an earlier run and was not
+  /-- With `accepted`: both checkers accepted an identical export in an earlier run and were not
   run again. -/
   recorded : Bool := false
-  /-- With `rejected` or `failed`: what the checker, or the generator, said. With `overMemory`:
-  what went over the limit, when it was not the checker. -/
+  /-- The site is built to be reproducible: whether an acceptance comes from this run or from
+the record is not said, and the checkers' times and memory are left out
+(`Result.forReproducible`). -/
+  reproducible : Bool := false
+  /-- With `rejected`, `disagreed`, `declined` or `failed`: what the checker, or the generator,
+  said. With `overMemory`: what went over the limit. With `noChecker`: what the toolchain lacks. -/
   message : Option String := none
   /-- With `timedOut`: the limit. -/
   limitSeconds : Option Nat := none
@@ -119,33 +195,45 @@ structure Result where
   exportLimit : Option Nat := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
-/-- The checker with its toolchain: `leanchecker (Lean 4.35.0)`. -/
+/-- `r` as a reproducible build shows it: two builds of the same project with the same checkers
+give the same words whether the record held the export or not, so the acceptance's source and
+the checkers' times and memory are left out. -/
+def Result.forReproducible (r : Result) : Result :=
+  { r with reproducible := true, recorded := false
+           checkers := r.checkers.map fun c =>
+             { c with ms := none, peakBytes := none
+                      declarations := if c.answer == .accepted then none else c.declarations } }
+
+/-- The checkers with their toolchain: `con-leche and con-ron (Lean 4.35.0)`. -/
 def Result.checkerName (r : Result) : String :=
   match r.version with
   | some v => s!"{r.checker} (Lean {v})"
   | none => r.checker
 
+/-- The checkers that gave `answer`, by `CheckerRun.label`, joined with "and". -/
+def Result.answeredBy (r : Result) (answer : Answer) : String :=
+  " and ".intercalate ((r.checkers.filter (·.answer == answer)).map (·.label)).toList
+
+/-- What the checkers did with a build they did not both accept: "con-ron (Lean 4.35.0)
+rejected this build", or that they disagree. -/
+def Result.rejectionText (r : Result) : String :=
+  let rejected := r.answeredBy .rejected
+  let rejected := if rejected.isEmpty then r.checkerName else rejected
+  if r.outcome == .disagreed then
+    s!"the two checkers disagree on this build: {r.answeredBy .accepted} accepted it and \
+      {rejected} rejected it"
+  else s!"{rejected} rejected this build"
+
 /-- Whether `declaration` is one of `Result.declarations`. -/
 def Result.covers (r : Result) (declaration : Name) : Bool :=
   r.declarations.binSearchContains declaration Name.quickLt
 
-/-- The axioms outside `permitted` that the declarations `needed` depend on, as the replay
-found them (`Result.axioms`), each once, sorted. -/
-def Result.restingOn (r : Result) (needed : Array Name)
-    (permitted : Array Name := Data.standardAxioms) : Array Name :=
-  let all := r.axioms.foldl (init := #[]) fun acc (declaration, axioms) =>
-    if needed.contains declaration then
-      axioms.foldl (init := acc) fun acc a =>
-        if permitted.contains a || acc.contains a then acc else acc.push a
-    else acc
-  Data.sortAxioms all
-
 /-- What a replay establishes for a set of declarations. -/
 inductive Standing where
-  /-- Every one of the declarations, with everything it depends on, was checked and
-  accepted. -/
+  /-- Every one of the declarations, with everything it depends on, was checked and accepted by
+  both checkers. -/
   | accepted
-  /-- The checker rejected the build. -/
+  /-- A checker rejected the build (alone, or against the other's acceptance). -/
   | rejected
   /-- Nothing was replayed for the declarations: no replay was run, nothing was checked, or an
   accepted replay does not cover them. `why` is a clause that completes "not replayed by a
@@ -154,10 +242,9 @@ inductive Standing where
   /-- A replay was started and stopped without a verdict (`Outcome.stoppedWithoutVerdict`).
   `why` is a clause that completes "no verdict of a kernel replay: …". -/
   | noVerdict (why : String)
-  /-- The checker accepted the declarations, and the replay found these axioms under them that
-  are not permitted: a kernel accepts an axiom without a proof, so they are proved only from
-  the axioms. -/
-  | assumed (axioms : Array Name)
+  /-- The declarations rest on these axioms outside Lean's standard three, so they were not
+  exported and not checked. -/
+  | notChecked (axioms : Array Name)
 deriving Repr, Inhabited, DecidableEq
 
 private def nameList (names : Array Name) : String :=
@@ -168,8 +255,13 @@ private def mib (bytes : Nat) : Nat := bytes / (1024 * 1024)
 /-- Why nothing was established, when the outcome is not a verdict. -/
 def Result.whyNot (r : Result) : String :=
   match r.outcome with
-  | .accepted | .rejected => ""
-  | .noChecker => "no kernel checker was found"
+  | .accepted | .rejected | .disagreed => ""
+  | .noChecker => r.message.getD "this project's Lean toolchain ships no con-leche or con-ron"
+  | .declined =>
+    let who := r.answeredBy .declined
+    let who := if who.isEmpty then r.checkerName else who
+    let detail := r.message.map (s!": {·}") |>.getD ""
+    s!"{who} declined to check the export{detail}"
   | .timedOut =>
     let limit := r.limitSeconds.map (s!" within {·} s") |>.getD ""
     s!"the replay with {r.checkerName} did not finish{limit}"
@@ -194,17 +286,31 @@ def Result.notCoveredWhy (r : Result) (declaration : Name) : String :=
   | some (_, why) => s!"{declaration} {why}"
   | none => s!"{declaration} is not among the declarations that were checked"
 
-/-- What the replay `r?` establishes for the declarations `needed`: whether it checked each of
-them with everything it depends on. A rejection anywhere stands against every declaration: the
-checker stops at its first problem, and what else it would have rejected is not known. The
-axioms a declaration depends on are a separate matter (`provedStanding`). -/
+/-- The axioms outside `permitted` that the declarations `needed` rest on, as the replay found
+them (`Result.axioms`), each once, sorted. -/
+def Result.restingOn (r : Result) (needed : Array Name)
+    (permitted : Array Name := Data.standardAxioms) : Array Name :=
+  let all := r.axioms.foldl (init := #[]) fun acc (declaration, axioms) =>
+    if needed.contains declaration then
+      axioms.foldl (init := acc) fun acc a =>
+        if permitted.contains a || acc.contains a then acc else acc.push a
+    else acc
+  Data.sortAxioms all
+
+/-- What the replay `r?` establishes for the declarations `needed`: whether both checkers
+checked each of them with everything it depends on. A rejection anywhere stands against every
+declaration: a checker stops at its first problem, and what else it would have rejected is not
+known. A declaration that rests on an axiom outside Lean's standard three was not checked
+(`notChecked`), whatever the checkers said of the rest. -/
 def standing (r? : Option Result) (needed : Array Name) : Standing :=
   match r? with
   | none => .notReplayed noReplayText
   | some r =>
     match r.outcome with
-    | .rejected => .rejected
+    | .rejected | .disagreed => .rejected
     | .accepted =>
+      let resting := r.restingOn needed
+      if !resting.isEmpty then .notChecked resting else
       -- an accepted replay stands behind declarations, never behind none
       if needed.isEmpty then
         .notReplayed "not part of the replay: no Lean declaration is recorded for it"
@@ -221,29 +327,30 @@ def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Nam
     .notReplayed s!"not part of the replay: the module of {d} is not known"
   | _, _ => standing r? needed
 
-/-- What the replay establishes for the declarations `needed` as proved: `standingOf`, and
-accepted only when the replay also found no axiom outside `permitted` under them (Lean's
-standard three unless a list is given). A kernel accepts an axiom, `sorryAx` included, without
-a proof. -/
-def provedStanding (r? : Option Result) (needed : Array Name) (unplaced : Option Name := none)
-    (permitted : Array Name := Data.standardAxioms) : Standing :=
-  match standingOf r? needed unplaced, r? with
-  | .accepted, some r =>
-    let axioms := r.restingOn needed permitted
-    if axioms.isEmpty then .accepted else .assumed axioms
-  | s, _ => s
+/-- What the replay establishes for the declarations `needed` as proved: `standingOf`. A
+declaration that rests on an axiom outside Lean's standard three is never accepted: it was not
+exported, since both checkers decline an export that uses such an axiom (`notChecked`). So
+the axioms a challenge permits cannot widen what is accepted: an accepted standing always means
+the standard three at most. -/
+def provedStanding (r? : Option Result) (needed : Array Name) (unplaced : Option Name := none) :
+    Standing :=
+  standingOf r? needed unplaced
+
+/-- The clause for declarations left out because they rest on `axioms`: "it rests on the axiom
+sorryAx, and a replay checks only what rests on Lean's standard three axioms alone". -/
+def notCheckedClause (axioms : Array Name) : String :=
+  let noun := if axioms.size == 1 then "an axiom" else "axioms"
+  s!"it rests on {noun} outside Lean's standard three ({nameList axioms}), and a replay checks \
+    only what rests on the standard three alone"
 
 /-- Why a standing is not an accepted replay, as a clause; empty for `accepted`. -/
 def Standing.why : Standing → String
   | .accepted => ""
   | .rejected => rejectedClause
   | .notReplayed why | .noVerdict why => why
-  | .assumed axioms =>
-    let noun := if axioms.size == 1 then "an axiom" else "axioms"
-    s!"the replay found {noun} under it that a kernel accepts without a proof \
-      ({nameList axioms})"
+  | .notChecked axioms => s!"not checked: {notCheckedClause axioms}"
 where
-  rejectedClause := "the kernel checker rejected this build"
+  rejectedClause := "a kernel checker rejected this build"
 
 /-- Whether the standing is an accepted replay. -/
 def Standing.isAccepted : Standing → Bool
@@ -254,14 +361,16 @@ def Standing.isAccepted : Standing → Bool
 def Standing.token : Standing → String
   | .accepted => "accepted"
   | .rejected => "rejected"
-  | .notReplayed _ | .noVerdict _ | .assumed _ => "none"
+  | .notReplayed _ | .noVerdict _ | .notChecked _ => "none"
 
 /-- The words for Lean code that no verdict of a replay covers, with the reason: "not replayed
 by a kernel (…)" when nothing was replayed for it, "no verdict of a kernel replay (…)" when a
-replay stopped without one; `none` for the other standings. -/
+replay stopped without one, "not checked by the kernel replay (…)" when it rests on an axiom
+outside the standard three; `none` for the other standings. -/
 def Standing.unreplayed? : Standing → Option String
   | .notReplayed why => some s!"not replayed by a kernel ({why})"
   | .noVerdict why => some s!"no verdict of a kernel replay ({why})"
+  | .notChecked axioms => some s!"not checked by the kernel replay ({notCheckedClause axioms})"
   | _ => none
 
 /-- The class that tells the stylesheets what stands behind an element (`Standing.token`).
@@ -271,21 +380,22 @@ def Standing.scopeClass (s : Standing) : String := s!"bp_replay_{s.token}"
 /-- What a site as a whole may show in the success colour: the standing behind its counts,
 bars and legends, which are about every node at once. -/
 inductive SiteState where
-  /-- The replay accepted the build, covers the Lean code of every node, and found no axiom
-  outside Lean's standard three under a node counted as complete. -/
+  /-- Both checkers accepted the build, the replay covers the Lean code of every node, and no
+  node counted as complete rests on an axiom outside Lean's standard three. -/
   | accepted
-  /-- The checker rejected the build. -/
+  /-- A checker rejected the build. -/
   | rejected
-  /-- Nothing was replayed: no replay was run, no checker was found, the export went over its
-  limit, or the replay was switched off. `why` completes "not replayed by a kernel: …". -/
+  /-- Nothing was replayed: no replay was run, the toolchain ships no checker, the export went
+  over its limit, or the replay was switched off. `why` completes "not replayed by a kernel:
+  …". -/
   | none (why : String)
   /-- A replay was started and stopped without a verdict. `why` completes "no verdict of a
   kernel replay: …". -/
   | noVerdict (why : String)
-  /-- The replay accepted the build, but not for every node: `uncovered` nodes with Lean code
+  /-- Both checkers accepted the build, but not for every node: `uncovered` nodes with Lean code
   are not part of it, and `resting` nodes without `sorry` rest on an axiom outside Lean's
-  standard three (`axioms`, sorted), which a kernel accepts without a proof. One of the two
-  counts is positive. -/
+  standard three (`axioms`, sorted), so they were not checked. One of the two counts is
+  positive. -/
   | acceptedExcept (uncovered resting : Nat) (axioms : Array Name)
 deriving Repr, Inhabited, DecidableEq
 
@@ -299,7 +409,7 @@ def siteState (r? : Option Result) (uncovered : Array Name := #[])
   | Option.none => .none noReplayText
   | some r =>
     match r.outcome with
-    | .rejected => .rejected
+    | .rejected | .disagreed => .rejected
     | .accepted =>
       if uncovered.isEmpty && resting.isEmpty then .accepted
       else .acceptedExcept uncovered.size resting.size (Data.sortAxioms axioms)
@@ -328,8 +438,8 @@ def reportedNote : String := "as the compiled files report, not replayed by a ke
 /-- The words beside such a count when a replay stopped without a verdict. -/
 def noVerdictNote : String := "as the compiled files report, with no verdict of a kernel replay"
 
-/-- The words beside such a count when the checker rejected the build. -/
-def rejectedNote : String := "this build was rejected by the kernel checker"
+/-- The words beside such a count when a checker rejected the build. -/
+def rejectedNote : String := "this build was rejected by a kernel checker"
 
 /-- `n` nodes, with what is said of them in the singular and in the plural. -/
 private def nodesWith (n : Nat) (what one many : String) : String :=
@@ -353,8 +463,8 @@ def exceptionsText (uncovered resting : Nat) (axioms : Array Name) (long : Bool)
   let notPart := if uncovered == 0 then [] else
     [nodesWith uncovered "with Lean code" "is not part of the replay" "are not part of the replay"]
   let tail := if !long then "" else
-    s!", which a kernel accepts without a proof, so \
-      {if resting == 1 then "it is" else "they are"} not shown as proved"
+    s!", so {if resting == 1 then "it was" else "they were"} not checked and \
+      {if resting == 1 then "is" else "are"} not shown as proved"
   let rests := if resting == 0 then [] else
     [nodesWith resting "without sorry" s!"rests on {axiomsPhrase axioms}{tail}"
       s!"rest on {axiomsPhrase axioms}{tail}"]
@@ -376,7 +486,7 @@ def SiteState.note? : SiteState → Option String
 accepted replay of every node. -/
 def SiteState.countSentence? : SiteState → Option String
   | .accepted => Option.none
-  | .rejected => some "The kernel checker rejected this build."
+  | .rejected => some "A kernel checker rejected this build."
   | .none _ => some "Counted as the compiled files report, not replayed by a kernel."
   | .noVerdict _ => some "Counted as the compiled files report, with no verdict of a kernel replay."
   | .acceptedExcept u r axioms =>
@@ -388,7 +498,7 @@ replay of every node. -/
 def SiteState.sentence : SiteState → String
   | .accepted => ""
   | .rejected =>
-    "This build was rejected by the kernel checker: the counts say what the compiled files \
+    "This build was rejected by a kernel checker: the counts say what the compiled files \
       report, and nothing here counts as checked by a kernel."
   | .none why => s!"The counts are as the compiled files report, not replayed by a kernel: {why}."
   | .noVerdict why =>
@@ -426,15 +536,21 @@ def Result.summary (r : Result) : String :=
   match r.outcome with
   | .accepted =>
     let origins := if r.origins.isEmpty then "" else s!" ({r.originsText})"
-    let how := if r.recorded then
-        s!"{r.checkerName} accepted an export identical to this build's in an earlier run: "
-      else s!"{r.checkerName} checked "
-    let tail := if r.recorded then "" else
-      " again in Lean's kernel, starting from an empty environment"
-    s!"Accepted: {how}{r.checkedText}{origins}{tail}."
+    if r.reproducible then
+      s!"Accepted: {r.checkerName} both accepted this build's export, in this run or, for an \
+        identical export, in an earlier one: {r.checkedText}{origins}, each starting from an \
+        empty environment."
+    else if r.recorded then
+      s!"Accepted: {r.checkerName} both accepted an export identical to this build's in an \
+        earlier run: {r.checkedText}{origins}."
+    else
+      s!"Accepted: {r.checkerName} each checked {r.checkedText}{origins}, starting from an \
+        empty environment, and both accepted them."
   | .rejected =>
-    s!"Rejected: {r.checkerName} found a problem in what this site's declarations depend on. \
-      Nothing on this site counts as checked by a kernel."
+    s!"Rejected: {r.rejectionText}, finding a problem in what this site's declarations depend \
+      on. Nothing on this site counts as checked by a kernel."
+  | .disagreed =>
+    s!"Rejected: {r.rejectionText}. Nothing on this site counts as checked by a kernel."
   | o =>
     let lead := if o.stoppedWithoutVerdict then "No verdict of a kernel replay"
       else "Not replayed by a kernel"
@@ -444,16 +560,18 @@ def Result.summary (r : Result) : String :=
 def trustedText : String :=
   "A replay takes the Lean declarations of this site's nodes and the theorems its headline \
     judges from the compiled modules, as the generator loaded them when the site was generated. \
-    It exports each of them together with every constant it depends on, whether that is in \
-    this project, in one of its dependencies or in Lean's own library, and the checker checks \
-    all of them again in Lean's kernel, starting from an empty environment (an export identical \
-    to one a replay accepted before is not checked twice). Constants that no such declaration \
-    depends on are not checked. It leaves trusted: the checker and Lean's kernel in it; the \
-    export, which the generator writes from the modules it loaded with the exporter of the \
-    Lean toolchain; and Lean's elaborator, for the step from the source text to the compiled \
-    module. A kernel accepts an axiom without a proof, so the axioms a declaration depends on \
-    are found by walking the same terms, and a declaration that depends on one outside Lean's \
-    standard three is not shown as proved, though the checker accepted it. A replay says \
-    nothing about what a statement means."
+    Each of them that rests on no axiom beyond Lean's standard three is exported together with \
+    every constant it depends on, whether that is in this project, in one of its dependencies \
+    or in Lean's own library, and two checkers that ship with the Lean toolchain, con-leche and \
+    con-ron, each check the whole export, starting from an empty environment; a declaration \
+    counts as checked only when both accept (an export identical to one both accepted before is \
+    not checked twice). A declaration that rests on another axiom, sorry among them, is not \
+    exported and not checked: both checkers decline an export that uses such an axiom. \
+    Constants that no exported declaration depends on are not checked. It leaves trusted: the \
+    export, which the generator writes from the modules it loaded with the toolchain's \
+    exporter; con-leche, a checker written in Lean, with the Lean compiler and runtime it is \
+    built with; con-ron, a checker written in Rust, with the Rust compiler and the memory \
+    allocator it is built with; and Lean's elaborator, for the step from the source text to the \
+    compiled module. A replay says nothing about what a statement means."
 
 end Informal.Replay

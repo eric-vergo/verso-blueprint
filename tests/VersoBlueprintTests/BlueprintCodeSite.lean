@@ -428,4 +428,85 @@ partial def pagesUnder (dir : System.FilePath) : IO (Array String) := do
   (parseOptions ["--no-graph-layout"] {} matches .error _) &&
   (parseOptions ["--data"] {} matches .error _)
 
+/-! ## What the data cannot make a site say -/
+
+-- A declaration whose data states no status is unverified, never proved: a minimal entry the
+-- schema allows does not count as proved anywhere.
+/-- info: true -/
+#guard_msgs in
+#eval
+  match Project.parse "{\"format\":\"verso-blueprint-code-1\",\"modules\":[{\"module\":\"M\",\
+      \"declarations\":[{\"name\":\"M.t\",\"kind\":\"theorem\"}]}]}" with
+  | .ok (p : Project) =>
+    match p.modules[0]?.bind (fun (m : Informal.CodeSite.Module) => m.declarations[0]?) with
+    | some (d : Informal.CodeSite.Declaration) =>
+      d.status == "unverified" && !(provedStatus d).isProved
+    | none => false
+  | .error _ => false
+
+-- The front page counts the chapters: a module without declarations has none.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let p : Project := { modules := #[{ module := `A, declarations := #[{ name := `A.x, kind := "def" }] },
+    { module := `B, declarations := #[{ name := `B.y, kind := "def" }] }, { module := `Empty }] }
+  let text := (frontMatter p).foldl (init := "") fun acc b => match b with
+    | .para inls => acc ++ inls.foldl (init := "") fun a i => match i with
+      | .text t => a ++ t | _ => a
+    | _ => acc
+  hasSubstr text "2 declarations in 3 modules, one chapter per module with declarations \
+    (2 chapters)" && (documentOf "t" p).subParts.size == 4
+
+-- A module's source is read only when it is a file inside the project root: an absolute path,
+-- a path through `..`, a symbolic link that leads out of the root, a folder and a missing file
+-- are not read, and the site names no file for them; a link inside the root is followed.
+/-- info: (true, true) -/
+#guard_msgs in
+#eval show IO _ from do
+  let root := System.FilePath.mk s!"/tmp/vbp-source-bound-test-{← IO.monoNanosNow}"
+  let outside := System.FilePath.mk s!"{root}-outside"
+  IO.FS.createDirAll (root / "Src")
+  IO.FS.createDirAll outside
+  IO.FS.writeFile (root / "Src" / "A.lean") "theorem a : True := trivial\n"
+  IO.FS.writeFile (outside / "secret.txt") "not for the site\n"
+  let link (target name : System.FilePath) : IO Unit := discard <| IO.Process.output
+    { cmd := "ln", args := #["-s", target.toString, name.toString] }
+  link (outside / "secret.txt") (root / "Src" / "Out.lean")
+  link (root / "Src" / "A.lean") (root / "Src" / "In.lean")
+  let modules := [("M.A", "Src/A.lean"), ("M.Abs", (outside / "secret.txt").toString),
+    ("M.Up", "Src/../../" ++ (outside.fileName.getD "") ++ "/secret.txt"), ("M.Out", "Src/Out.lean"),
+    ("M.In", "Src/In.lean"), ("M.Dir", "Src"), ("M.None", "Src/None.lean")]
+  let json := Json.mkObj [("format", "verso-blueprint-code-1"), ("modules", Json.arr
+    (modules.toArray.map fun (m, src) => Json.mkObj [("module", toJson m), ("source", toJson src),
+      ("declarations", Json.arr #[])]))]
+  IO.FS.writeFile (root / "code.json") json.compress
+  let (project, sources) ← IO.FS.withIsolatedStreams (load (root / "code.json") root) >>= (pure ·.2)
+  IO.FS.removeDirAll root
+  IO.FS.removeDirAll outside
+  let kept := project.modules.filter (!·.source.isEmpty) |>.map (·.module.toString)
+  let read := (sources.toArray.map (·.1.toString)).qsort (· < ·)
+  return (kept == #["M.A", "M.In"], read == #["M.A", "M.In"] &&
+    sources.toArray.all fun (_, text) => !hasSubstr text "not for the site")
+
+-- A build into a folder an earlier build wrote: a chapter the data no longer has is gone, with
+-- its folder, while a file the generator did not write stays.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  let out := (root / "_out").toString
+  let html := root / "_out" / "html-multi"
+  let first ← generate (root / "code.json") root none ["--output", out, "--reproducible"]
+  let hardBefore ← (html / "Demo___Hard" / "index.html").pathExists
+  IO.FS.writeFile (html / "notes.txt") "kept"
+  -- the same project without its second module
+  let data ← IO.ofExcept (Json.parse (← IO.FS.readFile (root / "code.json")))
+  let modules := (data.getObjValAs? (Array Json) "modules").toOption.getD #[]
+  IO.FS.writeFile (root / "code.json")
+    (data.setObjVal! "modules" (Json.arr (modules.extract 0 1))).compress
+  IO.sleep 20
+  let second ← generate (root / "code.json") root none ["--output", out, "--reproducible"]
+  return first == 0 && second == 0 && hardBefore &&
+    !(← (html / "Demo___Hard").pathExists) && (← (html / "Demo___Basic" / "index.html").pathExists) &&
+    (← IO.FS.readFile (html / "notes.txt")) == "kept"
+
 end Verso.VersoBlueprintTests.BlueprintCodeSite

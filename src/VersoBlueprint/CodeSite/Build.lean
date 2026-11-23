@@ -539,6 +539,11 @@ private def moduleList (modules : Array Name) : Block Manual :=
 /-- The front page: what the site is, and what it leaves out. -/
 def frontMatter (project : Project) : Array (Block Manual) := Id.run do
   let decls := project.modules.foldl (·  + ·.declarations.size) 0
+  -- a module without declarations has no chapter (`documentOf`)
+  let chapters := (project.modules.filter (!·.declarations.isEmpty)).size
+  let chapterWords := if chapters == project.modules.size then "one chapter per module"
+    else s!"one chapter per module with declarations ({chapters} \
+      {if chapters == 1 then "chapter" else "chapters"})"
   let stated := project.modules.foldl (init := 0) fun n m =>
     n + (m.declarations.filter (·.statement.isSome)).size
   let statements := if stated == 0 then
@@ -553,8 +558,8 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
       it says the same as the Lean statement."
   let mut blocks := #[
     para #[.text s!"This site was generated from the compiled Lean code: {decls} declarations \
-      in {project.modules.size} modules, one chapter per module. Each declaration is a node \
-      of the ", .link #[.text "dependency graph"] "Dependency-Graph/", .text statements],
+      in {project.modules.size} modules, {chapterWords}. Each declaration is a node of the ",
+      .link #[.text "dependency graph"] "Dependency-Graph/", .text statements],
     para #[.text "Nodes are named by their declarations and carry no numbers: nothing here is \
       the numbering of a paper."]]
   if let some toolchain := project.toolchain then
