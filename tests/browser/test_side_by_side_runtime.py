@@ -1,5 +1,6 @@
 """Browser checks for the side-by-side node layout (`--side-by-side`)."""
 
+import re
 import shutil
 import subprocess
 import sys
@@ -756,3 +757,172 @@ class TestGraphNodeView:
         rgb = grid.evaluate("e => getComputedStyle(e).backgroundColor")
         channels = [int(c) for c in rgb[rgb.index("(") + 1 : rgb.index(")")].split(",")[:3]]
         assert sum(channels) / 3 < 90, rgb
+
+
+# Panels a reader opens with the pointer or the keyboard: relation panels, Lean summaries, inline
+# previews. Each visible one with its box, and whether it holds the focused element.
+_OPEN_PANELS_JS = """() => {
+    const vw = window.innerWidth;
+    const main = document.querySelector("main");
+    const mainLeft = main ? main.getBoundingClientRect().left : 0;
+    const panels = [];
+    const selector = ".bp_relation_panel, .bp_preview_panel, .bp_inline_preview_panel, .bp_code_hover";
+    for (const el of document.querySelectorAll(selector)) {
+        const cs = getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden" || el.hidden) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        panels.push({ cls: el.className, left: r.left, right: r.right, width: r.width,
+                      fixed: cs.position === "fixed",
+                      holdsFocus: el.contains(document.activeElement) });
+    }
+    const a = document.activeElement;
+    const ar = a && a !== document.body ? a.getBoundingClientRect() : null;
+    return { vw, mainLeft, panels, active: a ? a.tagName : "",
+             activeBox: ar && ar.width > 0 ? { left: ar.left, right: ar.right } : null };
+}"""
+
+
+class TestReadingAids:
+    """Popovers, numbers, labels and links as a reader of the side-by-side site meets them."""
+
+    @pytest.mark.parametrize("width", (360, 768, 1440))
+    @pytest.mark.parametrize("path", ("/Core-Previews/", "/Preview-Relationships/", "/Reading-Aids/"))
+    def test_keyboard_popovers_close_and_stay_in_view(
+        self, side_by_side_server: str, page: Page, width: int, path: str
+    ):
+        errors = record_runtime_errors(page)
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(side_by_side_server + path)
+        page.wait_for_load_state("networkidle")
+        for step in range(140):
+            page.keyboard.press("Tab")
+            # less than the delay a pointer gets to travel from a trigger to its panel
+            page.wait_for_timeout(40)
+            state = page.evaluate(_OPEN_PANELS_JS)
+            if state["active"] == "BODY":
+                assert not state["panels"], (step, state)
+                break
+            panels = state["panels"]
+            # one popover at a time, besides those that hold the focus (opened from inside)
+            unrelated = [p for p in panels if not p["holdsFocus"]]
+            assert len(unrelated) <= 1, (step, state)
+            for p in panels:
+                assert p["left"] >= -0.5 and p["right"] <= state["vw"] + 0.5, (step, p, state["vw"])
+                # a popover inside the page is not hidden under the table of contents beside it
+                if not p["fixed"] and p["width"] <= state["vw"] - state["mainLeft"] - 16:
+                    assert p["left"] >= state["mainLeft"] - 0.5, (step, p, state["mainLeft"])
+            box = state["activeBox"]
+            if box is not None:
+                # nothing the keyboard reaches is off the side of the screen
+                assert box["left"] >= -0.5 and box["right"] <= state["vw"] + 0.5, (step, state)
+        assert_no_runtime_errors(errors)
+
+    def test_lean_summary_is_headed_by_the_statement_and_explains_the_marks(
+        self, side_by_side_server: str, page: Page
+    ):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/")
+        trigger = page.locator(".bp_code_summary_preview_wrap").first
+        trigger.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel.locator(".bp_code_summary_preview_title")).to_have_text(re.compile(r"^Theorem \d+\.1$"))
+        expect(panel.locator("a.bp_meaning_link")).to_have_attribute("href", "Project-Stats/#bp-what-this-means")
+
+    def test_unchecked_notice_links_to_the_explanation(self, side_by_side_server: str, page: Page):
+        page.goto(side_by_side_server + "/Reading-Aids/")
+        link = page.locator(".bp_statement_source a.bp_meaning_link").first
+        expect(link).to_have_text("What this means")
+        link.click()
+        page.wait_for_url(re.compile(r"/Project-Stats/#bp-what-this-means$"))
+        expect(page.locator("#bp-what-this-means")).to_be_visible()
+
+    def test_proof_declarations_match_the_lean_column(self, side_by_side_server: str, page: Page):
+        for width in (1440, 360):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + "/Reading-Aids/")
+            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+            facts = page.evaluate(
+                """() => {
+                    const column = document.querySelector('.bp_sbs_formal code.hl.lean.block');
+                    const sig = [...document.querySelectorAll('pre.bp_external_decl_signature')]
+                        .find((p) => p.offsetParent && p.textContent.includes('aidLongSignature'));
+                    const name = sig && [...sig.querySelectorAll('.token')]
+                        .find((t) => t.textContent.includes('aidLongSignature'));
+                    const lines = name ? name.getClientRects().length : 0;
+                    return { column: column && getComputedStyle(column).fontSize,
+                             sig: sig && getComputedStyle(sig).fontSize,
+                             overflow: sig ? sig.scrollWidth - sig.clientWidth : null,
+                             nameLines: lines };
+                }"""
+            )
+            assert facts["sig"] is not None and facts["sig"] == facts["column"], (width, facts)
+            assert facts["overflow"] <= 0, (width, facts)
+            if width == 1440:
+                # the declaration's name is not broken across lines where it fits on one
+                assert facts["nameLines"] == 1, (width, facts)
+
+    def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Dependency-Graph/")
+        node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Ffirst']")
+        expect(node).to_have_count(1)
+        label = node.get_attribute("aria-label") or ""
+        assert re.fullmatch(r"Theorem \d+\.1 \(aids_first\)", label), label
+        assert node.get_attribute("role") == "button"
+        texts = node.locator("text").all_text_contents()
+        assert len(texts) == 1 and re.fullmatch(r"Theorem \d+\.1", texts[0]), texts
+        # a node outside the document keeps its name
+        assert all((n.get_attribute("aria-label") or "") for n in page.locator(".bp_graph_canvas svg g.node").all())
+
+    def test_repository_links_name_the_built_commit(self, side_by_side_server: str, page: Page):
+        page.goto(side_by_side_server + "/Reading-Aids/")
+        link = page.locator("a.bp_repo_file")
+        expect(link).to_have_text("README")
+        href = link.get_attribute("href") or ""
+        assert re.fullmatch(r"https://github\.com/[^/]+/[^/]+/blob/[0-9a-f]{40}/README\.md", href), href
+
+    def test_front_page_names_each_revision_once_without_commit_subjects(
+        self, side_by_side_server: str, page: Page
+    ):
+        page.goto(side_by_side_server + "/")
+        metadata = page.locator(".bp_build_metadata")
+        expect(metadata).to_be_visible()
+        expect(metadata.locator(".bp_build_metadata_subject")).to_have_count(0)
+        for code in metadata.locator("code.bp_build_metadata_commit").all_text_contents():
+            parts = code.split("@")
+            assert len(parts) == 1 or not parts[1].startswith(parts[0][:7]), code
+
+
+def test_pages_let_the_reader_zoom(side_by_side_site_dir: Path):
+    pages = list(side_by_side_site_dir.rglob("*.html"))
+    assert pages
+    for path in pages:
+        text = path.read_text(encoding="utf-8")
+        for meta in re.findall(r'<meta name="viewport"[^>]*>', text):
+            assert "maximum-scale" not in meta and "user-scalable" not in meta, (path, meta)
+
+
+def test_navigation_links_find_their_places(side_by_side_site_dir: Path):
+    stats = (side_by_side_site_dir / "Project-Stats" / "index.html").read_text(encoding="utf-8")
+    assert 'href="#bp-what-this-means"' not in stats
+    assert 'href="Project-Stats/#bp-what-this-means"' in stats
+
+
+def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
+    index = (side_by_side_site_dir / "index.html").read_text(encoding="utf-8")
+    assert "Part I — Relations" in index and "Part II — Reading" in index
+    # chapters stay where they were, numbered on across the parts
+    for number, title in ((5, "Group Previews"), (6, "Preview Relationships"), (9, "Reading Aids")):
+        assert f'<span class="number">{number}.</span> {title}' in index, title
+    assert (side_by_side_site_dir / "Preview-Relationships" / "index.html").exists()
+    assert (side_by_side_site_dir / "Part-I" / "index.html").exists()
+    aids = (side_by_side_site_dir / "Reading-Aids" / "index.html").read_text(encoding="utf-8")
+    assert ">9.1</span>" in aids and '<span class="number">§9.1</span> A Numbered Section' in aids
+    aids = (side_by_side_site_dir / "Reading-Aids" / "A-Numbered-Section" / "index.html").read_text(
+        encoding="utf-8"
+    )
+    assert ">9.1.1</span>" in aids
+    assert re.search(r">§9\.1[ \u00a0]A Numbered Section", aids), "section sign"
+    assert not re.search(r"9\.1\.[ \u00a0]A Numbered Section", aids)

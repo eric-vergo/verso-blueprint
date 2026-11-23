@@ -86,7 +86,6 @@ Addition.
   let metadata : Informal.PreviewManifest.BuildMetadata := {
     compiledAt := some "2026-05-05T00:00:00Z"
     commit := some "abc123"
-    subject := some "escape <tag> & message"
     projectRepositoryUrl := some "https://github.com/example/project"
     projectCommitUrl := some "https://github.com/example/project/commit/abc123full"
     leanToolchain := "leanprover/lean4:v4.30.0"
@@ -98,7 +97,6 @@ Addition.
     mathlibCommitUrl := some "https://github.com/leanprover-community/mathlib4/commit/789abcfull"
     upstreamBlueprint := some {
       commit := "up987"
-      subject := "upstream <msg> & more"
       repositoryUrl := some "https://github.com/example/upstream"
       commitUrl := some "https://github.com/example/upstream/commit/up987full"
     }
@@ -112,14 +110,13 @@ Addition.
         hasSubstr out "abc123" &&
         hasSubstr out "https://github.com/example/project" &&
         hasSubstr out "https://github.com/example/project/commit/abc123full" &&
-        hasSubstr out "escape &lt;tag&gt; &amp; message" &&
+        !hasSubstr out "bp_build_metadata_subject" &&
         hasSubstr out "leanprover/lean4:v4.30.0" &&
         hasSubstr out "def456" &&
         hasSubstr out "https://github.com/leanprover/verso-blueprint/commit/def456full" &&
         hasSubstr out "up987" &&
         hasSubstr out "https://github.com/example/upstream" &&
         hasSubstr out "https://github.com/example/upstream/commit/up987full" &&
-        hasSubstr out "upstream &lt;msg&gt; &amp; more" &&
         hasSubstr out "v4.30.0@789abc" &&
         hasSubstr out "https://github.com/leanprover-community/mathlib4/commit/789abcfull" &&
         appearsBefore out "<h1>Example</h1>" "class=\"bp_build_metadata\"" &&
@@ -133,7 +130,6 @@ Addition.
   let metadata : Informal.PreviewManifest.BuildMetadata := {
     compiledAt := none
     commit := none
-    subject := none
     projectRepositoryUrl := some "https://github.com/example/project"
     leanToolchain := "leanprover/lean4:v4.35.0"
     blueprintVersion := "v4.35.0@def456"
@@ -143,6 +139,16 @@ Addition.
     !hasSubstr out "bp_build_metadata_subject" &&
     hasSubstr out "https://github.com/example/project" &&
     hasSubstr out "v4.35.0@def456"
+
+-- A revision pinned by its commit hash is shown once; a branch or tag keeps both names.
+/-- info: true -/
+#guard_msgs in
+#eval
+  Informal.Git.sameRevision "9fa92b2bf1d3c0e5a7b9d1f3e5a7c9b1d3f5e7a9" "9fa92b2bf1d3" &&
+    Informal.Git.sameRevision "9fa92b2" "9fa92b2bf1d3" &&
+    !Informal.Git.sameRevision "v4.35.0" "9fa92b2bf1d3" &&
+    !Informal.Git.sameRevision "9fa92b3" "9fa92b2bf1d3" &&
+    !Informal.Git.sameRevision "abc" "abcdef1"
 
 /-- info: true -/
 #guard_msgs in

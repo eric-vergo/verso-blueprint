@@ -17,6 +17,4 @@ open Verso.Genre
 
 {blueprint_summary}
 
-# Dependency graph
-
 {blueprint_graph}

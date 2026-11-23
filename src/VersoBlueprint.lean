@@ -63,5 +63,7 @@ import VersoBlueprint.TraversalIndex
 import VersoBlueprint.Sidebar
 import VersoBlueprint.StyleSwitcher
 import VersoBlueprint.Profiling
+import VersoBlueprint.Parts
+import VersoBlueprint.RepoFile
 
 set_option doc.verso true

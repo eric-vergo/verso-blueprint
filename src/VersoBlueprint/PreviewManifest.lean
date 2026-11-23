@@ -6,6 +6,9 @@ Author: Emilio J. Gallego Arias
 
 import VersoBlueprint.StaticMath
 import VersoBlueprint.OutputPrune
+import VersoBlueprint.Parts
+import VersoBlueprint.PageText
+import VersoBlueprint.LinkCheck
 import Lean
 import Lean.Elab.Command
 import Std.Data.HashMap
@@ -119,10 +122,6 @@ private def buildMetadataCss : String := r##"
   border-color: var(--bp-color-link, #2563eb);
 }
 
-.bp_build_metadata_subject {
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 640px) {
   .bp_build_metadata {
     justify-content: flex-start;
@@ -169,7 +168,6 @@ def withBlueprintAssets (config : RenderConfig := {}) : RenderConfig :=
 
 structure GitCommitMetadata where
   commit : String
-  subject : String
   repositoryUrl : Option String := none
   commitUrl : Option String := none
 deriving Inhabited, Repr
@@ -185,7 +183,6 @@ structure BuildMetadata where
   compiledAt : Option String
   /-- Project commit; `none` when omitted for reproducible output. -/
   commit : Option String
-  subject : Option String
   projectRepositoryUrl : Option String := none
   projectCommitUrl : Option String := none
   leanToolchain : String
@@ -339,12 +336,10 @@ private def readTrimmedFile? (path : System.FilePath) : IO (Option String) := do
 private def gitCommitMetadataAt? (dir : System.FilePath) : IO (Option GitCommitMetadata) := do
   let some commit ← Git.shortCommitAt? dir
     | return none
-  let subject ← Git.subjectAt? dir
   let repositoryUrl ← Git.repositoryUrlAt? dir
   let commitUrl := Git.commitUrl? repositoryUrl (← Git.fullCommitAt? dir)
   pure <| some {
     commit
-    subject := subject.getD unknownMetadataValue
     repositoryUrl
     commitUrl
   }
@@ -393,7 +388,7 @@ private def versionFromManifestPackage? (pkg : Json) : Option String :=
       let rev := shortRev rev
       match jsonStringField? pkg "inputRev" with
       | some inputRev =>
-          if inputRev == rev then
+          if Git.sameRevision inputRev rev then
             some rev
           else
             some s!"{inputRev}@{rev}"
@@ -509,13 +504,12 @@ def readBuildMetadata (reproducibility : ReproducibilityOptions := {}) : IO Buil
     else
       some <$> (Option.getD · unknownMetadataValue) <$>
         Process.runTrimmedCommand? "date" #["-u", "+%Y-%m-%dT%H:%M:%SZ"]
-  let (commit, subject, projectCommitUrl) ←
-    if omitGit then pure (none, none, none)
+  let (commit, projectCommitUrl) ←
+    if omitGit then pure (none, none)
     else do
       let commit ← Git.shortCommitAt? cwd
-      let subject ← Git.subjectAt? cwd
       let repositoryUrl ← Git.repositoryUrlAt? cwd
-      pure (some (commit.getD unknownMetadataValue), some (subject.getD unknownMetadataValue),
+      pure (some (commit.getD unknownMetadataValue),
         Git.commitUrl? repositoryUrl (← Git.fullCommitAt? cwd))
   let projectRepositoryUrl ← Git.repositoryUrlAt? cwd
   let leanToolchain ← readLeanToolchain
@@ -525,7 +519,6 @@ def readBuildMetadata (reproducibility : ReproducibilityOptions := {}) : IO Buil
   pure {
     compiledAt
     commit
-    subject
     projectRepositoryUrl
     projectCommitUrl
     leanToolchain
@@ -570,10 +563,6 @@ def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
             {{match metadata.commit with
               | some commit => buildMetadataCodeHtml commit metadata.projectCommitUrl
               | none => .empty}}
-            {{match metadata.subject with
-              | some subject =>
-                {{<span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text subject}}</span>}}
-              | none => .empty}}
           </span>}}
         else .empty}}
       <span class="bp_build_metadata_item">
@@ -588,7 +577,6 @@ def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
         {{<span class="bp_build_metadata_item">
             {{buildMetadataLabelHtml "Upstream" upstream.repositoryUrl}}
             {{buildMetadataCodeHtml upstream.commit upstream.commitUrl}}
-            <span class="bp_build_metadata_subject">{{VersoBlueprint.Html.text upstream.subject}}</span>
           </span>}}
         else .empty}}
       {{if let some mathlibVersion := metadata.mathlibVersion then
@@ -2918,8 +2906,18 @@ private def emitBlueprintHtml
   let finished ← Informal.StaticMath.finishSite (outDirForMode prepared.config.toConfig mode)
   if finished.clashes > 0 then
     Verso.reportError s!"Blueprint math: {finished.clashes} glyph outlines share an id"
+  -- zoom left to the reader; section numbers as `§9.1`
+  let _ ← Informal.PageText.finishSite (outDirForMode prepared.config.toConfig mode)
   for step in extraSteps do
     step prepared
+  -- every place the site's navigation links to exists
+  let dead ← Informal.LinkCheck.checkSite (outDirForMode prepared.config.toConfig mode)
+  for link in dead.extract 0 20 do
+    Verso.reportError s!"Blueprint navigation: {link.page} links to {link.href}, a place the \
+      site does not have"
+  if dead.size > 20 then
+    Verso.reportError s!"Blueprint navigation: {dead.size - 20} more links to places the site \
+      does not have"
   let removed ← Informal.OutputPrune.finish outDir started
   unless removed.isEmpty do
     logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
@@ -2953,6 +2951,8 @@ where
     let extensionImpls ← read
     let (reproducibility, options) := parseReproducibilityOptions reproducibility options
     let (statsPage?, options) := parseStatsPageFlag statsPage? options
+    -- a part's chapters follow its page, so that chapters are numbered across parts
+    let text := Informal.Parts.numberParts text
     -- The stats page is a page of the HTML site only; TeX and word counts keep the document.
     let htmlText := match statsPage? with
       | some data => Informal.Commands.withStatsPage text data
