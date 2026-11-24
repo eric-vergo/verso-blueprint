@@ -383,7 +383,7 @@ private def groupPreviewId (targetLabel sourceLabel : Data.Label) : String :=
 /-- Render a relation-row badge with semantic relation styling classes. -/
 private def relationBadge (className title text : String) : Output.Html :=
   open Verso.Output.Html in
-  {{<span class={{className}} title={{title}}>{{.text text}}</span>}}
+  html%{<span class={className} title={title}>{.text text}</span>}
 
 private def relationBadgeBaseClass : String :=
   "bp_relation_axis_badge"
@@ -497,12 +497,12 @@ private def mkLabelEntry
 
 private def loadingBody (detail : String) : Output.Html :=
   open Verso.Output.Html in
-  {{
-    <div class="bp_relation_preview_message" "data-bp-preview-message"="loading">
-      <div class="bp_relation_preview_message_title">"Loading preview"</div>
-      <div class="bp_relation_preview_message_detail">{{.text detail}}</div>
+  html%{
+    <div class="bp_relation_preview_message" data-bp-preview-message="loading">
+      <div class="bp_relation_preview_message_title">Loading preview</div>
+      <div class="bp_relation_preview_message_detail">{.text detail}</div>
     </div>
-  }}
+  }
 
 private def samePanelEntry (a b : PanelEntry) : Bool :=
   a.previewId == b.previewId && a.previewKey == b.previewKey
@@ -551,13 +551,13 @@ def renderPanel (cfg : PanelConfig) (entries : Array PanelEntry)
     (renderPreview : PreviewResources.Render := PreviewResources.immediate) : Output.Html :=
   open Verso.Output.Html in Id.run do
   let renderChip (chipClass : String) (chipTitle : String) (n : Nat) : Output.Html :=
-    {{<span class={{chipClass}} title={{chipTitle}}>{{.text (cfg.chipText n)}}</span>}}
+    html%{<span class={chipClass} title={chipTitle}>{.text (cfg.chipText n)}</span>}
   let renderInlinePreview (entry : PanelEntry) : Output.Html :=
     let chipNode : Output.Html :=
       if let some href := entry.href then
-        {{<a class={{s!"{cfg.chipClass} bp_code_link"}} href={{href}} title={{cfg.singleTitle entry}}>
-            {{.text (cfg.chipText 1)}}
-          </a>}}
+        html%{<a class={s!"{cfg.chipClass} bp_code_link"} href={href} title={cfg.singleTitle entry}>
+            {.text (cfg.chipText 1)}
+          </a>}
       else
         renderChip cfg.chipClass (cfg.singleTitle entry) 1
     let previewFooterHtml? :=
@@ -581,42 +581,43 @@ def renderPanel (cfg : PanelConfig) (entries : Array PanelEntry)
     let rowData := jsonArrayHtml (entries.map (panelEntryDataHtml renderPreview selectedEntry?))
     let rowList : Output.Html :=
       .element "ul" #[("class", "bp_relation_list")] <|
-        {{
+        html%{
           <script type="application/json" class="bp-relation-entries">
-            {{rowData}}
+            {rowData}
           </script>
-        }}
+        }
     let panel : Output.Html :=
       .element "div" (#[("class", cfg.panelClass)] ++ cfg.panelAttrs) <|
-        {{
+        html%{
           <div class="bp_relation_panel_header">
-            <div class="bp_relation_panel_title">{{.text (cfg.panelTitle entries.size)}}</div>
-            <div class={{cfg.panelMetaClass}}>{{.text cfg.panelMeta}}</div>
+            <div class="bp_relation_panel_title">{.text (cfg.panelTitle entries.size)}</div>
+            <div class={cfg.panelMetaClass}>{.text cfg.panelMeta}</div>
           </div>
           <div class="bp_relation_panel_body">
-            {{rowList}}
+            {rowList}
             <div class="bp_relation_preview_surface">
               <div class="bp_relation_preview_header">
-                <div class="bp_relation_preview_label">"Preview"</div>
+                <div class="bp_relation_preview_label">Preview</div>
                 <div class="bp_relation_preview_heading bp_preview_header_heading">
-                  <div class="bp_relation_preview_title">{{.text previewTitle}}</div>
+                  <div class="bp_relation_preview_title">{.text previewTitle}</div>
                   <a class="bp_relation_preview_header_label bp_preview_header_label" hidden></a>
                 </div>
               </div>
               <div class="bp_relation_preview_body">
-                {{previewBody}}
+                {previewBody}
               </div>
             </div>
           </div>
-        }}
+        }
     let panelShell : Output.Html :=
       .element "div" #[("class", cfg.wrapClass)] <|
-        {{
-          <button type="button" class={{cfg.chipClass}} title={{cfg.chipTitle entries.size}} "aria-expanded"="false">
-            {{.text (cfg.chipText entries.size)}}
+        html%{
+          <button type="button" class={cfg.chipClass} title={cfg.chipTitle entries.size}
+              aria-expanded="false">
+            {.text (cfg.chipText entries.size)}
           </button>
-          {{panel}}
-        }}
+          {panel}
+        }
     return panelShell
   if let #[entry] := entries then
     if cfg.singleMode == .inlinePreview then

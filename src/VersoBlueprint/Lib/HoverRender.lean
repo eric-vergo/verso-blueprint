@@ -79,18 +79,18 @@ def withInlinePreviewRenderContext {m α}
 
 private def previewPanel
     (rootClass headerClass titleClass closeClass bodyClass closeLabel : String)
-    (mode : PreviewMode) (placement : PreviewPlacement) : Verso.Output.Html := {{
-  <aside class={{rootClass}}
-      "data-bp-preview-mode"={{mode.dataValue}}
-      "data-bp-preview-placement"={{placement.dataValue}}
+    (mode : PreviewMode) (placement : PreviewPlacement) : Verso.Output.Html := html%{
+  <aside class={rootClass}
+      data-bp-preview-mode={mode.dataValue}
+      data-bp-preview-placement={placement.dataValue}
       hidden>
-    <div class={{headerClass}}>
-      <div class={{titleClass}}></div>
-      <button type="button" class={{closeClass}} aria-label={{closeLabel}}>"Close"</button>
+    <div class={headerClass}>
+      <div class={titleClass}></div>
+      <button type="button" class={closeClass} aria-label={closeLabel}>Close</button>
     </div>
-    <div class={{bodyClass}}></div>
+    <div class={bodyClass}></div>
   </aside>
-}}
+}
 
 private def mkPreviewPanel
     (rootClass headerClass titleClass closeClass bodyClass closeLabel : String)
@@ -163,17 +163,17 @@ def templatePreviewRoot
       attrs := attrs.push ("aria-label", ariaLabel)
     pure attrs
   let templateAttrs := #[("class", templateClass), (keyAttr, key)]
-  {{
-    <span {{rootAttrs}}>
-      <span {{triggerAttrs}}>
-        {{trigger}}
+  html%{
+    <span {...rootAttrs}>
+      <span {...triggerAttrs}>
+        {trigger}
       </span>
-      <template {{templateAttrs}}>
-        {{body}}
+      <template {...templateAttrs}>
+        {body}
       </template>
-      {{panel}}
+      {panel}
     </span>
-  }}
+  }
 
 def graphPreviewPanel
     (mode : PreviewMode := .pinned) (placement : PreviewPlacement := .docked) :
@@ -238,11 +238,11 @@ def summaryPreviewWrap
           attrs := attrs.push ("data-bp-preview-key", previewKey)
         pure attrs
       .element "span" attrs labelNode
-  | none => {{
+  | none => html%{
       <span class="bp_summary_preview_wrap">
-        {{labelNode}}
+        {labelNode}
       </span>
-    }}
+    }
 
 /--
 All attributes needed to bind one inline preview trigger to its runtime panel.

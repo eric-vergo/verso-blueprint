@@ -77,11 +77,11 @@ def BlockStatusMark.text (s : BlockStatusMark) : String :=
 
 def BlockStatusMark.toHtml (s : BlockStatusMark) : Output.Html :=
   open Verso.Output.Html in
-  {{ <span class="bp_status_mark" title={{s.title}}>{{.text s.text}}</span> }}
+  html%{<span class="bp_status_mark" title={s.title}>{.text s.text}</span>}
 
 def codeHoverListItem (body : Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{<li>{{body}}</li>}}
+  html%{<li>{body}</li>}
 
 def codeHoverTextItem (text : String) : Output.Html :=
   open Verso.Output.Html in
@@ -90,23 +90,23 @@ def codeHoverTextItem (text : String) : Output.Html :=
 
 def codeHoverEmptyItem (text : String) : Output.Html :=
   open Verso.Output.Html in
-  {{<li class="bp_code_hover_none">{{.text text}}</li>}}
+  html%{<li class="bp_code_hover_none">{.text text}</li>}
 
 def codeHoverCodeItem (text : String) : Output.Html :=
   open Verso.Output.Html in
-  let body : Output.Html := {{<code>{{.text text}}</code>}}
+  let body : Output.Html := html%{<code>{.text text}</code>}
   codeHoverListItem body
 
 def codeHoverSection (title : String) (items : Array Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_code_hover_section">
-      <span class="bp_code_hover_label">{{.text title}}</span>
+      <span class="bp_code_hover_label">{.text title}</span>
       <ul class="bp_code_hover_list">
-        {{.seq items}}
+        {.seq items}
       </ul>
     </div>
-  }}
+  }
 
 structure CodePanelHeader where
   caption : String
@@ -174,23 +174,27 @@ def mkCodePanel
   open Verso.Output.Html in
   let attrs :=
     if folded then attrs else attrs.push ("open", "open")
-  {{
+  html%{
     <div class="bp_wrapper bp_code_panel_wrapper">
-      <details class="bp_code_block bp_code_panel" {{attrs}}>
-        <summary class="bp_heading lemma_thmheading" title={{summaryTitle}}>
+      <details class="bp_code_block bp_code_panel" {...attrs}>
+        <summary class="bp_heading lemma_thmheading" title={summaryTitle}>
           <span class="bp_heading_title_row">
-            <span class="bp_caption lemma_thmcaption bp_code_summary_text">{{.text header.caption}}</span>
-            {{if let some number := header.number? then
-                {{<span class="bp_label lemma_thmlabel bp_code_summary_label">{{.text number}}</span>}}
+            <span class="bp_caption lemma_thmcaption bp_code_summary_text">
+              {.text header.caption}
+            </span>
+            {if let some number := header.number? then
+                html%{
+                  <span class="bp_label lemma_thmlabel bp_code_summary_label">{.text number}</span>
+                }
               else
-                .empty}}
+                .empty}
           </span>
-          {{progressBar}}
-          {{headingExtra}}
+          {progressBar}
+          {headingExtra}
         </summary>
-        {{body}}
+        {body}
       </details>
     </div>
-  }}
+  }
 
 end Informal
