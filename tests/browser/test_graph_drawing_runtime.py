@@ -752,17 +752,90 @@ TRACE_FACTS = """() => {
         heads: traced("g.heads > path").map((h) => h.getAttribute("data-node")),
         nodes: traced("g.node").map((n) => n.getAttribute("id")),
         pieces: svg.querySelectorAll("g.bp_graph_trace > path").length,
-        dimmedEdge: (() => {
-            const other = svg.querySelector("g.edges > path.edge:not([data-bp-traced])");
-            return other ? Number(getComputedStyle(other).opacity) : null;
+        traceStroke: (() => {
+            const edge = svg.querySelector("g.edges > path.edge[data-bp-traced]");
+            return edge ? getComputedStyle(edge).stroke : null;
         })(),
     };
 }"""
 
+# The trace colour as a computed stroke (call it before `LOOK` starts recording).
+TRACE_COLOUR = """() => {
+    const svg = document.querySelector(".bp_graph_canvas > svg");
+    const probe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    probe.style.stroke = "var(--bp-color-graph-trace)";
+    svg.appendChild(probe);
+    const colour = getComputedStyle(probe).stroke;
+    probe.remove();
+    return colour;
+}"""
+
+# The computed look of everything on the page that a pointer over the drawing could restyle: the
+# page, the graph block, its canvas and every element of the drawing. The first call records it
+# (and starts recording attribute changes); later calls list what differs from that record.
+LOOK = """() => {
+    const svg = document.querySelector(".bp_graph_canvas > svg");
+    const block = svg.closest(".bp_graph_fullwidth");
+    const props = ["opacity", "stroke", "stroke-width", "stroke-opacity", "fill", "fill-opacity",
+                   "filter", "background-color", "background-image", "visibility", "color",
+                   "outline-style", "box-shadow", "transition-duration", "animation-name"];
+    const look = (el) => {
+        const s = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return props.map((p) => s.getPropertyValue(p)).join("|") + "|" +
+            [r.left, r.top, r.width, r.height].map((v) => v.toFixed(1)).join(",");
+    };
+    const name = (el) => el === document.documentElement ? "html" : el === document.body ? "body" :
+        el.localName + "." + (el.getAttribute("class") || "") + "#" + (el.getAttribute("id") || "") +
+        "@" + (el.getAttribute("data-edge") || el.getAttribute("data-bp-hit-edge") || el.getAttribute("data-node") || "");
+    if (!window.__bpLook) {
+        const elements = [document.documentElement, document.body, block, block.querySelector(".bp_graph_canvas"),
+            svg, ...Array.from(svg.querySelectorAll("*")).filter((e) => !e.closest("g.bp_graph_trace"))];
+        window.__bpLook = { elements, looks: elements.map(look), mutations: [] };
+        new MutationObserver((records) => {
+            records.forEach((m) => {
+                const t = m.target;
+                const route = m.type === "attributes" && m.attributeName === "data-bp-traced" &&
+                    t.matches("g.edges > path.edge, g.heads > path");
+                const marker = m.type === "attributes" && m.attributeName === "data-bp-tracing" && t === svg;
+                const pieces = t instanceof Element && !!t.closest("g.bp_graph_trace");
+                if (!route && !marker && !pieces) window.__bpLook.mutations.push(m.type + ":" + (m.attributeName || "") + ":" + name(t));
+            });
+        }).observe(document.documentElement, { attributes: true, childList: true, subtree: true });
+        return null;
+    }
+    const base = window.__bpLook;
+    const changed = [];
+    const stray = [];
+    base.elements.forEach((el, i) => {
+        if (look(el) === base.looks[i]) return;
+        changed.push(name(el));
+        // a focused node shows its focus ring
+        const focused = document.activeElement && document.activeElement.matches("g.node") &&
+            document.activeElement.contains(el);
+        if (!el.hasAttribute("data-bp-traced") && !focused) stray.push(name(el));
+    });
+    return { changed, stray, mutations: base.mutations.slice() };
+}"""
+
+
+def point_on_edge(page: Page, index: str) -> dict:
+    """The point half way along an edge, through its transparent hit copy, on screen."""
+    return page.evaluate(
+        """(i) => {
+            const hit = document.querySelector('.bp_graph_canvas > svg [data-bp-hit-edge="' + i + '"]');
+            const p = hit.getPointAtLength(hit.getTotalLength() / 2);
+            const m = hit.getScreenCTM();
+            return { x: p.x * m.a + p.y * m.c + m.e, y: p.x * m.b + p.y * m.d + m.f };
+        }""",
+        index,
+    )
+
 
 class TestBundledRoutes:
-    """Bundled lanes: one arrowhead per entry port, shared stems, and the page highlighting an
-    edge's whole route (its own path, its parts of shared stems, the arrowhead it reaches)."""
+    """Bundled lanes: one arrowhead per entry port, shared stems, and the page colouring an
+    edge's whole route (its own path, its parts of shared stems, the arrowhead it reaches) while
+    nothing else on the page changes."""
 
     def test_one_arrowhead_per_entry_port(self, page: Page, mid_site_url: str):
         goto_graph(page, mid_site_url + "/Dependency-Graph/")
@@ -773,7 +846,11 @@ class TestBundledRoutes:
         assert facts["portHeads"] == facts["heads"] and facts["named"], facts
         assert facts["stems"] > 0 and facts["shared"] > 0, facts
 
-    def test_hovering_an_edge_highlights_its_whole_route(self, page: Page, mid_site_url: str):
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_hovering_an_edge_colours_its_route_and_nothing_else(
+        self, page: Page, mid_site_url: str, scheme: str
+    ):
+        page.emulate_media(color_scheme=scheme)
         goto_graph(page, mid_site_url + "/Dependency-Graph/")
         index = page.evaluate(
             """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.edges > path.edge"))
@@ -781,34 +858,70 @@ class TestBundledRoutes:
         )
         edge = page.locator(f'.bp_graph_canvas > svg g.edges > path.edge[data-edge="{index}"]')
         source, target = edge.get_attribute("data-from"), edge.get_attribute("data-to")
-        # the point half way along the edge's own path, through its transparent hit copy
-        point = page.evaluate(
-            """(i) => {
-                const hit = document.querySelector('.bp_graph_canvas > svg [data-bp-hit-edge="' + i + '"]');
-                const p = hit.getPointAtLength(hit.getTotalLength() / 2);
-                const m = hit.getScreenCTM();
-                return { x: p.x * m.a + p.y * m.c + m.e, y: p.x * m.b + p.y * m.d + m.f };
-            }""",
-            index,
-        )
+        point = point_on_edge(page, index)
+        page.mouse.move(2, 2)
+        colour = page.evaluate(TRACE_COLOUR)
+        assert page.evaluate(LOOK) is None
         page.mouse.move(point["x"], point["y"])
         page.wait_for_function("() => document.querySelector('.bp_graph_canvas > svg').hasAttribute('data-bp-tracing')")
         facts = page.evaluate(TRACE_FACTS)
         assert facts["edges"] == [[source, target]], facts
         assert facts["heads"] == [target] and facts["pieces"] == 1, facts
-        assert sorted(facts["nodes"]) == sorted([source, target]), facts
-        assert facts["dimmedEdge"] is not None and facts["dimmedEdge"] < 0.5, facts
+        assert facts["traceStroke"] == colour, facts
+        # the nodes, the other edges, the clusters, the canvas and the page look as before
+        assert facts["nodes"] == [], facts
+        look = page.evaluate(LOOK)
+        assert look["stray"] == [] and look["mutations"] == [], look
+        assert look["changed"], look
         page.mouse.move(2, 2)
         assert page.evaluate(TRACE_FACTS)["tracing"] is None
+        look = page.evaluate(LOOK)
+        assert look["changed"] == [] and look["mutations"] == [], look
 
-    def test_focusing_a_node_highlights_its_routes(self, page: Page, mid_site_url: str):
+    def test_sweeping_across_many_edges_restyles_only_routes(self, page: Page, mid_site_url: str):
+        goto_graph(page, mid_site_url + "/Dependency-Graph/")
+        box = page.locator(".bp_graph_canvas > svg").bounding_box()
+        page.mouse.move(2, 2)
+        assert page.evaluate(LOOK) is None
+        page.evaluate(
+            """() => {
+                const svg = document.querySelector(".bp_graph_canvas > svg");
+                window.__bpTraceChanges = 0;
+                new MutationObserver((records) => {
+                    window.__bpTraceChanges += records.filter((m) => m.attributeName === "data-bp-tracing").length;
+                }).observe(svg, { attributes: true });
+            }"""
+        )
+        seen_traced = 0
+        rows = 6
+        for row in range(rows):
+            y = box["y"] + box["height"] * (row + 0.5) / rows
+            page.mouse.move(box["x"] + 4, y)
+            for step in range(1, 13):
+                page.mouse.move(box["x"] + 4 + (box["width"] - 8) * step / 12, y, steps=4)
+                look = page.evaluate(LOOK)
+                assert look["stray"] == [] and look["mutations"] == [], (row, step, look)
+                seen_traced += 1 if look["changed"] else 0
+        assert seen_traced > 0
+        assert page.evaluate("() => window.__bpTraceChanges") > 2
+        page.mouse.move(2, 2)
+        look = page.evaluate(LOOK)
+        assert look["changed"] == [] and look["mutations"] == [], look
+
+    def test_focusing_a_node_colours_its_routes_and_nothing_else(self, page: Page, mid_site_url: str):
         goto_graph(page, mid_site_url + "/Dependency-Graph/")
         node = page.locator(".bp_graph_canvas > svg g.node[tabindex]").nth(3)
         node_id = node.get_attribute("id")
+        page.mouse.move(2, 2)
+        colour = page.evaluate(TRACE_COLOUR)
+        assert page.evaluate(LOOK) is None
         node.focus()
         facts = page.evaluate(TRACE_FACTS)
         assert facts["tracing"] == "1", facts
         assert facts["edges"] and all(node_id in pair for pair in facts["edges"]), facts
+        assert facts["traceStroke"] == colour and facts["nodes"] == [], facts
+        look = page.evaluate(LOOK)
+        assert look["stray"] == [] and look["changed"], look
         page.keyboard.press("Escape")
         assert page.evaluate(TRACE_FACTS)["tracing"] is None
 
