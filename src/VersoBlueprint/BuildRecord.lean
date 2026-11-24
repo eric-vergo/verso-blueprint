@@ -272,14 +272,46 @@ structure ModuleFinder where
   compiled from: nothing when it is, else the change (`sourceChangeOf`). -/
   check : Name → String → Option String → IO (Option SourceChange)
 
+/-- The source file, relative to `root`, that Lake's build record of `module` names, when its
+compiled module is in one of the project's own library directories (those of `dirs` inside
+`root` and outside `.lake/packages`, and `.lake/build/lib/lean`): the file Lake compiled,
+wherever the project's libraries keep their sources. -/
+def tracedSource? (root : System.FilePath) (dirs : System.SearchPath) (module : Name) :
+    IO (Option String) := do
+  let realRoot := (← try IO.FS.realPath root catch _ => pure root).toString
+  let prefixes := #[root.toString, realRoot].map fun r => if r.endsWith "/" then r else r ++ "/"
+  let rel := "/".intercalate (module.components.map (·.toString (escape := false))) ++ ".lean"
+  for dir in (root / ".lake" / "build" / "lib" / "lean") :: dirs do
+    let real := (← try IO.FS.realPath dir catch _ => pure dir).toString ++ "/"
+    unless prefixes.any (real.startsWith ·) && (real.splitOn "/.lake/packages/").length == 1 do
+      continue
+    let trace := modToFilePath dir module "trace"
+    let some json ← (try some <$> IO.ofExcept (Json.parse (← IO.FS.readFile trace))
+        catch _ => pure none) | continue
+    for (path, _) in tracePairs (json.getObjValD "inputs") do
+      unless path == rel || path.endsWith ("/" ++ rel) do continue
+      if !path.startsWith "/" then return some path
+      for p in prefixes do
+        if path.startsWith p then return some (path.drop p.length).toString
+      -- a project copied after its build: the record names the file where it was built, so the
+      -- longest end of that path that is a file under `root` is the one
+      let parts := (path.splitOn "/").filter (!·.isEmpty)
+      let least := (rel.splitOn "/").length
+      for k in (List.range (parts.length - least + 1)).reverse do
+        let file := "/".intercalate (parts.drop (parts.length - (k + least)))
+        if ← (root / file).pathExists then return some file
+  return none
+
 /-- The finder of the project at `root` that checks each module against Lake's build record of it
-(`sourceChangeOf`): its source in the first of `sourceDirs` (relative to `root`) that has it, its
-compiled module on `path` (`findBuiltModule?`). `texts` gives a file's text as the caller read it,
-when it did, so that what is checked is what is shown; other files are read from the disk. -/
+(`sourceChangeOf`): its source is the file Lake's build record of it names, when the project
+built it (`tracedSource?`), else the first of `sourceDirs` (relative to `root`) that has it; its
+compiled module is on `path` (`findBuiltModule?`). `texts` gives a file's text as the caller read
+it, when it did, so that what is checked is what is shown; other files are read from the disk. -/
 def ModuleFinder.ofLayout (root : System.FilePath) (sourceDirs : Array String)
     (path : System.SearchPath) (texts : String → Option String := fun _ => none) :
     ModuleFinder where
   source? module := do
+    if let some file ← tracedSource? root path module then return some file
     let rel := "/".intercalate (module.components.map (·.toString (escape := false))) ++ ".lean"
     for dir in sourceDirs do
       let file := if dir == "." then rel else dir ++ "/" ++ rel

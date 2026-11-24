@@ -230,6 +230,10 @@ def test_written_blueprint_on_an_edited_import(page: Page, written_sites: dict[s
             assert ("imports VersoBlueprintTests.Blueprint.Support in "
                     f"{SUPPORT.as_posix()}, which changed since the build") in node["label"], node
         assert not any("bp_replay_accepted" in n["classes"] for n in nodes)
+        # a node whose Lean is a code block of the Blueprint itself too
+        assert not any("bp_graph_status_formalized" in n["classes"] for n in nodes), nodes
+        inline = next(n for n in nodes if "auto.demo.inline_target" in n["label"])
+        assert "source_changed" in inline["classes"], inline
         page.goto(f"{url}/Project-Stats/")
         band = page.locator(".bp_stats_replay_source_changed").inner_text()
         assert "the source of VersoBlueprintTests.Blueprint.Support" in band, band

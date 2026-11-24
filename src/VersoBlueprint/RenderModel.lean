@@ -99,12 +99,22 @@ def RenderModel.withSourceChanges (model : RenderModel) (changes : Array Stats.S
     match ref.provenance.moduleName? >>= fun m => changes.find? (·.module == m) with
     | some change => if ref.present then ref.withSourceChange change.text change.changed else ref
     | none => ref
+  -- a declaration of a code block of the Blueprint itself, in the module it was elaborated in
+  let markCode (d : CodeDeclData) : CodeDeclData :=
+    match d.module >>= fun m => changes.find? (·.module == m) with
+    | some change => { d with sourceChange? := some change.text
+                              provedStatus := .ofSourceChange d.name change.changed }
+    | none => d
+  let markCodes (c : LiterateDeclarations) : LiterateDeclarations :=
+    { definedDefs := c.definedDefs.map markCode, definedTheorems := c.definedTheorems.map markCode }
   let mut changed : NameSet := {}
   let mut nodes := #[]
   for node in model.nodes do
     let node' := { node with externalRefs := node.externalRefs.map mark
-                             proofExternalRefs := node.proofExternalRefs.map mark }
-    if (node'.externalRefs ++ node'.proofExternalRefs).any (·.sourceChange?.isSome) then
+                             proofExternalRefs := node.proofExternalRefs.map mark
+                             literateDeclarations := markCodes node.literateDeclarations }
+    if (node'.externalRefs ++ node'.proofExternalRefs).any (·.sourceChange?.isSome) ||
+        node'.literateDeclarations.declarations.any (·.sourceChange?.isSome) then
       changed := changed.insert node.label
     nodes := nodes.push node'
   let graph := model.graph.withSourceChanged changed

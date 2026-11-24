@@ -762,6 +762,29 @@ def finderAt (root : System.FilePath) : IO Stats.ModuleFinder := do
     some (.solutionProvenanceUnknown, "Demo.Mid in Demo/Mid.lean: Lake's build record Mid.trace \
       of the compiled module Demo.Mid is missing or cannot be read")
 
+-- A project module in a source directory that no module of the data is in (a library with its own
+-- `srcDir`) is found by the file Lake's build record of it names, also in a copy of the project
+-- made after the build, whose records name the files where it was built.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.createDirAll (root / "xsrc" / "Xlib")
+  IO.FS.writeFile (root / "xsrc" / "Xlib" / "Lemma.lean") "theorem Xlib.t : True := trivial\n"
+  recordBuild root `Xlib.Lemma "xsrc/Xlib/Lemma.lean"
+  IO.FS.writeFile (root / "Demo" / "Mid.lean") "import Demo.Basic\nimport Xlib.Lemma\n"
+  recordBuild root `Demo.Mid "Demo/Mid.lean"
+  let asBuilt ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  IO.FS.writeFile (root / "xsrc" / "Xlib" / "Lemma.lean") "theorem Xlib.t : True := sorry\n"
+  let edited ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  -- the same record as written where the project was built before it was copied here
+  let trace := root / ".lake" / "build" / "lib" / "lean" / "Xlib" / "Lemma.trace"
+  IO.FS.writeFile trace ((← IO.FS.readFile trace).replace root.toString "/elsewhere/project")
+  let copied ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  let names (cs : Array Stats.SourceChange) := cs.map (·.module)
+  return asBuilt.isEmpty && names edited == #[`Demo.Hard, `Demo.Mid, `Xlib.Lemma] &&
+    names copied == names edited &&
+    (edited.find? (·.module == `Xlib.Lemma)).map (·.file) == some "xsrc/Xlib/Lemma.lean"
+
 /-- A headline of the challenge `P` whose theorem `P.t` met the comparison's conditions, with
 `challenge` and `solution` as its modules. -/
 def comparedHeadline (challenge solution : Name) : Stats.Headline :=
