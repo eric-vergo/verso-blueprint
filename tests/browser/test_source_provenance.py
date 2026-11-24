@@ -10,6 +10,12 @@ be the text that was compiled (manual, "Source text and the build").
 
 In both, every place that shows the edited module's declarations must say "changed since the
 build", with no check mark, no "no sorry", no success colour; the other declarations keep theirs.
+
+* A module the proof uses: the same fixture with the solution importing `Demo.Basic`, built, then
+  `Demo.Basic`'s lemma turned into `sorry` before the site is generated (an edit between the
+  build and the generation). The challenge's headline is not compared on every page that shows
+  it, the solution's nodes, whose own source is unchanged, get the neutral mark naming the module
+  that changed, and no count, legend or fill says complete.
 """
 
 import json
@@ -29,6 +35,11 @@ from support import PACKAGE_ROOT, lake_hash
 FIXTURE = Path(__file__).parent / "comparator_site_fixture"
 SOLUTION = Path("Comparator") / "Double" / "Solution.lean"
 PREVIEW = Path("tests") / "VersoBlueprintTests" / "BlueprintAutoDeps" / "Preview.lean"
+SUPPORT = Path("tests") / "VersoBlueprintTests" / "Blueprint" / "Support.lean"
+BASIC = Path("Demo") / "Basic.lean"
+IMPORTS = "imports Demo.Basic in Demo/Basic.lean, which changed since the build"
+NOT_COMPARED = ("Not compared: a module the proof uses changed since the build "
+                "(Demo.Basic in Demo/Basic.lean); build it again after an edit.")
 EDIT = "\n-- edited after the build\n"
 
 
@@ -84,15 +95,22 @@ def code_sites() -> dict[str, Path]:
 
 @pytest.fixture(scope="session")
 def written_sites(tmp_path_factory) -> dict[str, Path]:
-    """The test Blueprint `lean-auto-deps` generated from a folder with a copy of the module its
-    nodes refer to, as built and edited."""
+    """The test Blueprint `lean-auto-deps` generated from a folder with a copy of the sources of
+    the module its nodes refer to and of the project modules it imports, as built, with that
+    module edited, and with a module it imports edited."""
     exe = docs_executable()
     sites = {}
-    for state in ("built", "edited"):
+    for state in ("built", "edited", "imported"):
         root = tmp_path_factory.mktemp(f"written-{state}")
-        (root / PREVIEW).parent.mkdir(parents=True)
-        text = (PACKAGE_ROOT / PREVIEW).read_text(encoding="utf-8")
-        (root / PREVIEW).write_text(text + (EDIT if state == "edited" else ""), encoding="utf-8")
+        for tree in ("src", Path("tests") / "VersoBlueprintTests"):
+            shutil.copytree(PACKAGE_ROOT / tree, root / tree,
+                            ignore=shutil.ignore_patterns("*.olean", ".lake"))
+        if state == "edited":
+            (root / PREVIEW).write_text(
+                (root / PREVIEW).read_text(encoding="utf-8") + EDIT, encoding="utf-8")
+        if state == "imported":
+            (root / SUPPORT).write_text(
+                (root / SUPPORT).read_text(encoding="utf-8") + EDIT, encoding="utf-8")
         shutil.copy(PACKAGE_ROOT / "lean-toolchain", root / "lean-toolchain")
         out = root / "_out"
         result = subprocess.run([str(exe), "lean-auto-deps", "--output", str(out)], cwd=root,
@@ -201,7 +219,129 @@ def test_written_blueprint_edited_after_the_build(page: Page, written_sites: dic
         assert all(b == "source changed since the build" for b in badges), badges
 
 
+def test_written_blueprint_on_an_edited_import(page: Page, written_sites: dict[str, Path]):
+    # the nodes' own module is as built; a project module it imports is not: no node keeps a
+    # positive mark, and each names the module that changed
+    with serve_site(written_sites["imported"]) as url:
+        nodes = graph_nodes(page, url)
+        changed = [n for n in nodes if "source_changed" in n["classes"]]
+        assert changed, nodes
+        for node in changed:
+            assert ("imports VersoBlueprintTests.Blueprint.Support in "
+                    f"{SUPPORT.as_posix()}, which changed since the build") in node["label"], node
+        assert not any("bp_replay_accepted" in n["classes"] for n in nodes)
+        page.goto(f"{url}/Project-Stats/")
+        band = page.locator(".bp_stats_replay_source_changed").inner_text()
+        assert "the source of VersoBlueprintTests.Blueprint.Support" in band, band
+
+
 def test_written_blueprint_as_built_keeps_its_marks(page: Page, written_sites: dict[str, Path]):
     with serve_site(written_sites["built"]) as url:
         nodes = graph_nodes(page, url)
         assert not any("source_changed" in n["classes"] for n in nodes), nodes
+
+
+@pytest.fixture(scope="session")
+def import_sites() -> dict[str, Path]:
+    """The comparator fixture with the solution importing `Demo.Basic`, built by Lake, its site as
+    built, and after `Demo.Basic`'s lemma was turned into `sorry` without a build."""
+    if shutil.which("lake") is None:
+        pytest.skip("no `lake` to compile the fixture project")
+    base = canonical_test_blueprint_output_dir("source_imports", Path(__file__))
+    base.parent.mkdir(parents=True, exist_ok=True)
+    root = base / "project"
+    if root.exists():
+        shutil.rmtree(root)
+    shutil.copytree(FIXTURE, root)
+    shutil.rmtree(root / "forged")
+    shutil.copy(PACKAGE_ROOT / "lean-toolchain", root / "lean-toolchain")
+    # the import takes the place of the first line, so the data's source ranges still hold
+    lines = (root / SOLUTION).read_text(encoding="utf-8").split("\n")
+    (root / SOLUTION).write_text("\n".join(["import Demo.Basic"] + lines[1:]), encoding="utf-8")
+    subprocess.run(["lake", "build"], cwd=root, check=True)
+    sites = {}
+    for state in ("built", "edited"):
+        if state == "edited":
+            text = (root / BASIC).read_text(encoding="utf-8")
+            (root / BASIC).write_text(
+                text.replace("unfold double; omega", "sorry -- edited after the build", 1),
+                encoding="utf-8")
+        out = base / f"site-{state}"
+        if out.exists():
+            shutil.rmtree(out)
+        result = subprocess.run(
+            ["lake", "env", str(vbp_executable()), "code-site", "--data",
+             str(root / "code-site.json"), "--root", str(root), "--output", str(out),
+             "--reproducible"],
+            cwd=root, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        sites[state] = out / "html-multi"
+    return sites
+
+
+
+def double_verdicts(page: Page, scope: str) -> list[tuple[str, str]]:
+    """The verdict token and words of each judged theorem of the challenge `Double` in `scope`."""
+    return page.evaluate(
+        """(scope) => Array.from(document.querySelectorAll(
+              scope + ' [data-bp-challenge="Double"] [data-bp-theorem], '
+              + scope + '[data-bp-challenge="Double"] [data-bp-theorem]'))
+            .map((e) => [e.getAttribute("data-bp-verdict") || "",
+                         e.textContent || ""])""",
+        scope)
+
+
+def test_proof_on_an_edited_module_is_not_proved(page: Page, import_sites: dict[str, Path]):
+    with serve_site(import_sites["edited"]) as url:
+        # the headline, on the stats page, the challenge index and the challenge's own page
+        for path, scope in (("/Project-Stats/", ".bp_project_stats"),
+                            ("/Comparator/", ".bp_comparator_index"),
+                            ("/Comparator/Double/", "main")):
+            page.goto(f"{url}{path}")
+            text = page.locator("main").inner_text()
+            assert NOT_COMPARED in text, path
+            found = double_verdicts(page, scope)
+            # the index lists the reason alone; the other two pages the theorem as not compared
+            assert found or path == "/Comparator/", path
+            for token, words in found:
+                assert token not in ("proved", "not-replayed"), (path, token)
+                assert "proved" not in words.lower() and "✓" not in words, (path, words)
+            assert page.locator('[data-bp-challenge="Double"] .bp_stats_verdict_proved').count() == 0
+        # the solution's node: its own source is as built, the module it imports is not
+        nodes = {n["name"]: n for n in graph_nodes(page, url)}
+        solution = nodes["Cmp.double_even"]
+        assert "bp_graph_status_source_changed" in solution["classes"], solution
+        assert "bp_replay_accepted" not in solution["classes"]
+        assert IMPORTS in solution["label"], solution
+        assert not any("bp_replay_accepted" in n["classes"] for n in nodes.values())
+        tooltip = page.eval_on_selector(
+            'g.node[data-bp-node-name="Cmp.double_even"] desc', "e => e.textContent")
+        assert IMPORTS in tooltip and "complete:" not in tooltip, tooltip
+        legend = page.locator(".bp_graph_legend").first.inner_text()
+        assert "a project module it imports" in legend, legend
+        # the chapter of the solution: no check mark, the Lean-code entry names the module
+        page.goto(f"{url}/Comparator___Double___Solution/")
+        assert "✓" not in page.locator(".bp_status_glyph").all_inner_texts()
+        labels = page.eval_on_selector_all(
+            ".bp_code_summary_preview_wrap:has(> .bp_code_link_status), a.bp_code_link_status",
+            "els => els.map(e => e.getAttribute('aria-label') || '')")
+        assert labels and all(IMPORTS in label for label in labels), labels
+        # the counts: nothing counted as complete, every node in the neutral bucket
+        page.goto(f"{url}/Project-Stats/")
+        statuses = page.eval_on_selector_all(
+            ".bp_stats_bar [data-bp-status]", "els => els.map(e => e.dataset.bpStatus)")
+        assert statuses and set(statuses) == {"source-changed"}, statuses
+        band = page.locator(".bp_stats_replay_source_changed").inner_text()
+        assert "Comparator.Double.Solution" in band and IMPORTS in band, band
+
+
+def test_proof_on_the_modules_as_built_is_proved(page: Page, import_sites: dict[str, Path]):
+    with serve_site(import_sites["built"]) as url:
+        page.goto(f"{url}/Project-Stats/")
+        found = double_verdicts(page, ".bp_project_stats")
+        assert [token for token, _ in found] == ["proved"], found
+        assert page.locator(".bp_stats_replay_source_changed").count() == 0
+        nodes = {n["name"]: n for n in graph_nodes(page, url)}
+        assert "bp_replay_accepted" in nodes["Cmp.double_even"]["classes"]
+        assert not any("source_changed" in n["classes"] for n in nodes.values())
+

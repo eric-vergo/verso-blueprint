@@ -46,11 +46,12 @@ def problem : StatusGlyphKind :=
     used beyond Lean's standard three, which a kernel replay does not check), or code that \
     could not be inspected"⟩
 def missing : StatusGlyphKind := ⟨"✗", "missing", "Lean declaration missing"⟩
-/-- The source of the node's Lean code is not known to be the text that was compiled: it changed
-since the build, or no build record says which text it was. Nothing is shown as checked. -/
+/-- The source of the node's Lean code, or of a project module its module imports, is not known
+to be the text that was compiled: it changed since the build, or no build record says which text
+it was. Nothing is shown as checked. -/
 def sourceChanged : StatusGlyphKind :=
-  ⟨"◌", "changed", "Lean source changed since the build, or not known to match it: nothing \
-    about it is shown as checked"⟩
+  ⟨"◌", "changed", "Lean source changed since the build, in its module or a project module it \
+    imports, or not known to match it: nothing about it is shown as checked"⟩
 def noLean : StatusGlyphKind := ⟨"○", "none", "No Lean declaration"⟩
 
 /-- Every status glyph, in legend order. -/
@@ -83,11 +84,13 @@ def notCheckedText (noun : String) (axioms : Array Lean.Name) (source : String) 
     rests on {extraAxiomsText axioms}, and a replay checks only what rests on Lean's standard \
     three axioms alone, so it is not shown as proved{source}"
 
-/-- The text for Lean code whose module's source is not known to be the text that was compiled,
-for the reason `change` ("the source of Demo.A (Demo/A.lean) changed since the build"). -/
+/-- The text for Lean code whose module's source, or a project module it imports, is not known to
+be the text that was compiled, for the reason `change` ("the source of Demo.A (Demo/A.lean)
+changed since the build", `Informal.Stats.SourceChange.text`). -/
 def sourceChangedText (noun change : String) : String :=
   s!"{noun}: {change}, so nothing is shown as checked: what the compiled files report and what \
-    a kernel replay found are about the compiled module, not the text shown"
+    a kernel replay found are about the compiled modules as they were built, not the sources as \
+    they read now"
 
 /-- The status glyph of a node and its text (the glyph's meaning for this node, then the
 detailed status where it adds something). A node whose Lean code has no `sorry` but depends on

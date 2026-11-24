@@ -2345,11 +2345,13 @@ signature), and:
 The other declarations the challenge introduces (its definitions) are listed
 with the same comparison. When no comparison can be made, `unavailable` says
 why and the theorems are listed without a verdict: the challenge has no
-compiled module or one that does not match its source, the module cannot be
-read, the solution's source differs from the one its compiled module was
-compiled from (`solutionOutOfDate`) or that is not known
-(`solutionProvenanceUnknown`), or the site's environment lacks the solution
-module or a module the challenge imports. A configuration that does not follow
+compiled module or one that does not match its source (also when a project
+module it imports changed since the build), the module cannot be read, a module
+the proof uses changed since the build (`solutionOutOfDate`: the solution
+module, or a project module it imports, directly or not) or is not known to
+match it (`solutionProvenanceUnknown`), with the module and its file in
+`unavailableDetail`, or the site's environment lacks the solution module or a
+module the challenge imports. A configuration that does not follow
 the layout stops the build, so `configInvalid` is not reported.
 
 The statements the headline shows are cut from the challenge's source, while
@@ -2979,7 +2981,8 @@ complete.
 - **What is shown**: such a declaration's mark is ◌, with the words "Lean
   proof: the source of M (F) changed since the build, so nothing is shown as
   checked: what the compiled files report and what a kernel replay found are
-  about the compiled module, not the text shown" (or "… is not known to match
+  about the compiled modules as they were built, not the sources as they read
+  now" (or "… is not known to match
   the build: WHY, …" when no build record says which text it was, with the
   reason: the record is missing, describes other compiled files, does not name
   the file, or the compiled module was not found). The same words are the
@@ -2993,14 +2996,43 @@ complete.
   back to the signature), and the status badge its declarations were rendered
   with is replaced.
 - **Counts**: such a node is in a bucket of its own on the Project Stats page
-  ("Lean source changed since the build or not known to match it, not shown as
-  checked") and in the statistics' `progress.sourceChanged`, never among the
+  ("Lean source changed since the build, in its module or a project module it
+  imports, or not known to match it, not shown as checked") and in the statistics' `progress.sourceChanged`, never among the
   complete ones; an accepted replay then does not make the counts green, and
   the sentences about the site add "the Lean source of C nodes changed since
   the build or is not known to match it". The replay band on the Project Stats
   page names the modules, each with why, and lists the nodes. The statistics
   carry the modules (`sourceChanged`) and, for a Blueprint, what was recorded
   when its data was captured (`builtSources`).
+- **Modules a module imports**: a compiled module is built against the
+  compiled modules it imports, so a module whose own source is the text that
+  was compiled is still not known to match the build when a project module it
+  imports, directly or not, changed since the build or is not known to match
+  it (a lemma of the library turned into `sorry`, say); Lake would rebuild it.
+  Its declarations get the same ◌ mark, with the module that changed named:
+  "Lean proof: M (F) imports M2 in F2, which changed since the build, so
+  nothing is shown as checked: …" (and, with several, how many others). The
+  imports are read from the module's source as Lake reads them, and only from
+  a source known to be the text that was compiled, so they are the compiled
+  module's; a module that changed is not followed further. Only the project's
+  own modules are followed: a module of a package the project depends on, or of
+  Lean, is not checked (no page shows its source, and its build is the
+  package's, at the revision the project's manifest pins). A Blueprint records
+  the text of each project module its nodes' modules import, directly or not,
+  as it does for the nodes' modules.
+- **The headline**: a Comparator challenge's verdict is about the compiled
+  challenge and solution and everything they rest on. So the challenge module
+  and the project modules it imports, and the solution module and the project
+  modules it imports, directly or not, must each be the text that was
+  compiled; otherwise the challenge is not compared, on every page that shows
+  it, with the module named: "Not compared: a module the proof uses changed
+  since the build (M in F); build it again after an edit.", "Not compared: a
+  module the proof uses is not known to match the build (M in F: WHY).", or,
+  for a module the challenge imports, "Not compared: the compiled challenge
+  module does not match its source (it imports M in F, which changed since the
+  build); …". The check is made when the headline is computed (in the replay's
+  worker, against the modules it loads) and once more just before the pages are
+  written, so an edit while the site is generated takes the verdict back too.
 - **Cost**: one read of each such module's build record, and Lake's hash of
   its source and of its compiled files (`.olean`, `.olean.server`,
   `.olean.private`). Lake hashes them the same way when it builds.
@@ -3043,8 +3075,9 @@ A node's mark and its tooltip:
 | nothing replayed | no `sorry` | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (WHY) |
 | nothing replayed | no `sorry`, an axiom the compiled files report, or `native_decide` | ⚠ | Lean proof without sorry, as the compiled files report, resting on X; not replayed by a kernel (WHY) |
 | any | a `sorry` in the proof or in what it uses | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (the status) |
-| any | its module's source changed since the build | ◌ | Lean proof: the source of M (F) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown |
+| any | its module's source changed since the build | ◌ | Lean proof: the source of M (F) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled modules as they were built, not the sources as they read now |
 | any | its module's source is not known to match the build | ◌ | Lean proof: the source of M (F) is not known to match the build: WHY, so nothing is shown as checked: … (as above) |
+| any | a project module its module imports changed since the build | ◌ | Lean proof: M (F) imports M2 in F2, which changed since the build, so nothing is shown as checked: … (as above) |
 
 The reasons `WHY` of the new states read: a decline, "C1 declined to check the
 export: the checker's words"; no answer, "the replay could not run to a
@@ -3066,10 +3099,18 @@ line that a challenge would add a headline.
 | accepted, covers the theorem | Lean statement proved | Kernel replay: C each checked this theorem and every constant it depends on, in this project, in its dependencies and in Lean's own library, starting from its own built-in prelude, and both accepted it. (Recorded: "… (in an earlier run, for an export identical to this build's)."; a reproducible build: "… (in this run, or in an earlier one for an export identical to this build's).") |
 | accepted, the theorem rests on an axiom outside the standard three | Same Lean statement as the challenge; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (X), and a replay checks only what rests on the standard three alone, so it is not shown as proved | Kernel replay: not checked: it rests on an axiom outside Lean's standard three (X), and a replay checks only what rests on the standard three alone. |
 | accepted, does not cover it | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: not part of the replay: WHY. |
-| rejected | Not accepted: a kernel checker rejected this build | Kernel replay: C1 rejected this build: the checker's words |
-| the checkers disagree | Not accepted: the two kernel checkers disagree on this build | Kernel replay: the two checkers disagree on this build: C1 accepted it and C2 rejected it: the rejecting checker's words |
+| rejected | Not accepted: a kernel checker rejected this build | Kernel replay: C1 rejected this build: the checker's words. The replay covers the whole build, and a checker stops at the first declaration it rejects, so a rejection stands against every theorem judged on this site, also one whose proof does not use the rejected declaration. |
+| the checkers disagree | Not accepted: the two kernel checkers disagree on this build | Kernel replay: the two checkers disagree on this build: C1 accepted it and C2 rejected it: the rejecting checker's words. The replay covers the whole build, … (as above) |
 | no verdict | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, with no verdict of a kernel replay | No verdict of a kernel replay: WHY. |
 | nothing replayed | Same Lean statement as the challenge; no sorry; permitted axioms: as the compiled files report, not replayed by a kernel | No kernel replay: WHY. |
+
+The axioms of the solution's proof are listed under the verdict. Beside "Lean
+statement proved" the line reads "Axioms of the solution's proof", with "no
+axioms" or "the standard axioms of Lean's logic only"; beside any other verdict
+it reads "Axioms of the solution's proof, as the build reports them, not
+confirmed by the kernel checkers", with "none reported" or "only the standard
+axioms of Lean's logic reported", so that it does not read as a finding beside
+a verdict that is not one.
 
 The site as a whole: the words after a legend entry or a bucket of
 `sorry`-free code (graph legend, Project Stats bar and legend), the sentence

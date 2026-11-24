@@ -253,12 +253,13 @@ inductive Unavailable where
   /-- No compiled challenge module was found (`lake build` the library that holds it). -/
   | challengeNotBuilt
   /-- The compiled challenge module does not match its source: a theorem is not where it was
-  compiled from, or the source differs from the one its build record says it was compiled from
-  (an edit that was not built). -/
+  compiled from, the source differs from the one its build record says it was compiled from (an
+  edit that was not built), or a project module it imports, directly or not, changed since the
+  build. -/
   | challengeOutOfDate
-  /-- It is not known which source the compiled challenge module was compiled from: Lake's
-  build record of it (its `.trace` file) is missing, cannot be read, does not name the source, or
-  describes other compiled files. -/
+  /-- It is not known which source the compiled challenge module, or a project module it imports,
+  was compiled from: Lake's build record of it (its `.trace` file) is missing, cannot be read,
+  does not name the source, or describes other compiled files. -/
   | challengeProvenanceUnknown
   /-- The compiled challenge module could not be read. -/
   | challengeUnreadable
@@ -269,12 +270,15 @@ inductive Unavailable where
   | importsNotAvailable
   /-- The compiled modules the comparison needs could not be loaded for the kernel replay. -/
   | modulesNotLoaded
-  /-- The solution's source differs from the one its compiled module was compiled from (an
-  edit that was not built), so the file a page shows is not the one compared. -/
+  /-- A module the proof uses changed since the build: the source of the solution module, or of
+  a project module it imports, directly or not, differs from the one its compiled module was
+  compiled from (an edit that was not built), so what was compared and replayed is not what the
+  sources say. `Headline.unavailableDetail` names the module and its file. -/
   | solutionOutOfDate
-  /-- It is not known which source the compiled solution module was compiled from: Lake's
-  build record of it is missing, cannot be read, does not name the source, or describes other
-  compiled files. -/
+  /-- It is not known which source the compiled solution module, or a project module it imports,
+  was compiled from: Lake's build record of it is missing, cannot be read, does not name the
+  source, or describes other compiled files. `Headline.unavailableDetail` names the module, its
+  file and why. -/
   | solutionProvenanceUnknown
   /-- The challenge or the solution module has a compiled file in more than one directory of the
   search path (a project that depends on another one with a challenge folder of the same name,
@@ -428,14 +432,17 @@ structure ProjectStats where
   reports on and everything they depend on; none when the generator ran none. Without an
   accepted replay no page says "proved". -/
   replay : Option Replay.Result := none
-  /-- What the build record of each project module a node's Lean declaration is in said of its
-  source when the Blueprint was elaborated (`BuiltSource.read`); the generator compares it with the
-  source as it reads when the site is generated. Empty for a site generated from compiled-code
-  data, which compares the source with the build record directly. -/
+  /-- What the build record of each project module a node's Lean declaration is in, and of each
+  project module those import, directly or not, said of its source when the Blueprint was
+  elaborated (`BuiltSource.read`); the generator compares it with the source as it reads when the
+  site is generated. Empty for a site generated from compiled-code data, which compares the
+  source with the build record directly. -/
   builtSources : Array BuiltSource := #[]
-  /-- The modules whose source text, as the site shows it, is not known to be the text their
-  compiled module was compiled from, sorted by name: no positive mark, colour or count is shown
-  for their declarations. -/
+  /-- The project modules that are not known to match the build, sorted by name: those whose
+  source text, as the site shows it, is not known to be the text their compiled module was
+  compiled from, and those that import such a module, directly or not
+  (`SourceChange.imported`). No positive mark, colour or count is shown for their
+  declarations. -/
   sourceChanged : Array SourceChange := #[]
 deriving Inhabited, ToJson, FromJson
 

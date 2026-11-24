@@ -275,16 +275,17 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     { classSuffix := "absent", symbol := "X", absent := true }
   else
     let view := statusMark.status.presentation
-    let symbol :=
-      if !statusMark.status.isProved then view.codeEntrySymbol
+    -- the class says what the symbol says: `proved` only beside the check mark
+    let (classSuffix, symbol) :=
+      if !statusMark.status.isProved then (view.codeEntryClassSuffix, view.codeEntrySymbol)
       else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
           statusMark.sourceChange? with
-        | .accepted => view.codeEntrySymbol
-        | .rejected => "⊘"
-        | .notReplayed _ | .noVerdict _ => "◇"
-        | .notChecked _ => "⚠"
-        | .sourceChanged _ => "◌"
-    { classSuffix := view.codeEntryClassSuffix, symbol }
+        | .accepted => (view.codeEntryClassSuffix, view.codeEntrySymbol)
+        | .rejected => ("rejected", "⊘")
+        | .notReplayed _ | .noVerdict _ => ("reported", "◇")
+        | .notChecked _ => ("warning", "⚠")
+        | .sourceChanged _ => ("changed", "◌")
+    { classSuffix, symbol }
 
 private structure ExternalRenderHealth where
   failureCount : Nat := 0

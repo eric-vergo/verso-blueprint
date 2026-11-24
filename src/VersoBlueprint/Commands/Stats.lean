@@ -194,7 +194,8 @@ def leanCompleteLabel : String := "Lean complete"
 /-- The words of the bucket of nodes whose Lean source is not known to be the text that was
 compiled: nothing is shown as known of their code. -/
 def sourceChangedBucketLabel : String :=
-  "Lean source changed since the build or not known to match it, not shown as checked"
+  "Lean source changed since the build, in its module or a project module it imports, or not \
+    known to match it, not shown as checked"
 
 /-- The progress counts as buckets, most complete first, then the nodes whose Lean source is not
 known to be the text that was compiled, when there are any. The tokens are the status tokens of
@@ -397,10 +398,9 @@ def unavailableReason : Unavailable → String × String
   | .solutionNotImported => ("the Blueprint does not import the solution module", "")
   | .importsNotAvailable => ("the challenge imports a module the Blueprint does not import", "")
   | .modulesNotLoaded => ("the compiled modules were not loaded for the comparison", "")
-  | .solutionOutOfDate => ("the solution's source differs from the one its compiled module was \
-      compiled from", "build it again after an edit")
-  | .solutionProvenanceUnknown => ("it is not known that the compiled solution module was \
-      compiled from its source as shown", "")
+  | .solutionOutOfDate => ("a module the proof uses changed since the build",
+      "build it again after an edit")
+  | .solutionProvenanceUnknown => ("a module the proof uses is not known to match the build", "")
   | .moduleAmbiguous => ("a module of the comparison has a compiled file in more than one \
       directory of the search path, so which of them a build means depends on the order of the \
       path", "give the challenges of each project folder names of their own")
@@ -419,20 +419,34 @@ private def axiomChip (a : Name) : Output.Html :=
   el "li" s!"bp_stats_axiom bp_stats_axiom_{cls.token}" (code a.toString)
     #[("data-bp-axiom-class", cls.token), ("title", cls.description)]
 
-private def axiomsHtml (t : HeadlineTheorem) : Output.Html :=
+/-- The caption of the axioms of a judged theorem's proof: what the line is, and, unless the
+verdict is that the theorem is proved, that the list is what the build reports, which no kernel
+checker confirmed. -/
+def axiomsCaption (proved : Bool) : String :=
+  if proved then "Axioms of the solution's proof"
+  else "Axioms of the solution's proof, as the build reports them, not confirmed by the kernel \
+    checkers"
+
+/-- The note after the axioms of a judged theorem's proof: "no axioms" or "the standard axioms of
+Lean's logic only" beside a proved verdict; beside any other verdict the same said of the build's
+report, so that it does not read as a finding. -/
+def axiomsNoteText (axioms : Array Name) (proved : Bool) : String :=
+  if axioms.isEmpty then (if proved then "no axioms" else "none reported")
+  else if axioms.all (AxiomClass.ofName · == .standard) then
+    if proved then "the standard axioms of Lean's logic only"
+    else "only the standard axioms of Lean's logic reported"
+  else ""
+
+private def axiomsHtml (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
   if t.solution == .missing || t.solution == .notCompared || t.solution == .notTheorem then .empty
   else
-  let note : String :=
-    if t.axioms.isEmpty then "no axioms"
-    else if t.axioms.all (AxiomClass.ofName · == .standard) then
-      "the standard axioms of Lean's logic only"
-    else ""
+  let note := axiomsNoteText t.axioms proved
   let permitted : Output.Html :=
     if t.axiomsNotAllowed.isEmpty then .empty
     else el "span" "bp_stats_axioms_note bp_stats_axioms_not_permitted"
       (txt s!"uses {notAllowedText t}")
   el "div" "bp_stats_axioms" (.seq #[
-    el "span" "bp_stats_caption" (txt "Axioms of the solution's proof"),
+    el "span" "bp_stats_caption" (txt (axiomsCaption proved)),
     el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map axiomChip)),
     if note.isEmpty then .empty else el "span" "bp_stats_axioms_note" (txt note),
     permitted])
@@ -470,6 +484,14 @@ private def theoremNodeHtml (view : StatsPageView) (t : HeadlineTheorem) : Outpu
       else s!"This site's {title}"
     el "span" "bp_stats_theorem_node" (link (ref?.bind (·.href)) (txt text))
 
+/-- Why a rejection stands against every verdict, also that of a challenge whose own proof is
+sound: the replay checks one export of the whole build, and a checker stops at its first
+problem. -/
+def replayCoversBuildText : String :=
+  "The replay covers the whole build, and a checker stops at the first declaration it rejects, \
+    so a rejection stands against every theorem judged on this site, also one whose proof does \
+    not use the rejected declaration."
+
 /-- The line under a verdict that rests on the comparison's conditions: what the kernel replay
 did for the judged theorem (`standing`). -/
 def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing) : String :=
@@ -487,8 +509,8 @@ def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing)
       built-in prelude, and both accepted it{earlier}."
   | .rejected =>
     let what := (replay?.map (·.rejectionText)).getD "a kernel checker rejected this build"
-    let message := ((replay?.bind (·.message)).map (s!": {·}")).getD "."
-    s!"Kernel replay: {what}{message}"
+    let message := ((replay?.bind (·.message)).map (s!": {·}")).getD ""
+    s!"Kernel replay: {what}{message}. {replayCoversBuildText}"
   | .notReplayed why => s!"No kernel replay: {why}."
   | .noVerdict why => s!"No verdict of a kernel replay: {why}."
   | .notChecked axioms => s!"Kernel replay: not checked: {Replay.notCheckedClause axioms}."
@@ -526,7 +548,7 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
     else .seq #[
       el "p" "bp_stats_caption bp_stats_statement_caption" (txt "Lean statement, from the challenge"),
       el "pre" "bp_stats_statement" (code t.statement)],
-    axiomsHtml t,
+    axiomsHtml t (token == "proved"),
     match t.docstring with
     | some d => el "div" "bp_stats_theorem_informal" (.seq #[
         el "p" "bp_stats_caption bp_stats_doc_caption" (txt challengeDocCaption),
@@ -648,10 +670,12 @@ def noReplaySummary : String :=
 /-- The sentence above the modules whose source is not known to be the text that was compiled. -/
 def sourceChangedLeadText (modules : Nat) : String :=
   let these := if modules == 1 then "this module" else "these modules"
-  s!"Not known to be what was built: the source of {these} changed since the build, or no \
-    build record says which source was compiled. This site shows nothing as checked for their \
-    declarations: what the compiled files report, and what a kernel replay checked, is about \
-    the compiled modules, not the text shown."
+  let imports := if modules == 1 then "it imports" else "they import"
+  s!"Not known to be what was built: the source of {these}, or of a project module {imports}, \
+    changed since the build, or no build record says which \
+    source was compiled. This site shows nothing as checked for their declarations: what the \
+    compiled files report, and what a kernel replay checked, is about the compiled modules as \
+    they were built, not the sources as they read now."
 
 /-- The modules of the site whose source is not known to be the text that was compiled, each
 with why, and the nodes that concern; nothing when there are none. -/

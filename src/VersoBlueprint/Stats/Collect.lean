@@ -450,7 +450,38 @@ def nodeSourceModules (state : Environment.State) (root : System.FilePath) :
       out := out.push (module, file)
   return out.qsort (·.1.toString < ·.1.toString)
 
-/-- The source text each module of `nodeSourceModules` was compiled from, while the Blueprint is
+/-- The project modules that `modules` import, directly or not, as the environment `env` records
+the imports of its compiled modules (the module being elaborated, by its header), each with its
+source file in the first of `sourceDirs` (relative to `root`) that has it. A module with no such
+file is not the project's (a package's, Lean's) and is not followed. -/
+def importedProjectModules (env : Lean.Environment) (root : System.FilePath)
+    (sourceDirs : Array String) (modules : Array Name) : IO (Array (Name × String)) := do
+  if sourceDirs.isEmpty then return #[]
+  let finder := ModuleFinder.ofLayout root sourceDirs []
+  let names := env.header.moduleNames
+  let index : Std.HashMap Name Nat := names.zipIdx.foldl (init := {}) fun m (n, i) => m.insert n i
+  let importsOf (m : Name) : Array Name :=
+    if m == env.mainModule then env.header.imports.map (·.module)
+    else match index[m]? with
+      | some i => ((env.header.moduleData[i]?.map (·.imports)).getD #[]).map (·.module)
+      | none => #[]
+  let mut seen : NameSet := {}
+  let mut out := #[]
+  let mut todo := modules
+  while h : todo.size > 0 do
+    let m := todo[todo.size - 1]
+    todo := todo.pop
+    if seen.contains m then continue
+    seen := seen.insert m
+    for imp in importsOf m do
+      if seen.contains imp then continue
+      let some file ← finder.source? imp | continue
+      out := out.push (imp, file)
+      todo := todo.push imp
+  return out
+
+/-- The source text each module of `nodeSourceModules`, and each project module they import
+(`importedProjectModules`), was compiled from, while the Blueprint is
 elaborated against these compiled modules: by Lake's build record of an imported module
 (`BuiltSource.read`), and for the module being elaborated, its own text. A module whose record
 Lake wrote when it took the compiled files from its artifact cache names no source
@@ -458,12 +489,17 @@ Lake wrote when it took the compiled files from its artifact cache names no sour
 the Blueprint, so the file's text as it reads now is the one compiled, unless the file was
 modified after the record was written (an edit after that build, the Blueprint then elaborated
 without Lake): such a module is not known to match. -/
-def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
-    CoreM (Array BuiltSource) := do
+def builtSourcesOf (state : Environment.State) (root : System.FilePath)
+    (sourceDirs : Array String := #[]) : CoreM (Array BuiltSource) := do
   let sp ← searchPathRef.get
-  let main := (← getEnv).mainModule
+  let env ← getEnv
+  let main := env.mainModule
   let text := (← getFileMap).source
-  (nodeSourceModules state root).mapM fun (module, file) => do
+  let nodes := nodeSourceModules state root
+  let imported ← liftM (m := IO) <| importedProjectModules env root sourceDirs (nodes.map (·.1))
+  let modules := (imported.foldl (init := nodes) fun acc (m, file) =>
+    if acc.any (·.1 == m) then acc else acc.push (m, file)).qsort (·.1.toString < ·.1.toString)
+  modules.mapM fun (module, file) => do
     if module == main then return { module, file, hash := some (lakeTextHash text) }
     let olean? ← liftM (m := IO) <| findBuiltModule? sp module
     let built ← liftM <| BuiltSource.read module file olean?
@@ -483,12 +519,18 @@ def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
     return { module, file, hash := some (lakeTextHash text) }
 
 /-- The modules of `built` whose source, as it reads under `root` now, is not the one the
-Blueprint was elaborated against: changed since, or not known to match it. -/
+Blueprint was elaborated against (changed since, or not known to match it), and those that
+import such a module of `built`, directly or not (`walkChanges`; `built` holds every project
+module the nodes' modules import). -/
 def sourceChangesNow (built : Array BuiltSource) (root : System.FilePath) :
-    IO (Array SourceChange) :=
-  built.filterMapM fun b => do
-    let text? ← try some <$> IO.FS.readFile (root / b.file) catch _ => pure none
-    return b.check text?
+    IO (Array SourceChange) := do
+  let byModule : Std.HashMap Name BuiltSource := built.foldl (init := {}) fun m b =>
+    m.insert b.module b
+  let finder : ModuleFinder := {
+    source? := fun m => return (byModule[m]?).map (·.file)
+    text? := fun file => try some <$> IO.FS.readFile (root / file) catch _ => pure none
+    check := fun m _ text? => return (byModule[m]?).bind (·.check text?) }
+  walkChanges finder (built.map (·.module))
 
 /-- The project statistics of the current environment, Blueprint state and graph, with the
 project's files read from the working directory. -/
@@ -514,7 +556,7 @@ def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
     graph := graphSizeOf graph
     trust := trustLedgerOf state graph
     claims := ← Claims.atRoot? root
-    builtSources := ← builtSourcesOf state root
+    builtSources := ← builtSourcesOf state root layout.sourceDirs
   }
 
 /-- Read the project's files again from the working directory, keeping what was captured from

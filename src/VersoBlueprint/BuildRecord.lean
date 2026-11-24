@@ -4,6 +4,7 @@ Author: Eric Vergo
 -/
 
 import Lean.Data.Json
+import Lean.Elab.ParseImportsFast
 import Lean.Util.Path
 
 /-!
@@ -161,10 +162,50 @@ structure SourceChange where
   why : String := ""
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
-/-- The change as a clause: "the source of Demo.A (Demo/A.lean) changed since the build", or "the
-source of Demo.A (Demo/A.lean) is not known to match the build: why". -/
+/-- How `why` begins for a module that is not known to match the build only because a project
+module it imports, directly or not, is not (`SourceChange.imported`). -/
+def SourceChange.importsLead : String := "it imports "
+
+/-- Whether the module is not known to match the build only because of a module it imports. -/
+def SourceChange.isImported (c : SourceChange) : Bool :=
+  !c.changed && c.why.startsWith SourceChange.importsLead
+
+/-- Where the module is, for a clause: "Demo.A in Demo/A.lean". -/
+def SourceChange.place (c : SourceChange) : String := s!"{c.module} in {c.file}"
+
+/-- What is wrong with the module's own source, as a clause after its name: "changed since the
+build", or "is not known to match the build: why". -/
+def SourceChange.state (c : SourceChange) : String :=
+  if c.changed then "changed since the build"
+  else s!"is not known to match the build: {c.why}"
+
+/-- The modules `causes` (each one whose own source is not known to match the build), as a
+clause: "Demo.A in Demo/A.lean, which changed since the build", and how many others there are. -/
+def SourceChange.causesText (causes : Array SourceChange) : String :=
+  match causes[0]? with
+  | none => ""
+  | some c =>
+    let others := causes.size - 1
+    let more := if others == 0 then ""
+      else s!" (and {others} other {if others == 1 then "module" else "modules"} not known to \
+        match the build)"
+    s!"{c.place}, which {c.state}{more}"
+
+/-- `module`, whose source `file` is the text its compiled module was compiled from, is still not
+known to match the build: the project modules `causes`, which it imports directly or not, are
+not (sorted by name, not empty). Lake rebuilds a module when one of its imports changes. -/
+def SourceChange.imported (module : Name) (file : String) (causes : Array SourceChange) :
+    SourceChange :=
+  { module, file, changed := false
+    why := s!"{SourceChange.importsLead}{SourceChange.causesText causes}" }
+
+/-- The change as a clause: "the source of Demo.A (Demo/A.lean) changed since the build", "the
+source of Demo.A (Demo/A.lean) is not known to match the build: why", or "Demo.B (Demo/B.lean)
+imports Demo.A in Demo/A.lean, which changed since the build". -/
 def SourceChange.text (c : SourceChange) : String :=
   if c.changed then s!"the source of {c.module} ({c.file}) changed since the build"
+  else if c.isImported then
+    s!"{c.module} ({c.file}) imports {c.why.drop SourceChange.importsLead.length}"
   else s!"the source of {c.module} ({c.file}) is not known to match the build: {c.why}"
 
 /-- What is known of the source text a module was compiled from, when a site's data is
@@ -206,5 +247,118 @@ def BuiltSource.check (b : BuiltSource) (text? : Option String) : Option SourceC
 def sourceChangeOf (module : Name) (file : String) (olean? : Option System.FilePath)
     (text? : Option String) : IO (Option SourceChange) :=
   return (← BuiltSource.read module file olean?).check text?
+
+/-! ## Modules and what they import
+
+A compiled module is built against the compiled modules it imports: a proof in it may rest on a
+lemma of another module of the project whose source has been edited since, to `sorry` say. So a
+module whose own source is the text that was compiled is still not known to match the build when
+a project module it imports, directly or not, is not; Lake would rebuild it.
+
+The imports are read from the module's source text, as Lake reads them (`Lean.parseImports'`),
+and only from a text known to be the one that was compiled, so they are the imports of the
+compiled module. Only the project's own modules are followed (`ModuleFinder.source?`); a module
+of a package the project depends on, or of Lean, is not checked: the site shows no source of it,
+and its build is the package's, at the revision the project's manifest pins. -/
+
+/-- How a walk over a project's modules finds and checks each one. -/
+structure ModuleFinder where
+  /-- The source file of a module of the project, relative to the project root, or `none` for a
+  module outside the project (of a package it depends on, or of Lean), which is not followed. -/
+  source? : Name → IO (Option String)
+  /-- The text of a source file of the project, as it reads now. -/
+  text? : String → IO (Option String)
+  /-- Whether the module's own source, `file` reading `text?`, is the text its compiled module was
+  compiled from: nothing when it is, else the change (`sourceChangeOf`). -/
+  check : Name → String → Option String → IO (Option SourceChange)
+
+/-- The finder of the project at `root` that checks each module against Lake's build record of it
+(`sourceChangeOf`): its source in the first of `sourceDirs` (relative to `root`) that has it, its
+compiled module on `path` (`findBuiltModule?`). `texts` gives a file's text as the caller read it,
+when it did, so that what is checked is what is shown; other files are read from the disk. -/
+def ModuleFinder.ofLayout (root : System.FilePath) (sourceDirs : Array String)
+    (path : System.SearchPath) (texts : String → Option String := fun _ => none) :
+    ModuleFinder where
+  source? module := do
+    let rel := "/".intercalate (module.components.map (·.toString (escape := false))) ++ ".lean"
+    for dir in sourceDirs do
+      let file := if dir == "." then rel else dir ++ "/" ++ rel
+      if ← (root / file).pathExists then return some file
+    return none
+  text? file := do
+    if let some text := texts file then return some text
+    try some <$> IO.FS.readFile (root / file) catch _ => pure none
+  check module file text? := do
+    sourceChangeOf module file (← findBuiltModule? path module) text?
+
+/-- What a walk found for one project module: its file, and the modules among it and those it
+imports, directly or not, whose own source is not known to match the build (each once, sorted by
+name): empty when it and everything of the project it imports match. -/
+structure ModuleStanding where
+  file : String
+  causes : Array SourceChange := #[]
+deriving Inhabited
+
+/-- The change to show for `module` from its standing: its own, or that it imports modules that
+are not known to match (`SourceChange.imported`); nothing when it matches. -/
+def ModuleStanding.change? (s : ModuleStanding) (module : Name) : Option SourceChange :=
+  if s.causes.isEmpty then none
+  else match s.causes.find? (·.module == module) with
+    | some own => some own
+    | none => some (SourceChange.imported module s.file s.causes)
+
+private def mergeCauses (a b : Array SourceChange) : Array SourceChange :=
+  (b.foldl (init := a) fun acc c => if acc.any (·.module == c.module) then acc else acc.push c).qsort
+    (·.module.toString < ·.module.toString)
+
+/-- Walk from `starts` over the project modules they import, directly or not, checking each once
+(`ModuleFinder.check`); a module that is not known to match is not followed further, since its
+imports as written now need not be those it was compiled with. Returns the standing of every
+project module reached; a module outside the project has none. -/
+partial def walkModules (finder : ModuleFinder) (starts : Array Name) :
+    IO (Std.HashMap Name ModuleStanding) := do
+  let memo ← IO.mkRef ({} : Std.HashMap Name (Option ModuleStanding))
+  let rec visit (module : Name) : IO (Option ModuleStanding) := do
+    if let some known := (← memo.get)[module]? then return known
+    -- a module being walked counts as nothing until it is done (imports have no cycle)
+    memo.modify (·.insert module none)
+    let result ← do
+      let some file ← finder.source? module | pure none
+      let text? ← finder.text? file
+      if let some own ← finder.check module file text? then
+        pure (some { file, causes := #[own] })
+      else
+        let text := text?.getD ""
+        match ← (Lean.parseImports' text file).toBaseIO with
+        | .error e =>
+          pure (some { file, causes := #[{ module, file, changed := false
+                                           why := s!"its imports cannot be read: {e}" }] })
+        | .ok header =>
+          let mut causes := #[]
+          for imp in header.imports do
+            if let some s ← visit imp.module then causes := mergeCauses causes s.causes
+          pure (some { file, causes })
+    memo.modify (·.insert module result)
+    return result
+  for m in starts do discard <| visit m
+  return (← memo.get).fold (init := {}) fun acc m s? =>
+    match s? with
+    | some s => acc.insert m s
+    | none => acc
+
+/-- The changes of `walkModules`: every project module reached that is not known to match the
+build, its own or because of what it imports, sorted by name. -/
+def walkChanges (finder : ModuleFinder) (starts : Array Name) : IO (Array SourceChange) := do
+  let standings ← walkModules finder starts
+  let changes := standings.fold (init := #[]) fun acc m s =>
+    match s.change? m with
+    | some c => acc.push c
+    | none => acc
+  return changes.qsort (·.module.toString < ·.module.toString)
+
+/-- The modules among `module` and the project modules it imports, directly or not, whose own
+source is not known to match the build, sorted by name: empty when all of them match. -/
+def closureCauses (finder : ModuleFinder) (module : Name) : IO (Array SourceChange) := do
+  return ((← walkModules finder #[module])[module]?.map (·.causes)).getD #[]
 
 end Informal.Stats

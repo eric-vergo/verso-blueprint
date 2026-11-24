@@ -132,11 +132,13 @@ def RenderModel.refreshStats (model : RenderModel) (kernelReplay : Bool := false
     let root ← Stats.projectRoot stats.layout.projectRoot
     let changes ← Stats.sourceChangesNow stats.builtSources root
     -- no highlighted source of these modules is shown, and none is built: the files are not
-    -- what the Blueprint was elaborated against
-    DeclarationSource.excludeModules (changes.map (·.module))
+    -- what the Blueprint was elaborated against (a module that only imports such a module is)
+    DeclarationSource.excludeModules (changes.filter (!·.isImported) |>.map (·.module))
     pure <| { model with stats }.withSourceChanges changes
   let stats ← if kernelReplay then model.stats.withKernelReplay model.replayTargets
     else pure model.stats
+  -- a headline is about the compiled modules: checked against the sources as they read now
+  let stats ← stats.withHeadlineSourcesNow
   return { model with stats }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/

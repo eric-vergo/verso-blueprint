@@ -18,7 +18,8 @@ open Verso.VersoBlueprintTests.BlueprintPreviewWiring.Shared
     let (out, st) ← renderManualDocHtmlStringAndState manualImpls leanStatusChipDoc
     let removedTemplateBinderJs? := findRemovedTemplatePreviewBinderJs? st
     pure (
-      hasSubstr out "bp_code_link_status_proved" &&
+      -- without a replay the class says what the diamond says, never `proved`
+      hasSubstr out "bp_code_link_status_reported" && !hasSubstr out "bp_code_link_status_proved" &&
       hasSubstr out "bp_code_link_status_warning" &&
       hasSubstr out "bp_code_link_status_axiom" &&
       hasSubstr out "bp_code_link_status_absent" &&
