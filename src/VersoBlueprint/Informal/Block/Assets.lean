@@ -460,11 +460,14 @@ span[class$="_thmlabel"]::after {
 }
 
 .bp_code_link_status_missing .bp_code_status_symbol,
-.bp_code_link_status_axiom .bp_code_status_symbol {
+.bp_code_link_status_axiom .bp_code_status_symbol,
+.bp_code_link_status_rejected .bp_code_status_symbol {
   color: var(--bp-color-accent-danger);
 }
 
-.bp_code_link_status_absent .bp_code_status_symbol {
+.bp_code_link_status_absent .bp_code_status_symbol,
+.bp_code_link_status_reported .bp_code_status_symbol,
+.bp_code_link_status_changed .bp_code_status_symbol {
   color: inherit;
 }
 

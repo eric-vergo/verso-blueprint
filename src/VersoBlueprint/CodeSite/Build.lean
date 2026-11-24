@@ -451,21 +451,39 @@ def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
     if ← lib.isDir then path := path ++ [lib]
   return (← Stats.dedupDirs path.toArray).toList
 
-/-- The modules of the data whose source text the site shows (`sources`) and that is not known to
-be the text their compiled module was compiled from, by Lake's build record beside the compiled
-module (`Stats.sourceChangeOf`), found on the search path of `libraryPathOf`. The declarations of
-such a module are shown with no positive mark (`externalRef`). -/
+/-- How the project's modules are found and checked against Lake's build records
+(`Stats.ModuleFinder.ofLayout`): a module of the data by its source file, any other project module
+by the source directories of `layoutOf`, each compiled module on the search path of
+`libraryPathOf`; the text of a module the site shows is the one it read (`sources`). -/
+def moduleFinderOf (root : System.FilePath) (project : Project)
+    (sources : Name → Option String) : IO Stats.ModuleFinder := do
+  let layout ← layoutOf root project
+  let path ← libraryPathOf root layout
+  let texts : Std.HashMap String String := project.modules.foldl (init := {}) fun acc m =>
+    if m.source.isEmpty then acc else
+    match sources m.module with
+    | some text => acc.insert m.source text
+    | none => acc
+  let base := Stats.ModuleFinder.ofLayout root layout.sourceDirs path (texts.get? ·)
+  return { base with
+    source? := fun module => do
+      match project.modules.find? (·.module == module) with
+      | some m => return if m.source.isEmpty then none else some m.source
+      | none => base.source? module }
+
+/-- The modules of the data whose source text the site shows (`sources`) and that are not known
+to match the build, by Lake's build record beside each compiled module, found on the search path
+of `libraryPathOf`: a module whose source differs from the one it was compiled from, or is not
+known to be that one (`Stats.sourceChangeOf`), and a module that imports such a project module,
+directly or not (`Stats.walkChanges`), with the project modules between them. The declarations
+of such a module are shown with no positive mark (`externalRef`). -/
 def sourceChangesOf (root : System.FilePath) (project : Project)
     (sources : Name → Option String) : IO (Array Stats.SourceChange) := do
-  let path ← libraryPathOf root (← layoutOf root project)
-  let mut changes := #[]
-  for m in project.modules do
-    if m.source.isEmpty || m.declarations.isEmpty then continue
-    let some text := sources m.module | continue
-    let olean? ← Stats.findBuiltModule? path m.module
-    if let some change ← Stats.sourceChangeOf m.module m.source olean? (some text) then
-      changes := changes.push change
-  return changes
+  let finder ← moduleFinderOf root project sources
+  let starts := project.modules.filterMap fun m =>
+    if m.source.isEmpty || m.declarations.isEmpty || (sources m.module).isNone then none
+    else some m.module
+  Stats.walkChanges finder starts
 
 /-- How the kernel replay of the project at `root` is run (`Stats.ReplayConfig.fromEnv`), with
 the search path of `libraryPathOf`: the generator is not run by the project's Lake, so the

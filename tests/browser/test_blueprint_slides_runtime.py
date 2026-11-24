@@ -191,16 +191,14 @@ class TestBlueprintSlidesRuntime:
             for entry in manifest["previews"]
             if entry["key"] == "multiplication_one_right--proof"
         )
-        assert multiplication_entry["title"] == "Theorem 2.2"
-        assert multiplication_proof_entry["title"] == "Proof for Theorem 2.2"
+        assert multiplication_entry["title"] == "Theorem 3.2"
+        assert multiplication_proof_entry["title"] == "Proof for Theorem 3.2"
         assert len(multiplication_entry["leanCodePreviewKeys"]) == 1
         assert multiplication_entry["leanCodePreviewKeys"][0].startswith(
             "Informal.LeanCodePreview.Inline."
         )
-        assert (
-            multiplication_proof_entry["leanCodePreviewKeys"]
-            == multiplication_entry["leanCodePreviewKeys"]
-        )
+        # a proof without Lean attachments of its own does not borrow its statement's code panels
+        assert multiplication_proof_entry["leanCodePreviewKeys"] == []
         assert "n * 1 = n" in html_by_key[multiplication_entry["key"]]
         assert "Unfold the definition of multiplication" in html_by_key[
             multiplication_proof_entry["key"]
@@ -361,7 +359,7 @@ class TestBlueprintSlidesRuntime:
         ).to_have_text("Theorem")
         expect(
             theorem_node.locator(".bp_kind_theorem_heading .bp_heading_title_row > .bp_label")
-        ).to_have_text("2.2")
+        ).to_have_text("3.2")
         expect(theorem_node).to_contain_text("multiplying by one on the right")
         expect(theorem_node.locator(".bp_content .bp_math.inline")).to_have_count(2)
         expect(theorem_node.locator(".bp_slide_code_body code.hl.lean.block")).to_have_count(
@@ -371,7 +369,7 @@ class TestBlueprintSlidesRuntime:
             "theorem multiplication_one_right"
         )
         expect(theorem_node.locator(".bp_slide_code_body")).to_contain_text("simp")
-        expect(proof_node).to_contain_text("Proof for Theorem 2.2")
+        expect(proof_node).to_contain_text("Proof for Theorem 3.2")
         expect(proof_node).to_contain_text("Unfold the definition of multiplication")
         expect(proof_node.locator(".bp_code_panel_wrapper")).to_have_count(0)
         theorem_code_chip = theorem_node.locator(

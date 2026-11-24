@@ -663,4 +663,150 @@ def shownWithoutVerdict (pages : SitePages) (words : String) : Bool :=
     !hasSubstr pages.graph "class=\"node bp_graph_status_source_changed" &&
     !hasSubstr pages.stats "data-bp-module="
 
+/-! ## Modules and what they import
+
+A compiled module is built against the compiled modules it imports. A module whose own source is
+the text that was compiled is still not known to match the build when a project module it
+imports, directly or not, changed since: its declarations get no positive mark either, and a
+Comparator challenge whose solution is built on such a module is not compared. -/
+
+/-- The project of `withProject` with `Demo.Hard` importing `Demo.Basic` through `Demo.Mid`, a
+module of the project that the data does not list (it declares nothing), each with a build
+record of its source as written. -/
+def withImportingProject (k : System.FilePath → IO Bool) : IO Bool := withProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Mid.lean") "import Demo.Basic\n"
+  IO.FS.writeFile (root / "Demo" / "Hard.lean")
+    "import Lean\nimport Demo.Mid\ntheorem hard : False := sorry\n"
+  recordBuild root `Demo.Mid "Demo/Mid.lean"
+  recordBuild root `Demo.Hard "Demo/Hard.lean"
+  k root
+
+/-- The finder of the project at `root` as the generator builds it (`moduleFinderOf`). -/
+def finderAt (root : System.FilePath) : IO Stats.ModuleFinder := do
+  let project ← match Project.parse (← IO.FS.readFile (root / "code.json")) with
+    | .ok p => pure p
+    | .error e => throw (IO.userError e)
+  moduleFinderOf root project fun _ => none
+
+-- As built, nothing is out of step: Lean's own `Lean` is not followed, `Demo.Mid` is reached.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  let finder ← finderAt root
+  let standings ← Stats.walkModules finder #[`Demo.Hard]
+  return (← Stats.walkChanges finder #[`Demo.Hard]).isEmpty &&
+    (standings.toList.map (·.1)).mergeSort (·.toString < ·.toString) ==
+      [`Demo.Basic, `Demo.Hard, `Demo.Mid]
+
+-- `Demo.Basic` edited after the build: `Demo.Mid` and `Demo.Hard`, whose own sources match, are
+-- not known to match the build either, and each names the module that changed.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Basic.lean") (basicSource.replace "n + n" "sorry")
+  return ((← Stats.walkChanges (← finderAt root) #[`Demo.Hard]).map (·.text)).toList == [
+    "the source of Demo.Basic (Demo/Basic.lean) changed since the build",
+    "Demo.Hard (Demo/Hard.lean) imports Demo.Basic in Demo/Basic.lean, which changed since the \
+      build",
+    "Demo.Mid (Demo/Mid.lean) imports Demo.Basic in Demo/Basic.lean, which changed since the \
+      build"]
+
+-- A module that changed is not followed further: what it imports now need not be what it was
+-- compiled with (here a module that does not exist).
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Mid.lean") "import Demo.Basic\nimport Demo.Nowhere\n"
+  return ((← Stats.walkChanges (← finderAt root) #[`Demo.Hard]).map (·.text)).toList == [
+    "Demo.Hard (Demo/Hard.lean) imports Demo.Mid in Demo/Mid.lean, which changed since the build",
+    "the source of Demo.Mid (Demo/Mid.lean) changed since the build"]
+
+-- The site: `Demo.Hard`'s declarations get the neutral mark with the module that changed named,
+-- on the chapter, the graph and the stats page, beside `Demo.Basic`'s own.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Basic.lean") (basicSource ++ "-- edited after the build\n")
+  let (code, pages) ← sitePages root
+  let hard ← IO.FS.readFile (root / "_out" / "html-multi" / "Demo___Hard" / "index.html")
+  let imports := "Demo.Hard (Demo/Hard.lean) imports Demo.Basic in Demo/Basic.lean, which \
+    changed since the build"
+  return code == 0 && shownWithoutVerdict pages "changed since the build" &&
+    hasSubstr hard s!"Lean proof: {imports}" &&
+    hasSubstr pages.graph s!"Demo.uses_hard: Lean proof: {imports}" &&
+    hasSubstr pages.stats "data-bp-module=\"Demo.Hard\"" &&
+    hasSubstr pages.stats "data-bp-module=\"Demo.Mid\"" &&
+    hasSubstr pages.stats imports
+
+-- What a Comparator challenge's headline is told (`Stats.sourcesUnavailable?`): its solution
+-- `Demo.Hard` is built on `Demo.Basic`, edited after the build, so it is not compared, with the
+-- module named; a challenge `Demo.Mid` that imports it is out of date; as built, nothing.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  let asBuilt ← Stats.sourcesUnavailable? (← finderAt root) `Demo.Basic `Demo.Hard
+  IO.FS.writeFile (root / "Demo" / "Basic.lean") (basicSource ++ "-- edited after the build\n")
+  let finder ← finderAt root
+  return asBuilt.isNone &&
+    (← Stats.sourcesUnavailable? finder `Demo.Mid `Demo.Hard) == some (.challengeOutOfDate,
+      "it imports Demo.Basic in Demo/Basic.lean, which changed since the build") &&
+    (← Stats.sourcesUnavailable? finder `Demo.Basic.Missing `Demo.Hard) ==
+      some (.solutionOutOfDate, "Demo.Basic in Demo/Basic.lean")
+
+-- A build record missing for a module the solution is built on: not compared, with why.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.removeFile (root / ".lake" / "build" / "lib" / "lean" / "Demo" / "Mid.trace")
+  return (← Stats.sourcesUnavailable? (← finderAt root) `Demo.Basic.Missing `Demo.Hard) ==
+    some (.solutionProvenanceUnknown, "Demo.Mid in Demo/Mid.lean: Lake's build record Mid.trace \
+      of the compiled module Demo.Mid is missing or cannot be read")
+
+-- A project module in a source directory that no module of the data is in (a library with its own
+-- `srcDir`) is found by the file Lake's build record of it names, also in a copy of the project
+-- made after the build, whose records name the files where it was built.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  IO.FS.createDirAll (root / "xsrc" / "Xlib")
+  IO.FS.writeFile (root / "xsrc" / "Xlib" / "Lemma.lean") "theorem Xlib.t : True := trivial\n"
+  recordBuild root `Xlib.Lemma "xsrc/Xlib/Lemma.lean"
+  IO.FS.writeFile (root / "Demo" / "Mid.lean") "import Demo.Basic\nimport Xlib.Lemma\n"
+  recordBuild root `Demo.Mid "Demo/Mid.lean"
+  let asBuilt ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  IO.FS.writeFile (root / "xsrc" / "Xlib" / "Lemma.lean") "theorem Xlib.t : True := sorry\n"
+  let edited ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  -- the same record as written where the project was built before it was copied here
+  let trace := root / ".lake" / "build" / "lib" / "lean" / "Xlib" / "Lemma.trace"
+  IO.FS.writeFile trace ((← IO.FS.readFile trace).replace root.toString "/elsewhere/project")
+  let copied ← Stats.walkChanges (← finderAt root) #[`Demo.Hard]
+  let names (cs : Array Stats.SourceChange) := cs.map (·.module)
+  return asBuilt.isEmpty && names edited == #[`Demo.Hard, `Demo.Mid, `Xlib.Lemma] &&
+    names copied == names edited &&
+    (edited.find? (·.module == `Xlib.Lemma)).map (·.file) == some "xsrc/Xlib/Lemma.lean"
+
+/-- A headline of the challenge `P` whose theorem `P.t` met the comparison's conditions, with
+`challenge` and `solution` as its modules. -/
+def comparedHeadline (challenge solution : Name) : Stats.Headline :=
+  { name := "P", challengeModule := challenge, solutionModule := solution
+    theorems := #[{ name := `P.t, statement := "theorem t : True", solution := .same
+                    sorryFree := some true, conditionsMet := true, node := some `P.t }]
+    definitions := #[{ name := `P.d, solution := .same }] }
+
+-- Checked again just before the pages are written (`Headline.withSourcesChecked`): a source
+-- edited after the comparison takes the verdict back, keeping the statement as the challenge
+-- states it; as built, the headline is kept as it is.
+/-- info: true -/
+#guard_msgs in
+#eval withImportingProject fun root => do
+  let h := comparedHeadline `Demo.Basic.Missing `Demo.Hard
+  let kept ← h.withSourcesChecked (← finderAt root)
+  IO.FS.writeFile (root / "Demo" / "Basic.lean") (basicSource ++ "-- edited after the build\n")
+  let checked ← h.withSourcesChecked (← finderAt root)
+  let t := checked.theorems[0]!
+  return kept == h && checked.unavailable == some .solutionOutOfDate &&
+    checked.unavailableDetail == some "Demo.Basic in Demo/Basic.lean" && !t.conditionsMet &&
+    t.solution == .notCompared && t.statement == "theorem t : True" &&
+    checked.definitions.isEmpty
+
 end Verso.VersoBlueprintTests.BlueprintCodeSite

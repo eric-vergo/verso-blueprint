@@ -437,6 +437,45 @@ def axiomsNotAllowed (permitted : Option (Array Name)) (axioms : Array Name) : A
   axioms.filter fun a =>
     a != sorryAxiom && !(permitted.getD standardAxioms).contains a
 
+/-- The modules `causes` that are not known to match the build, for the detail of a headline that
+was not compared: "Demo.A in Demo/A.lean", with the reason when no build record says which
+source it was, and how many others there are. Those that changed come first. -/
+def causesDetail (causes : Array SourceChange) : String :=
+  let causes := causes.filter (·.changed) ++ causes.filter (!·.changed)
+  match causes[0]? with
+  | none => ""
+  | some c =>
+    let why := if c.changed then "" else s!": {c.why}"
+    let others := causes.size - 1
+    let more := if others == 0 then ""
+      else s!"; and {others} other {if others == 1 then "module" else "modules"}"
+    s!"{c.place}{why}{more}"
+
+/-- Why a challenge cannot be compared because a module the comparison rests on is not known to
+match the build (`closureCauses`): the challenge module and the project modules it imports,
+then the solution module and those it imports, directly or not. The compiled modules are what
+is compared and replayed; a source edited since the build (a lemma of the library the proof uses
+turned into `sorry`, say) is not what they say. A module of a package the project depends on is
+not checked (`ModuleFinder`). Nothing when every one of them matches. -/
+def sourcesUnavailable? (finder : ModuleFinder) (challengeModule solutionModule : Name) :
+    IO (Option (Unavailable × String)) := do
+  let challenge ← closureCauses finder challengeModule
+  if !challenge.isEmpty then
+    match challenge.find? (·.module == challengeModule) with
+    | some own =>
+      return some (if own.changed then (.challengeOutOfDate, own.file)
+        else (.challengeProvenanceUnknown, own.why))
+    | none =>
+      let why := if challenge.any (·.changed) then Unavailable.challengeOutOfDate
+        else .challengeProvenanceUnknown
+      let changedFirst := challenge.filter (·.changed) ++ challenge.filter (!·.changed)
+      return some (why, s!"{SourceChange.importsLead}{SourceChange.causesText changedFirst}")
+  let solution ← closureCauses finder solutionModule
+  if solution.isEmpty then return none
+  let why := if solution.any (·.changed) then Unavailable.solutionOutOfDate
+    else .solutionProvenanceUnknown
+  return some (why, causesDetail solution)
+
 /-- The headline of a project with the given challenge configuration, comparing with the solution
 in the current environment. `root` is the project root and `layout` where its sources and
 compiled modules are; `libraryPath` is searched for the compiled challenge first. -/
@@ -472,7 +511,7 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
       return unavailable .challengeOutOfDate (some file)
     -- the statements shown are cut from this text, the verdict is about the compiled module:
     -- the text must be the one it was compiled from
-    match ← provenanceOf olean file text with
+    match ← provenanceOf olean file text (what := "the compiled challenge") with
     | .same => pure ()
     | .differs => return unavailable .challengeOutOfDate (some file)
     | .unknown why => return unavailable .challengeProvenanceUnknown (some why)
@@ -482,19 +521,15 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   for imp in challenge.imports do
     unless env.header.moduleNames.contains imp do
       return { unavailable .importsNotAvailable (some imp.toString) theorems with unjudged }
-  -- the solution's file a page shows must be the one its compiled module was compiled from
-  if let some file := solutionFile then
-    if let some olean ← findCompiledModule? path config.solutionModule then
-      let text ← try IO.FS.readFile (root / file) catch _ => pure ""
-      match ← provenanceOf olean file text with
-      | .same => pure ()
-      | .differs =>
-        return { unavailable .solutionOutOfDate (some file) theorems with unjudged }
-      | .unknown why =>
-        return { unavailable .solutionProvenanceUnknown (some why) theorems with unjudged }
   let some scope := importClosure env config.solutionModule
     | return { unavailable .solutionNotImported (some config.solutionModule.toString) theorems
                with unjudged }
+  -- the verdict is about the compiled modules: every project module the challenge and the
+  -- solution are built on must be the text that was compiled
+  let finder := ModuleFinder.ofLayout root layout.sourceDirs path
+  if let some (why, detail) ← sourcesUnavailable? finder config.challengeModule
+      config.solutionModule then
+    return { unavailable why (some detail) theorems with unjudged }
   let solution (name : Name) : Option ConstantInfo := do
     let info ← env.find? name
     let idx ← env.getModuleIdxFor? name
@@ -551,6 +586,39 @@ def Headline.uncompared (config : ChallengeConfig) (root : System.FilePath)
     solutionFile := ← moduleSource? root layout.sourceDirs config.solutionModule
     config := config.configFile, permittedAxioms := config.permittedAxioms
     unavailable := some why, unavailableDetail := detail }
+
+/-- The headline `h`, compared earlier, as not compared when a module the comparison rests on is
+not known to match the build now (`sourcesUnavailable?`): what was compared is kept as the
+challenge states it, and nothing of the solution's verdict. A headline that was not compared is
+returned as it is. -/
+def Headline.withSourcesChecked (finder : ModuleFinder) (h : Headline) : IO Headline := do
+  if h.unavailable.isSome then return h
+  let some (why, detail) ← sourcesUnavailable? finder h.challengeModule h.solutionModule
+    | return h
+  return { h with
+    unavailable := some why, unavailableDetail := some detail, definitions := #[]
+    theorems := h.theorems.map fun t =>
+      { name := t.name, docstring := t.docstring, statement := t.statement } }
+
+/-- The statistics with every compared headline checked again against the sources as they read
+now (`Headline.withSourcesChecked`), just before the pages are written: a source edited after the
+comparison, while the site was generated, takes the verdict back. -/
+def ProjectStats.withHeadlineSources (stats : ProjectStats) (finder : ModuleFinder) :
+    IO ProjectStats := do
+  if stats.challenges.isEmpty then return stats
+  return { stats with challenges := ← stats.challenges.mapM (·.withSourcesChecked finder) }
+
+/-- `withHeadlineSources` for the project in the working directory, its modules found by the
+captured layout and the search path of this process. Like `refreshWorkspace`, nothing changes
+when the working directory is not the captured project. -/
+def ProjectStats.withHeadlineSourcesNow (stats : ProjectStats) : IO ProjectStats := do
+  if stats.challenges.isEmpty then return stats
+  let root ← projectRoot stats.layout.projectRoot
+  unless (← ProjectIdentity.read root).name == stats.identity.name do
+    return stats
+  let path := stats.layout.libraryDirs.toList.map (fun dir : String => root / dir) ++
+    (← searchPathRef.get) ++ ((← IO.getEnv "LEAN_PATH").map System.SearchPath.parse |>.getD [])
+  stats.withHeadlineSources (ModuleFinder.ofLayout root stats.layout.sourceDirs path)
 
 /-- The headlines of the project's Comparator challenges (`ComparatorLayout.challengesAt`, which
 throws when the project does not follow the layout), in the order of their names. -/

@@ -97,6 +97,10 @@ structure CodeDeclData where
   /-- The module the declaration lives in: the one its code block was elaborated in. Without it
   no kernel replay is known to cover the declaration. -/
   module : Option Name := none
+  /-- Why the source of `module`, or of a project module it imports, is not known to be the text
+  that was compiled, when that is so (`Informal.Stats.SourceChange.text`): nothing is shown as
+  checked for the declaration. -/
+  sourceChange? : Option String := none
 deriving Repr, Inhabited, FromJson, ToJson, Quote
 
 def CodeDeclData.ofLiterateDef (d : Data.LiterateDef)
@@ -192,7 +196,8 @@ def BlockCodeData.unplaced (code : BlockCodeData) : Option Name :=
 /-- Why the source of a present external declaration of `code` is not known to be the text that
 was compiled (`Data.ExternalRef.sourceChange?`), for the first such declaration. -/
 def BlockCodeData.sourceChange? (code : BlockCodeData) : Option String :=
-  (code.externalDecls.find? fun d => d.present && d.sourceChange?.isSome).bind (·.sourceChange?)
+  (code.externalDecls.find? fun d => d.present && d.sourceChange?.isSome).bind (·.sourceChange?) <|>
+    (code.literateDeclarations.declarations.find? (·.sourceChange?.isSome)).bind (·.sourceChange?)
 
 /-- The Lean declarations of `code`, each once, sorted: its present external declarations and
 the declarations of its code blocks. A kernel replay must cover them all, with everything they

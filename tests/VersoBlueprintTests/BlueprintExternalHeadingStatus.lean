@@ -174,7 +174,7 @@ private def renderFailedExternalRef (name : Lean.Name) : Data.ExternalRef :=
   match rendered.statusMark with
   | some mark =>
     mark.status == ProvedStatus.proved &&
-    hasSubstr rendered.codeEntry.render "bp_code_link_status_proved" &&
+    hasSubstr rendered.codeEntry.render "bp_code_link_status_reported" &&
     hasSubstr rendered.codeEntry.render "bp_code_render_warning_badge" &&
     appearsBefore rendered.codeEntry.render "bp_code_render_warning_badge" "bp_code_status_symbol" &&
     hasSubstr rendered.codeEntry.render "render failed for 1 declaration" &&

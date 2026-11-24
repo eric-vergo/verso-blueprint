@@ -99,12 +99,22 @@ def RenderModel.withSourceChanges (model : RenderModel) (changes : Array Stats.S
     match ref.provenance.moduleName? >>= fun m => changes.find? (·.module == m) with
     | some change => if ref.present then ref.withSourceChange change.text change.changed else ref
     | none => ref
+  -- a declaration of a code block of the Blueprint itself, in the module it was elaborated in
+  let markCode (d : CodeDeclData) : CodeDeclData :=
+    match d.module >>= fun m => changes.find? (·.module == m) with
+    | some change => { d with sourceChange? := some change.text
+                              provedStatus := .ofSourceChange d.name change.changed }
+    | none => d
+  let markCodes (c : LiterateDeclarations) : LiterateDeclarations :=
+    { definedDefs := c.definedDefs.map markCode, definedTheorems := c.definedTheorems.map markCode }
   let mut changed : NameSet := {}
   let mut nodes := #[]
   for node in model.nodes do
     let node' := { node with externalRefs := node.externalRefs.map mark
-                             proofExternalRefs := node.proofExternalRefs.map mark }
-    if (node'.externalRefs ++ node'.proofExternalRefs).any (·.sourceChange?.isSome) then
+                             proofExternalRefs := node.proofExternalRefs.map mark
+                             literateDeclarations := markCodes node.literateDeclarations }
+    if (node'.externalRefs ++ node'.proofExternalRefs).any (·.sourceChange?.isSome) ||
+        node'.literateDeclarations.declarations.any (·.sourceChange?.isSome) then
       changed := changed.insert node.label
     nodes := nodes.push node'
   let graph := model.graph.withSourceChanged changed
@@ -132,11 +142,13 @@ def RenderModel.refreshStats (model : RenderModel) (kernelReplay : Bool := false
     let root ← Stats.projectRoot stats.layout.projectRoot
     let changes ← Stats.sourceChangesNow stats.builtSources root
     -- no highlighted source of these modules is shown, and none is built: the files are not
-    -- what the Blueprint was elaborated against
-    DeclarationSource.excludeModules (changes.map (·.module))
+    -- what the Blueprint was elaborated against (a module that only imports such a module is)
+    DeclarationSource.excludeModules (changes.filter (!·.isImported) |>.map (·.module))
     pure <| { model with stats }.withSourceChanges changes
   let stats ← if kernelReplay then model.stats.withKernelReplay model.replayTargets
     else pure model.stats
+  -- a headline is about the compiled modules: checked against the sources as they read now
+  let stats ← stats.withHeadlineSourcesNow
   return { model with stats }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/

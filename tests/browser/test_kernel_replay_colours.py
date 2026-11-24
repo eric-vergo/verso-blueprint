@@ -273,6 +273,13 @@ def test_without_an_accepted_replay_nothing_is_green(
             r, g, b = [int(v) for v in computed(page, selector, "color")[4:-1].split(", ")[:3]]
             assert r > g + 60 and r > b + 60, selector
         assert page.locator(".bp_stats_theorem").get_attribute("data-bp-verdict") == "rejected"
+        # the axioms line beside a verdict that is not "proved" is the build's report, and the
+        # line under the verdict says why a rejection stands against every theorem
+        axioms = page.locator(".bp_stats_theorem .bp_stats_axioms").inner_text()
+        assert "as the build reports them, not confirmed by the kernel checkers" in axioms, axioms
+        assert "no axioms" not in axioms
+        under = page.locator(".bp_stats_replay_note").inner_text()
+        assert "The replay covers the whole build" in under, under
     else:
         assert "as the compiled files report, not replayed by a kernel" in counts.inner_text()
 
@@ -297,6 +304,13 @@ def test_without_an_accepted_replay_nothing_is_green(
     assert page.evaluate(GREEN_SCAN) == []
     glyph = page.locator(".bp_graph_preview .bp_node_view .bp_status_glyph")
     assert glyph.inner_text() == ("⊘" if state == "rejected" else "◇")
+    # the Lean-code entries name the state they show, never `proved`
+    open_page(page, base + "/Comparator___Double___Solution/", scheme)
+    classes = page.eval_on_selector_all(
+        ".bp_code_link_status", "els => els.map(e => e.getAttribute('class') || '')")
+    assert classes and not any("bp_code_link_status_proved" in c for c in classes), classes
+    if state == "rejected":
+        assert any("bp_code_link_status_rejected" in c for c in classes), classes
 
 
 @pytest.mark.parametrize("scheme", SCHEMES)

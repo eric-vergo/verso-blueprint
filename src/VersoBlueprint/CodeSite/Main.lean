@@ -180,6 +180,11 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
         (config? := some config) (compare := compare) (nodeOf := nodeOf)
       pure { model with stats }
     else pure model
+  -- a headline is about the compiled modules: checked against the sources the site shows once
+  -- more, after the comparison and the replay, which take time
+  let finder ← moduleFinderOf root project sources.get?
+  let stats ← model.stats.withHeadlineSources finder
+  let model := { model with stats }
   let title := titleOf root project model.stats.identity
   Informal.PreviewManifest.blueprintMainWithPreviewData (documentOf title project sources.get? graphRouting) args
     (extensionImpls := by exact extension_impls%) (model := model)

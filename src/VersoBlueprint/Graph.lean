@@ -523,7 +523,8 @@ def proofStatusReadyText : String := "ready to formalize"
 def proofStatusIncompleteText : String := "Lean code incomplete"
 def proofStatusFormalizedText : String := "locally formalized"
 def proofStatusFormalizedAncestorsText : String := "locally formalized + dependencies complete"
-def proofStatusSourceChangedText : String := "Lean source changed since the build"
+def proofStatusSourceChangedText : String :=
+  "Lean source changed since the build, in its module or a project module it imports"
 
 /-! The status texts above are also values of the query interface (`StatementStatus.toText`,
 `ProofStatus.toText`) and stay as they are. What a page shows a reader is the wording below,

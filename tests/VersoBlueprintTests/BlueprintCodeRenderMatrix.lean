@@ -81,7 +81,8 @@ private def panelIndicatorHtml (label : Name) (source : BlockCodeData) : String 
   let inlineProvedHtml := codeEntryHtml `inline.proved .definition (some { literateDeclarations := (inlineCode .proved).literateDeclarations })
   let inlineSorryHtml := codeEntryHtml `inline.sorry .definition (some { literateDeclarations := (inlineCode (.incomplete { knownSorry := #[{ location := .proof, refs? := some 1 }] })).literateDeclarations })
   let inlineAxiomHtml := codeEntryHtml `inline.axiom .definition (some { literateDeclarations := (inlineCode .axiomLike).literateDeclarations })
-  hasSubstr inlineProvedHtml "bp_code_link_status_proved" &&
+  -- no replay stands behind this rendering: the class of the diamond, not `proved`
+  hasSubstr inlineProvedHtml "bp_code_link_status_reported" &&
     hasSubstr inlineSorryHtml "bp_code_link_status_warning" &&
     hasSubstr inlineAxiomHtml "bp_code_link_status_axiom" &&
     hasSubstr (codeEntryHtml `inline.absent .definition none) "bp_code_link_status_absent"
@@ -104,7 +105,7 @@ private def panelIndicatorHtml (label : Name) (source : BlockCodeData) : String 
 #guard_msgs in
 #eval!
   let externalRenderFailHtml := codeEntryHtml `external.render_fail .theorem (some { externalDecls := #[renderFailedExternalRef `Ext.renderFail] })
-  hasSubstr externalRenderFailHtml "bp_code_link_status_proved" &&
+  hasSubstr externalRenderFailHtml "bp_code_link_status_reported" &&
     hasSubstr externalRenderFailHtml "bp_code_render_warning_badge" &&
     appearsBefore externalRenderFailHtml "bp_code_render_warning_badge" "bp_code_status_symbol"
 
