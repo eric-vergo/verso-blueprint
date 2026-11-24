@@ -185,8 +185,8 @@ info: ["Comparator/S/Challenge.lean: rule F2 (Lean files): it has 1048577 bytes,
 -- The single-challenge layout moved by `vbp comparator-migrate`: the changes, then a project
 -- that follows the layout, its configuration judging the theorems the challenge declares.
 /--
-info: ["mkdir -p Comparator/Main", "git mv Comparator/Challenge.lean Comparator/Main/Challenge.lean",
-  "git mv Comparator/Solution.lean Comparator/Main/Solution.lean", "write Comparator/Main/comparator.json",
+info: ["mkdir -p Comparator/Main", "mv Comparator/Challenge.lean Comparator/Main/Challenge.lean",
+  "mv Comparator/Solution.lean Comparator/Main/Solution.lean", "write Comparator/Main/comparator.json",
   "in Blueprint.lean: Comparator.Solution -> Comparator.Main.Solution (1×)",
   "in Blueprint.lean: Comparator/Challenge.lean -> Comparator/Main/Challenge.lean (1×)",
   "in lakefile.toml: Comparator.Solution -> Comparator.Main.Solution (1×)",
@@ -209,6 +209,115 @@ info: ["mkdir -p Comparator/Main", "git mv Comparator/Challenge.lean Comparator/
   IO.FS.removeDirAll root
   return (changes.toList.map (·.describe)) ++ r.violations.toList.map (·.render) ++
     [config, blueprint, lakefile]
+
+/-- `git` in `root` with `args`, failing on an error. -/
+private def git (root : System.FilePath) (args : Array String) : IO String := do
+  let out ← IO.Process.output { cmd := "git", args, cwd := root }
+  unless out.exitCode == 0 do throw (IO.userError s!"git {args}: {out.stderr}")
+  return out.stdout
+
+/-- A project in the single-challenge layout with a `lakefile.lean` that names its modules, in a
+Git repository that tracks the files of `tracked` (committed), and not the others. -/
+private def gitProject (tracked : List String) : IO System.FilePath := do
+  let root ← project [("Comparator/Challenge.lean", challenge),
+    ("Comparator/Solution.lean", "import Lib\n" ++ solution),
+    ("lakefile.lean", "lean_lib Comparator where\n  roots := #[`Comparator.Solution]\n")]
+  let _ ← git root #["init", "--quiet"]
+  let _ ← git root #["config", "user.email", "test@example.com"]
+  let _ ← git root #["config", "user.name", "Test"]
+  let _ ← git root (#["add", "--"] ++ tracked.toArray)
+  let _ ← git root #["commit", "--quiet", "-m", "start"]
+  return root
+
+/-- The project's files and what Git says of them, after `act`. -/
+private def afterwards (root : System.FilePath) (act : IO String) : IO (List String) := do
+  let result ← try act catch e => pure s!"error: {e}"
+  let status ← git root #["status", "--porcelain", "--untracked-files=all"]
+  let lakefile ← IO.FS.readFile (root / "lakefile.lean")
+  IO.FS.removeDirAll root
+  return [result] ++ (status.splitOn "\n").filter (!·.isEmpty) ++ [lakefile]
+
+/-- Plan and apply the migration of the project at `root`: the changes, or the refusal. -/
+private def migrateHere (root : System.FilePath) : IO String := do
+  match ← VersoBlueprint.Vbp.migrationPlan root "Main" with
+  | .error e => return s!"refused: {e}"
+  | .ok changes =>
+    VersoBlueprint.Vbp.applyChanges root changes
+    return ", ".intercalate (changes.toList.map (·.describe))
+
+-- In a Git work tree a tracked file is moved with `git mv`, an untracked one by a rename; the
+-- dry run's list is the list that is applied, and a `lakefile.lean` gets the new names.
+/--
+info: ["mkdir -p Comparator/Main, git mv Comparator/Challenge.lean Comparator/Main/Challenge.lean, git mv Comparator/Solution.lean Comparator/Main/Solution.lean, write Comparator/Main/comparator.json, in lakefile.lean: Comparator.Solution -> Comparator.Main.Solution (1×)",
+  "R  Comparator/Challenge.lean -> Comparator/Main/Challenge.lean",
+  "R  Comparator/Solution.lean -> Comparator/Main/Solution.lean", "A  Comparator/Main/comparator.json",
+  " M lakefile.lean", "lean_lib Comparator where\n  roots := #[`Comparator.Main.Solution]\n"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["Comparator/Challenge.lean", "Comparator/Solution.lean", "lakefile.lean"]
+  afterwards root (migrateHere root)
+
+/--
+info: ["mkdir -p Comparator/Main, git mv Comparator/Challenge.lean Comparator/Main/Challenge.lean, mv Comparator/Solution.lean Comparator/Main/Solution.lean, write Comparator/Main/comparator.json, in lakefile.lean: Comparator.Solution -> Comparator.Main.Solution (1×)",
+  "R  Comparator/Challenge.lean -> Comparator/Main/Challenge.lean", "A  Comparator/Main/comparator.json",
+  " M lakefile.lean", "?? Comparator/Main/Solution.lean",
+  "lean_lib Comparator where\n  roots := #[`Comparator.Main.Solution]\n"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["Comparator/Challenge.lean", "lakefile.lean"]
+  -- the dry run and the run agree
+  let .ok planned ← VersoBlueprint.Vbp.migrationPlan root "Main" | return ["no plan"]
+  afterwards root do
+    let done ← migrateHere root
+    unless done == ", ".intercalate (planned.toList.map (·.describe)) do
+      throw (IO.userError "the dry run's plan is not what was applied")
+    return done
+
+-- Nothing tracked: renames only.
+/--
+info: ["mkdir -p Comparator/Main, mv Comparator/Challenge.lean Comparator/Main/Challenge.lean, mv Comparator/Solution.lean Comparator/Main/Solution.lean, write Comparator/Main/comparator.json, in lakefile.lean: Comparator.Solution -> Comparator.Main.Solution (1×)",
+  "A  Comparator/Main/comparator.json", " M lakefile.lean", "?? Comparator/Main/Challenge.lean",
+  "?? Comparator/Main/Solution.lean", "lean_lib Comparator where\n  roots := #[`Comparator.Main.Solution]\n"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["lakefile.lean"]
+  afterwards root (migrateHere root)
+
+-- A file the migration would move or rewrite with changes Git has not committed: refused before
+-- anything is changed.
+/--
+info: ["refused: lakefile.lean has changes that are not committed; commit or stash them first, so that the move can be undone exactly",
+  " M lakefile.lean", "lean_lib Comparator where\n  roots := #[`Comparator.Solution]\n-- local\n"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["Comparator/Challenge.lean", "Comparator/Solution.lean", "lakefile.lean"]
+  IO.FS.writeFile (root / "lakefile.lean")
+    "lean_lib Comparator where\n  roots := #[`Comparator.Solution]\n-- local\n"
+  afterwards root (migrateHere root)
+
+-- A change that fails part way (the last rewrite, of a file that cannot be written) leaves the
+-- project as it was: every change before it is undone. (The system's words for the error are not
+-- pinned.)
+/--
+info: ["failed, and every change made before it was undone",
+  "lean_lib Comparator where\n  roots := #[`Comparator.Solution]\n"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["Comparator/Challenge.lean", "Comparator/Solution.lean", "lakefile.lean"]
+  let _ ← IO.Process.output { cmd := "chmod", args := #["a-w", "lakefile.lean"], cwd := root }
+  afterwards root do
+    let .ok changes ← VersoBlueprint.Vbp.migrationPlan root "Main" | return "no plan"
+    try
+      VersoBlueprint.Vbp.applyChanges root changes
+      return "applied"
+    catch e =>
+      return if (toString e).endsWith "every change made before it was undone" then
+        "failed, and every change made before it was undone" else toString e
 
 -- The migration refuses a project without that layout, and a name that is not a challenge name.
 /--

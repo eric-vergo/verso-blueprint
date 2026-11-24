@@ -2540,19 +2540,29 @@ Comparator/Main/comparator.json: rule J3 (module names): "challenge_module" is "
 
 `lake exe vbp comparator-migrate [--name <Name>] [--dry-run]` moves the layout
 of a single challenge into `Comparator/<Name>/` (the name `Main` by default)
-and prints every change; with `--dry-run` it prints them and changes nothing:
+and prints every change; with `--dry-run` it prints the same list and changes
+nothing:
 
 - `git mv Comparator/Challenge.lean Comparator/<Name>/Challenge.lean` and the
-  same for `Solution.lean` (a plain rename outside a Git checkout);
+  same for `Solution.lean`, for a file Git tracks; a file Git does not track,
+  or any file outside a Git work tree, is moved by a plain rename (`mv …`);
 - a `comparator.json` at the root is moved into the folder and given the new
   module names; without one, the folder gets one that judges every theorem the
   challenge declares and permits Lean's standard three axioms, which is what
-  the single-challenge layout judged without the file (in a Git checkout it is
-  added with `git add`);
+  the single-challenge layout judged without the file (in a Git work tree it
+  is added with `git add`);
 - the module names `Comparator.Challenge` and `Comparator.Solution` and the paths
   `Comparator/Challenge.lean` and `Comparator/Solution.lean` are replaced in the
-  project's Lean files, `lakefile.toml` and Markdown files (whole words only).
-  A `lakefile.lean` is not edited: change its library's roots by hand.
+  project's Lean files (a `lakefile.lean` among them), `lakefile.toml` and
+  Markdown files (whole words only).
+
+Everything is checked before the first change, in both modes: the project has
+the single-challenge layout, the folder does not exist yet, every file to be
+rewritten is a regular file, and, in a Git work tree, no file the command moves
+with Git or rewrites has changes that are not committed (it refuses and names
+them: commit or stash them first). The changes are made all or nothing: when
+one fails, every change made before it is undone, in reverse order, and the
+command says so and exits with status 1.
 
 It then checks the layout again and says what is left to change (rule K1, a
 library for the challenges, for instance).
