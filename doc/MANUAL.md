@@ -1915,10 +1915,11 @@ above with one more node joined to 20 to 200 of the others keeps its area at
 node's lanes fill a band as wide as the drawing, hence the limit of 60.
 
 **Following a route.** Pointing at an edge, or pointing at or focusing a node
-(the nodes that open a view are reached with the Tab key), highlights the whole
-route of each edge concerned, from the port it leaves to the arrowhead it
-reaches, its parts of the shared stems included, and dims the rest of the
-drawing; Escape or moving away clears it. Everything this needs is written into
+(the nodes that open a view are reached with the Tab key), draws the whole
+route of each edge concerned in the trace colour, from the port it leaves to
+the arrowhead it reaches, its parts of the shared stems included; nothing else
+on the page changes, so moving the pointer across many edges does not flicker.
+Escape or moving away clears it. Everything this needs is written into
 the drawing when the site is built: every `path.edge` carries `data-edge` (its
 number), `data-from` and `data-to` (the ids of its nodes) and, when it shares a
 stem, `data-stems` (the path data of its own parts of the shared stems); every

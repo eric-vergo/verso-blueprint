@@ -90,7 +90,8 @@
 }
 
 /* Route tracing (`bindRouteTracing`): the routes of the edge or node pointed at or focused, from
-   port to arrowhead, in the trace colour; everything else dimmed. */
+   port to arrowhead, in the trace colour. Nothing else changes as the pointer moves over the
+   drawing, and the change is immediate. */
 .bp_graph_canvas svg g.bp_graph_edge_hits path {
   fill: none;
   stroke: transparent;
@@ -101,28 +102,18 @@
 .bp_graph_canvas svg g.bp_graph_trace path {
   fill: none;
   stroke-dasharray: none;
+  pointer-events: none;
 }
 
-.bp_graph_canvas svg[data-bp-tracing] g.edges path[data-bp-traced] {
+.bp_graph_canvas svg g.edges path[data-bp-traced] {
   stroke: var(--bp-color-graph-trace);
   stroke-width: 2;
+  transition: none;
 }
 
-.bp_graph_canvas svg[data-bp-tracing] g.heads path[data-bp-traced] {
+.bp_graph_canvas svg g.heads path[data-bp-traced] {
   fill: var(--bp-color-graph-trace);
-}
-
-.bp_graph_canvas svg[data-bp-tracing] g.edges > path:not([data-bp-traced]),
-.bp_graph_canvas svg[data-bp-tracing] g.heads > path:not([data-bp-traced]) {
-  opacity: 0.16;
-}
-
-.bp_graph_canvas svg[data-bp-tracing] g.node:not([data-bp-traced]) {
-  opacity: 0.4;
-}
-
-.bp_graph_canvas svg[data-bp-tracing] g.cluster {
-  opacity: 0.6;
+  transition: none;
 }
 
 :is(.bp_graph_canvas, .bp_group_hover_preview_graph) svg g.cluster path {

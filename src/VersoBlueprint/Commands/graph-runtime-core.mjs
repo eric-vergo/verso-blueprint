@@ -694,75 +694,87 @@
     };
   }
 
-  // Route tracing. Pointing at an edge, or pointing at or focusing a node, highlights the whole
-  // route of each edge concerned, from the port it leaves to the arrowhead it reaches, and dims
-  // the rest of the drawing. Everything it needs was written into the drawing when the site was
-  // built (`Informal.GraphLayout.withRouteData`): an edge's `data-from` and `data-to`, the path
-  // data of its own parts of shared stems (`data-stems`), and the arrowheads by port
+  // Route tracing. Pointing at an edge, or pointing at or focusing a node, colours the whole
+  // route of each edge concerned, from the port it leaves to the arrowhead it reaches; nothing
+  // else in the drawing changes. Everything it needs was written into the drawing when the site
+  // was built (`Informal.GraphLayout.withRouteData`): an edge's `data-from` and `data-to`, the
+  // path data of its own parts of shared stems (`data-stems`), and the arrowheads by port
   // (`data-node`) or by edge (`data-edge`). The page draws those stem parts as given and
   // computes nothing about the layout.
   const traceNamespace = "http://www.w3.org/2000/svg";
 
-  function traceGroup(svg) {
-    let group = svg.querySelector("g.edges > g.bp_graph_trace");
-    if (!group) {
-      const edges = svg.querySelector("g.edges");
-      if (!edges) return null;
-      group = document.createElementNS(traceNamespace, "g");
-      group.setAttribute("class", "bp_graph_trace");
-      edges.appendChild(group);
-    }
-    return group;
+  // Per drawing: its edges by node, its arrowheads by edge and by entry port, and what is
+  // highlighted now, so that a change of highlight touches only the routes concerned.
+  const traceIndexes = new WeakMap();
+
+  function pushInto(map, key, value) {
+    const list = map.get(key);
+    if (list) list.push(value);
+    else map.set(key, [value]);
   }
 
-  // Highlight the routes of `edges` (elements `path.edge`) and their nodes; an empty list
-  // clears the highlight.
-  export function traceRoutes(svg, edges) {
-    svg.querySelectorAll("[data-bp-traced]").forEach(function (el) {
-      el.removeAttribute("data-bp-traced");
+  function traceIndex(svg) {
+    let index = traceIndexes.get(svg);
+    if (index) return index;
+    index = { edgesByNode: new Map(), headsByEdge: new Map(), headsByPort: new Map(), marked: [], group: null };
+    svg.querySelectorAll("g.edges > path.edge").forEach(function (edge) {
+      const from = edge.getAttribute("data-from") || "";
+      const to = edge.getAttribute("data-to") || "";
+      if (from) pushInto(index.edgesByNode, from, edge);
+      if (to && to !== from) pushInto(index.edgesByNode, to, edge);
     });
-    const group = traceGroup(svg);
-    if (group) group.replaceChildren();
+    svg.querySelectorAll("g.heads > path").forEach(function (head) {
+      const edge = head.getAttribute("data-edge");
+      if (edge !== null) pushInto(index.headsByEdge, edge, head);
+      if (head.getAttribute("data-port") === "in") pushInto(index.headsByPort, head.getAttribute("data-node") || "", head);
+    });
+    const edges = svg.querySelector("g.edges");
+    if (edges) {
+      index.group = document.createElementNS(traceNamespace, "g");
+      index.group.setAttribute("class", "bp_graph_trace");
+      edges.appendChild(index.group);
+    }
+    traceIndexes.set(svg, index);
+    return index;
+  }
+
+  // Highlight the routes of `edges` (elements `path.edge`); an empty list clears the highlight.
+  export function traceRoutes(svg, edges) {
+    const index = traceIndex(svg);
+    index.marked.forEach(function (el) { el.removeAttribute("data-bp-traced"); });
+    index.marked = [];
+    if (index.group && index.group.firstChild) index.group.replaceChildren();
     if (!edges || edges.length === 0) {
       svg.removeAttribute("data-bp-tracing");
       return;
     }
     svg.setAttribute("data-bp-tracing", "1");
-    const nodeIds = new Set();
+    const mark = function (el) {
+      el.setAttribute("data-bp-traced", "1");
+      index.marked.push(el);
+    };
     edges.forEach(function (edge) {
-      edge.setAttribute("data-bp-traced", "1");
-      const from = edge.getAttribute("data-from") || "";
-      const to = edge.getAttribute("data-to") || "";
-      if (from) nodeIds.add(from);
-      if (to) nodeIds.add(to);
+      mark(edge);
       const stems = edge.getAttribute("data-stems") || "";
-      if (stems && group) {
+      if (stems && index.group) {
         const piece = document.createElementNS(traceNamespace, "path");
         piece.setAttribute("d", stems);
         piece.setAttribute("data-bp-traced", "1");
         const width = edge.getAttribute("stroke-width");
         if (width) piece.setAttribute("stroke-width", width);
-        group.appendChild(piece);
+        index.group.appendChild(piece);
       }
-      const index = edge.getAttribute("data-edge");
-      svg.querySelectorAll("g.heads > path").forEach(function (head) {
-        const own = index !== null && head.getAttribute("data-edge") === index;
-        const port = to && head.getAttribute("data-port") === "in" && head.getAttribute("data-node") === to;
-        if (own || port) head.setAttribute("data-bp-traced", "1");
-      });
-    });
-    svg.querySelectorAll("g.node").forEach(function (node) {
-      if (nodeIds.has(node.getAttribute("id") || "")) node.setAttribute("data-bp-traced", "1");
+      const number = edge.getAttribute("data-edge");
+      if (number !== null) (index.headsByEdge.get(number) || []).forEach(mark);
+      const to = edge.getAttribute("data-to") || "";
+      if (to) (index.headsByPort.get(to) || []).forEach(mark);
     });
   }
 
   // The edges whose route starts or ends at a node.
   function edgesOfNode(svg, node) {
     const id = node.getAttribute("id") || "";
-    if (!id) return [];
-    return Array.from(svg.querySelectorAll("g.edges > path.edge")).filter(function (edge) {
-      return edge.getAttribute("data-from") === id || edge.getAttribute("data-to") === id;
-    });
+    return id ? (traceIndex(svg).edgesByNode.get(id) || []) : [];
   }
 
   // Bind route tracing to a drawing shown in the page: pointer over an edge or a node, and
@@ -783,6 +795,7 @@
       hits.appendChild(hit);
     });
     edgesGroup.parentNode.insertBefore(hits, edgesGroup.nextSibling);
+    traceIndex(svg);
     const byIndex = new Map(edges.map(function (edge) { return [edge.getAttribute("data-edge"), edge]; }));
     let current = null;
     const show = function (key, list) {
