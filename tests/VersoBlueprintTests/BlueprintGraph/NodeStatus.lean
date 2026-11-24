@@ -349,7 +349,7 @@ def layeredState (layers : Nat) (bottomDone : Bool := true) : Environment.State 
     (layered l i, {
       kind := .theorem
       statement := some (mkInformal (if l == 0 then #[] else #[layered (l - 1) 0, layered (l - 1) 1]))
-      literateCodes := #[mkTheoremCode (layered l i).appendAfter "_decl"
+      literateCodes := #[mkTheoremCode ((layered l i).appendAfter "_decl")
         (proofSorry := l == 0 && !bottomDone)] })
 
 /-- info: true -/
