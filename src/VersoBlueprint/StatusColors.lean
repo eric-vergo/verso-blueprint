@@ -188,7 +188,7 @@ def unresolvedText : ColorToken :=
 inside it take their accepted values. -/
 def replayAcceptedClass : String := "bp_replay_accepted"
 
-/-- The class of an element whose build the kernel checker rejected. -/
+/-- The class of an element whose build a kernel checker rejected. -/
 def replayRejectedClass : String := "bp_replay_rejected"
 
 /-- The class of an element with no verdict of a kernel replay behind it. -/

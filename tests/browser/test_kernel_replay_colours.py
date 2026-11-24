@@ -41,7 +41,7 @@ ACCEPTED_BORDER = ("rgb(22, 163, 74)", "rgb(74, 222, 128)")
 REPORTED_FILL = ("rgb(100, 116, 139)", "rgb(100, 116, 139)")
 REPORTED_BORDER = ("rgb(100, 116, 139)", "rgb(148, 163, 184)")
 REPORTED_NOTE = "as the compiled files report, not replayed by a kernel"
-REJECTED_NOTE = "this build was rejected by a kernel checker"
+REJECTED_NOTE = "a kernel checker rejected this build"
 
 PAGES = ("/", "/Project-Stats/", "/Blueprint-Summary/", "/Comparator___Double___Solution/", "/Demo___Basic/")
 
@@ -267,7 +267,7 @@ def test_without_an_accepted_replay_nothing_is_green(
     legend = page.locator(".bp_stats_legend").inner_text()
     assert f"Lean complete, dependencies too ({note})" in legend
     if state == "rejected":
-        assert "This build was rejected by a kernel checker" in counts.inner_text()
+        assert "A kernel checker rejected this build" in counts.inner_text()
         # the headline and the sentence beside the counts are in the error colour
         for selector in (".bp_stats_replay_counts", ".bp_stats_replay_summary"):
             r, g, b = [int(v) for v in computed(page, selector, "color")[4:-1].split(", ")[:3]]
@@ -313,7 +313,10 @@ def test_accepted_replay_with_an_axiom_says_so(page: Page, replay_urls: dict[str
     counts = page.locator(".bp_stats_replay_counts").inner_text()
     assert counts.startswith("The kernel replay accepted the build, and the counts are as the "
                              "compiled files report: "), counts
-    assert "rest on the axiom Demo.assumed, so it was not checked" in counts, counts
+    # the node that rests on the axiom; the axiom's own node has a mark of its own and is not
+    # counted as complete, so it is not one of them
+    assert ": 1 node without sorry rests on the axiom Demo.assumed, so it was not checked" in counts, \
+        counts
     legend = page.locator(".bp_stats_legend").inner_text()
     assert "(the kernel replay accepted the build; on this site " in legend, legend
     for text in (counts, legend):

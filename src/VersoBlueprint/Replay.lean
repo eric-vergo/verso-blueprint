@@ -452,7 +452,7 @@ def reportedNote : String := "as the compiled files report, not replayed by a ke
 def noVerdictNote : String := "as the compiled files report, with no verdict of a kernel replay"
 
 /-- The words beside such a count when a checker rejected the build. -/
-def rejectedNote : String := "this build was rejected by a kernel checker"
+def rejectedNote : String := "a kernel checker rejected this build"
 
 /-- `n` nodes, with what is said of them in the singular and in the plural. -/
 private def nodesWith (n : Nat) (what one many : String) : String :=
@@ -517,7 +517,7 @@ replay of every node. -/
 def SiteState.sentence : SiteState → String
   | .accepted => ""
   | .rejected =>
-    "This build was rejected by a kernel checker: the counts say what the compiled files \
+    "A kernel checker rejected this build: the counts say what the compiled files \
       report, and nothing here counts as checked by a kernel."
   | .none why => s!"The counts are as the compiled files report, not replayed by a kernel: {why}."
   | .noVerdict why =>

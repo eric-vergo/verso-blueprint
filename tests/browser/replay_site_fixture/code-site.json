@@ -795,10 +795,10 @@
  "skipped": [
   {
    "module": "Comparator.Double.Challenge",
-   "reason": "the Comparator challenge, sorry by design: declares Cmp.double as Comparator.Solution does"
+   "reason": "the Comparator challenge, sorry by design: declares Cmp.double as Comparator.Double.Solution does"
   }
  ],
  "texPrelude": "",
- "toolchain": "leanprover/lean4:v4.35.0",
+ "toolchain": "leanprover/lean4:v4.36.0",
  "unbuilt": []
 }

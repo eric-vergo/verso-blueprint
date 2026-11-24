@@ -250,7 +250,7 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   let notBuilt := page (stats (some { (challenge #[]) with
     unavailable := some .challengeNotBuilt, unavailableDetail := some "Challenge" }))
   let noChallenge := page (stats Option.none)
-  hasSubstr notBuilt "Not compared: The challenge module has not been built. (Challenge)" &&
+  hasSubstr notBuilt "Not compared: the challenge module has not been built (Challenge)." &&
     !hasSubstr notBuilt ">Lean statement proved</span>" &&
     -- nothing was compared, so the page does not say how, nor what the challenge states
     !hasSubstr notBuilt "Compared by this site's generator" &&

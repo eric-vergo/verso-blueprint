@@ -1,9 +1,12 @@
 import pytest
 from contextlib import ExitStack, contextmanager
+import atexit
+import os
 import random
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -17,6 +20,12 @@ from scripts.blueprint_harness_paths import (
     canonical_test_blueprint_output_dir,
 )
 
+
+# A kernel replay that accepts records that it did in a file; every site these tests generate,
+# here and in the processes they start, records into a scratch folder, never the user's cache.
+REPLAY_RECORD_DIR = Path(tempfile.mkdtemp(prefix="vbp-browser-replay-record-"))
+atexit.register(shutil.rmtree, REPLAY_RECORD_DIR, ignore_errors=True)
+os.environ["VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD"] = str(REPLAY_RECORD_DIR / "kernel-replay-checkers.json")
 
 DEFAULT_TEST_BLUEPRINT = "preview_runtime_showcase"
 DEFAULT_BROWSER_TYPES = {"chromium"}

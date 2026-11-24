@@ -295,8 +295,8 @@ accepted, two nodes on axioms | none | the kernel replay accepted the build; on 
 accepted, both | none | the kernel replay accepted the build; on this site 2 nodes with Lean code are not part of the replay, and 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved.
 accepted, a node with its source changed | none | the kernel replay accepted the build; on this site the Lean source of 1 node changed since the build or is not known to match it | Counted as the compiled files report: the kernel replay accepted the build, and on this site the Lean source of 1 node changed since the build or is not known to match it. | The kernel replay accepted the build, and the counts are as the compiled files report: the Lean source of 1 node changed since the build or is not known to match it.
 accepted (reproducible) | none | the kernel replay accepted the build; on this site 1 node with Lean code is not part of the replay, and 1 node without sorry rests on an axiom outside Lean's standard three | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved.
-rejected | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
-disagreed | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
+rejected | rejected | a kernel checker rejected this build | A kernel checker rejected this build. | A kernel checker rejected this build: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
+disagreed | rejected | a kernel checker rejected this build | A kernel checker rejected this build. | A kernel checker rejected this build: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
 declined | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax].
 no answer | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted).
 timed out | none | as the compiled files report, with no verdict of a kernel replay | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s.
@@ -503,16 +503,17 @@ Shown with syntax colours only: no highlighted build of this module matches the 
 Not compared: the site's statistics hold no result for this challenge.
 The continuous-integration run that built this site
 source at the commit this site is built from
-configInvalid | comparator.json could not be read or lacks the fields lake comparator needs.
-challengeNotBuilt | The challenge module has not been built.
-challengeOutOfDate | The compiled challenge module does not match its source: build it again after an edit.
-challengeProvenanceUnknown | It is not known that the compiled challenge module was compiled from its source as shown.
-challengeUnreadable | The compiled challenge module could not be read.
-solutionNotImported | The Blueprint does not import the solution module.
-importsNotAvailable | The challenge imports a module the Blueprint does not import.
-modulesNotLoaded | The compiled modules were not loaded for the comparison.
-solutionOutOfDate | The solution's source differs from the one its compiled module was compiled from: build it again after an edit.
-solutionProvenanceUnknown | It is not known that the compiled solution module was compiled from its source as shown.
+configInvalid | Not compared: comparator.json could not be read or lacks the fields lake comparator needs (Comparator/P/comparator.json).
+challengeNotBuilt | Not compared: the challenge module has not been built (Comparator/P/comparator.json).
+challengeOutOfDate | Not compared: the compiled challenge module does not match its source (Comparator/P/comparator.json); build it again after an edit.
+challengeProvenanceUnknown | Not compared: it is not known that the compiled challenge module was compiled from its source as shown (Comparator/P/comparator.json).
+challengeUnreadable | Not compared: the compiled challenge module could not be read (Comparator/P/comparator.json).
+solutionNotImported | Not compared: the Blueprint does not import the solution module (Comparator/P/comparator.json).
+importsNotAvailable | Not compared: the challenge imports a module the Blueprint does not import (Comparator/P/comparator.json).
+modulesNotLoaded | Not compared: the compiled modules were not loaded for the comparison (Comparator/P/comparator.json).
+solutionOutOfDate | Not compared: the solution's source differs from the one its compiled module was compiled from (Comparator/P/comparator.json); build it again after an edit.
+solutionProvenanceUnknown | Not compared: it is not known that the compiled solution module was compiled from its source as shown (Comparator/P/comparator.json).
+moduleAmbiguous | Not compared: a module of the comparison has a compiled file in more than one directory of the search path, so which of them a build means depends on the order of the path (Comparator/P/comparator.json); give the challenges of each project folder names of their own.
 -/
 #guard_msgs in
 #eval do
@@ -521,7 +522,10 @@ solutionProvenanceUnknown | It is not known that the compiled solution module wa
     IO.println line
   for u in [Unavailable.configInvalid, .challengeNotBuilt, .challengeOutOfDate,
       .challengeProvenanceUnknown, .challengeUnreadable, .solutionNotImported,
-      .importsNotAvailable, .modulesNotLoaded, .solutionOutOfDate, .solutionProvenanceUnknown] do
-    IO.println (row [(toJson u).compress.replace "\"" "", unavailableText u])
+      .importsNotAvailable, .modulesNotLoaded, .solutionOutOfDate, .solutionProvenanceUnknown,
+      .moduleAmbiguous] do
+    -- every reason in the same form: one sentence, what lies behind it in parentheses
+    IO.println (row [(toJson u).compress.replace "\"" "",
+      notComparedText u (some "Comparator/P/comparator.json")])
 
 end Verso.VersoBlueprintTests.BlueprintReplayWording

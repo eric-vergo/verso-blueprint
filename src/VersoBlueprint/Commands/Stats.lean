@@ -383,23 +383,36 @@ def definitionVerdict : Correspondence → String
   | .notCompared => "not compared"
   | .notTheorem => "not a theorem"
 
-/-- Why the challenge could not be compared, in a sentence. -/
-def unavailableText : Unavailable → String
-  | .configInvalid => "comparator.json could not be read or lacks the fields lake comparator needs."
-  | .challengeNotBuilt => "The challenge module has not been built."
+/-- Why a challenge was not compared, as a clause, and what to do about it, when there is
+something to do. -/
+def unavailableReason : Unavailable → String × String
+  | .configInvalid => ("comparator.json could not be read or lacks the fields lake comparator \
+      needs", "")
+  | .challengeNotBuilt => ("the challenge module has not been built", "")
   | .challengeOutOfDate =>
-    "The compiled challenge module does not match its source: build it again after an edit."
-  | .challengeProvenanceUnknown =>
-    "It is not known that the compiled challenge module was compiled from its source as shown."
-  | .challengeUnreadable => "The compiled challenge module could not be read."
-  | .solutionNotImported => "The Blueprint does not import the solution module."
-  | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
-  | .modulesNotLoaded => "The compiled modules were not loaded for the comparison."
-  | .solutionOutOfDate =>
-    "The solution's source differs from the one its compiled module was compiled from: build it \
-      again after an edit."
-  | .solutionProvenanceUnknown =>
-    "It is not known that the compiled solution module was compiled from its source as shown."
+    ("the compiled challenge module does not match its source", "build it again after an edit")
+  | .challengeProvenanceUnknown => ("it is not known that the compiled challenge module was \
+      compiled from its source as shown", "")
+  | .challengeUnreadable => ("the compiled challenge module could not be read", "")
+  | .solutionNotImported => ("the Blueprint does not import the solution module", "")
+  | .importsNotAvailable => ("the challenge imports a module the Blueprint does not import", "")
+  | .modulesNotLoaded => ("the compiled modules were not loaded for the comparison", "")
+  | .solutionOutOfDate => ("the solution's source differs from the one its compiled module was \
+      compiled from", "build it again after an edit")
+  | .solutionProvenanceUnknown => ("it is not known that the compiled solution module was \
+      compiled from its source as shown", "")
+  | .moduleAmbiguous => ("a module of the comparison has a compiled file in more than one \
+      directory of the search path, so which of them a build means depends on the order of the \
+      path", "give the challenges of each project folder names of their own")
+
+/-- The one sentence for a challenge that was not compared, with what lies behind the reason
+(`detail?`, a module, a file or a message) in parentheses: "Not compared: the challenge module
+has not been built (Comparator.Demo.Challenge)." -/
+def notComparedText (u : Unavailable) (detail? : Option String := none) : String :=
+  let (reason, advice) := unavailableReason u
+  let detail := (detail?.map (s!" ({·})")).getD ""
+  let advice := if advice.isEmpty then "" else s!"; {advice}"
+  s!"Not compared: {reason}{detail}{advice}."
 
 private def axiomChip (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
@@ -555,8 +568,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
       | Option.none => .empty
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
-        let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
-        el "p" "bp_stats_headline_unavailable" (txt s!"Not compared: {unavailableText u}{detail}")
+        el "p" "bp_stats_headline_unavailable" (txt (notComparedText u h.unavailableDetail))
       | Option.none => .empty
     let definitions : Output.Html :=
       if h.definitions.isEmpty then .empty

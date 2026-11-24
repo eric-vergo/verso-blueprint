@@ -101,13 +101,19 @@ def nodeSize (node : GraphNode Ref) : Float × Float :=
 private def styleTokens (node : GraphNode Ref) : List String :=
   (node.style.splitOn ",").map (·.trimAscii.toString)
 
-/-- The page's side of a node: its id, status classes, name, tooltip, label and colours. -/
+/-- Whether XML can carry the character `c`: tab, line feed, carriage return, and everything
+from the space up, except `U+FFFE` and `U+FFFF` (Lean's characters are never surrogates). -/
+def xmlChar (c : Char) : Bool :=
+  c == '\t' || c == '\n' || c == '\r' || (c.val ≥ 0x20 && c.val != 0xFFFE && c.val != 0xFFFF)
+
+/-- The page's side of a node: its id, status classes, name, tooltip (without the
+characters XML cannot carry), label and colours. -/
 def webNode (node : GraphNode Ref) : PILean.Graph.WebNode :=
   let tokens := styleTokens node
   { id := graphNodeSvgId node.label
     classes := node.svgClass
     name := toString node.label
-    tooltip := node.tooltip?.getD ""
+    tooltip := String.ofList ((node.tooltip?.getD "").toList.filter xmlChar)
     lines := labelLines node
     shape := webShape node
     fill := node.fillcolor
@@ -267,8 +273,10 @@ structure Drawing where
   /-- Why the drawing's edges are not drawn as the view asked (`routingFor`), when they are not. -/
   note : Option String := none
 
-/-- Text for an attribute value: `&`, `<`, `>` and `"` escaped. -/
+/-- Text for an attribute value: `&`, `<`, `>` and `"` escaped, and the characters XML cannot
+carry (`xmlChar`) left out, since a drawing with one is not a well-formed SVG document. -/
 def escapeAttribute (text : String) : String :=
+  let text := String.ofList (text.toList.filter xmlChar)
   (((text.replace "&" "&amp;").replace "<" "&lt;").replace ">" "&gt;").replace "\"" "&quot;"
 
 /-- A drawing whose nodes are images named for a reader of the page (`role="img"` and their

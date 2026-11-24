@@ -130,7 +130,7 @@ def test_index_lists_every_challenge_with_the_stats_page_verdicts(page: Page, co
     assert index["Cmp.double_even"][0] == "proved"
     assert index["Dif.add_swap"][0] == "differs"
     pending = page.locator('.bp_comparator_index_item[data-bp-challenge="Pending"]').inner_text()
-    assert "Not compared: The challenge module has not been built." in pending
+    assert "Not compared: the challenge module has not been built (Comparator.Pending.Challenge)." in pending
     page.goto(url + "/Project-Stats/", wait_until="load")
     assert verdicts(page, ".bp_project_stats") == index
     bands = page.eval_on_selector_all(".bp_stats_headline .bp_stats_band_title", "els => els.map(e => e.textContent)")
@@ -178,6 +178,11 @@ def test_hovers_on_the_solution(page: Page, comparator_urls):
     page.goto(url + "/Comparator/Double/", wait_until="load")
     hovered = page.locator("#solution-file [data-verso-hover]")
     assert hovered.count() > 0
+    # the keyboard reaches every token with a hover, and focusing one shows its hover
+    assert page.locator("#solution-file [data-verso-hover]:not([tabindex='0'])").count() == 0
+    page.locator("#solution-file .bp_comparator_code [data-verso-hover]").first.focus()
+    page.wait_for_selector(".tippy-box", state="visible", timeout=5000)
+    assert page.locator(".tippy-box").first.inner_text().strip()
 
 
 def test_differing_solution_is_escaped_and_never_proved(page: Page, comparator_urls):

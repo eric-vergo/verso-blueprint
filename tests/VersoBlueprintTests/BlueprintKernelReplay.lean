@@ -178,13 +178,46 @@ info: [(Informal.Replay.Outcome.accepted, none),
 -- when a piece of the file ends inside a line. A `quot` record is not counted.
 /--
 info: [{ bytes := 0, records := 0, endsWithNewline := false },
- { bytes := 68, records := 2, endsWithNewline := true },
- { bytes := 67, records := 2, endsWithNewline := false }]
+ { bytes := 80, records := 3, endsWithNewline := true },
+ { bytes := 79, records := 3, endsWithNewline := false }]
 -/
 #guard_msgs (whitespace := lax) in
 #eval
-  let text := "{\"meta\":1}\n{\"in\":1}\n{\"thm\":{}}\n{\"quot\":{}}\n{\"inductive\":{}}\n{\"x\":0}\n"
+  let text := "{\"meta\":1}\n{\"in\":1}\n{\"thm\":{}}\n{\"quot\":{}}\n{\"quot\":{}}\n" ++
+    "{\"inductive\":{}}\n{\"x\":0}\n"
   [censusOf ByteArray.empty, censusOf text.toUTF8, censusOf (text.dropEnd 1).copy.toUTF8]
+
+-- The count is the one the checkers of Lean 4.36 state: a record per declaration, one for the
+-- quotient package (its four `quot` records), none for `Quot.sound` and `sorryAx`, which they
+-- have built in; another axiom counts. `Quot.mk` without `Quot.sound` has the package and no
+-- axiom record. Read in pieces, the count is the same.
+/-- info: [(4, 4), (3, 3), (2, 2), (5, 5)] -/
+#guard_msgs in
+#eval show IO _ from do
+  let names := "{\"in\":1,\"str\":{\"pre\":0,\"str\":\"Quot\"}}\n" ++
+    "{\"in\":2,\"str\":{\"pre\":1,\"str\":\"sound\"}}\n" ++
+    "{\"in\":3,\"str\":{\"pre\":0,\"str\":\"sorryAx\"}}\n" ++
+    "{\"in\":4,\"str\":{\"pre\":0,\"str\":\"sound\"}}\n"
+  let quot := String.join (List.replicate 4 "{\"quot\":{\"kind\":\"type\"}}\n")
+  let axiom_ (id : Nat) :=
+    s!"\{\"axiom\":\{\"isUnsafe\":false,\"levelParams\":[],\"name\":{id},\"type\":9}}\n"
+  let decls := "{\"def\":{}}\n{\"thm\":{}}\n"
+  let exports := [
+    -- `Quot.mk` without `Quot.sound`, and an axiom of the project named `sound`
+    names ++ quot ++ decls ++ axiom_ 4,
+    -- `Quot.sound`
+    names ++ quot ++ axiom_ 2 ++ decls,
+    -- `sorryAx`, no quotient
+    names ++ axiom_ 3 ++ decls,
+    -- both, and an `opaque` and an `inductive`
+    names ++ quot ++ axiom_ 2 ++ axiom_ 3 ++ decls ++ "{\"opaque\":{}}\n{\"inductive\":{}}\n"]
+  let dir ← IO.FS.createTempDir
+  let mut out := #[]
+  for text in exports do
+    IO.FS.writeFile (dir / "export.ndjson") text
+    out := out.push ((censusOf text.toUTF8).records, (← exportCensus (dir / "export.ndjson")).records)
+  IO.FS.removeDirAll dir
+  return out.toList
 
 -- Each checker runs with half the machine's threads, at most 8 and at least 2.
 /-- info: [2, 2, 4, 8, 8] -/
@@ -598,8 +631,8 @@ info: [("accepted", "bp_replay_accepted", none),
  ("none",
   "bp_replay_none",
   some "the kernel replay accepted the build; on this site 1 node without sorry rests on an axiom outside Lean's standard three"),
- ("rejected", "bp_replay_rejected", some "this build was rejected by a kernel checker"),
- ("rejected", "bp_replay_rejected", some "this build was rejected by a kernel checker"),
+ ("rejected", "bp_replay_rejected", some "a kernel checker rejected this build"),
+ ("rejected", "bp_replay_rejected", some "a kernel checker rejected this build"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel"),
  ("none", "bp_replay_none", some "as the compiled files report, with no verdict of a kernel replay"),
  ("none", "bp_replay_none", some "as the compiled files report, not replayed by a kernel")]
@@ -626,9 +659,9 @@ info: [("accepted", "bp_replay_accepted", none),
       proved." &&
     (Replay.siteState none).sentence == "The counts are as the compiled files report, not \
       replayed by a kernel: this site was generated without a kernel replay." &&
-    (Replay.siteState (some (result .rejected))).sentence == "This build was rejected by a \
-      kernel checker: the counts say what the compiled files report, and nothing here counts \
-      as checked by a kernel." &&
+    (Replay.siteState (some (result .rejected))).sentence == "A kernel checker rejected this \
+      build: the counts say what the compiled files report, and nothing here counts as checked \
+      by a kernel." &&
     (Replay.siteState (some (result .accepted))).sentence == ""
 
 -- The Project Stats page per state: the class of the page and of the headline card, the
@@ -654,9 +687,9 @@ info: [("accepted", "bp_replay_accepted", none),
     hasSubstr rejected "class=\"bp_stats_theorem bp_replay_rejected\"" &&
     !hasSubstr rejected "bp_replay_accepted" &&
     hasSubstr rejected "bp_stats_replay_counts bp_stats_replay_counts_rejected" &&
-    hasSubstr rejected "This build was rejected by a kernel checker: the counts say" &&
-    hasSubstr rejected "Lean complete, dependencies too (this build was rejected by a kernel \
-      checker): 2" &&
+    hasSubstr rejected "A kernel checker rejected this build: the counts say" &&
+    hasSubstr rejected "Lean complete, dependencies too (a kernel checker rejected this \
+      build): 2" &&
   hasSubstr none "class=\"bp_project_stats bp_replay_none\"" &&
     hasSubstr none "class=\"bp_stats_theorem bp_replay_none\"" &&
     !hasSubstr none "bp_replay_accepted" &&
@@ -754,7 +787,9 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
   let withAxioms : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
     (`covered, .accepted), (`assumed, .notChecked #[`P.ax]),
     (`unfinished, .notChecked #[``sorryAx])]
-  let resting : ReplayView.Index := { replay? := some (result .accepted), standings := withAxioms }
+  -- the compiled files report `assumed` without `sorry`; `unfinished` has one
+  let resting : ReplayView.Index := { replay? := some (result .accepted), standings := withAxioms
+                                      reportedProved := (∅ : NameHashSet).insert `assumed }
   accepted.uncovered == #[`script] && accepted.siteState.token == "none" &&
     rejected.uncovered == #[] && rejected.siteState == .rejected &&
     resting.uncovered == #[] && resting.resting == #[`assumed] &&

@@ -9,6 +9,7 @@ import VersoBlueprint.Axioms
 import VersoBlueprint.ClaimView
 import VersoBlueprint.Informal.Block.Render
 import VersoBlueprint.LeanSourceAnchor
+import VersoBlueprint.StatusColors
 
 /-!
 The node view: one Blueprint node as a unit, the informal statement beside its
@@ -206,8 +207,12 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone then .empty
     else {{<div class="bp_node_view_relations">{{relationRow "Uses" v.uses}}{{
       relationRow "Used by" v.usedBy}}{{axiomsRow v.axioms?}}</div>}}
+  -- the success colours inside the view follow its mark: green only under the check mark, which
+  -- is drawn only where an accepted replay covers the node (`StatusColors.replayScopeCss`)
+  let scope := if glyph.modifier == StatusGlyphKind.proved.modifier then "accepted" else "none"
   .element "article" (#[("class", "bp_node_view"), ("data-bp-node-view", v.label),
-      ("data-bp-node-view-layout", layout)] ++ declAttrs)
+      ("data-bp-node-view-layout", layout), (Informal.StatusColors.replayScopeAttr, scope)] ++
+      declAttrs)
     (.seq #[header,
       {{<div class={{bodyClass}}><div class="bp_sbs_grid">{{columns}}</div></div>}}, footer])
 

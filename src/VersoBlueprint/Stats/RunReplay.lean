@@ -36,9 +36,10 @@ The second half (`checkExport`) runs the two checkers that ship with the Lean to
 memory limit and under one time limit for the whole replay. Each adds every declaration of the
 file to an empty environment. Its answer is read from its exit status first and its words second
 (`parseAnswer`): an acceptance needs status 0, its line `accepted N declarations` and `N` at
-least the declaration records the generator counts in the file (`exportCensus`), which must also
-be exactly the file the worker wrote and end with a complete line; both checkers accept an empty
-or cut-off file with status 0. The replay accepts only when both checkers accept
+least the count of declarations the generator finds in the file (`exportCensus`: its declaration
+records, one for the quotient package, none for the axioms the checkers have built in), which
+must also be exactly the file the worker wrote and end with a complete line; both checkers
+accept an empty or cut-off file with status 0. The replay accepts only when both checkers accept
 (`combineRuns`); a run stopped at a limit is reported as such, never as accepted.
 
 ## The worker
@@ -366,10 +367,30 @@ def workerOfLines (value : String) : Option (FilePath × Array String) :=
   | [] => none
   | program :: leading => some (FilePath.mk program, leading.toArray.push replayWorkerFlag)
 
+/-- The compiled-module directories of the Lake packages of the workspace at `root`, as its
+`lake-manifest.json` lists them: a package from Git in the workspace's package directory
+(`packagesDir`, `.lake/packages` by default), a package from a path at that path, which can be
+anywhere. Empty without a readable manifest. -/
+def manifestLibraryDirs (root : FilePath) : IO (Array FilePath) := do
+  let some text ← (try some <$> IO.FS.readFile (root / "lake-manifest.json") catch _ => pure none)
+    | return #[]
+  let .ok json := Json.parse text | return #[]
+  let packagesDir := (json.getObjValAs? String "packagesDir").toOption.getD ".lake/packages"
+  let packages := (json.getObjValAs? (Array Json) "packages").toOption.getD #[]
+  return packages.filterMap fun pkg => do
+    let name ← (pkg.getObjValAs? String "name").toOption
+    let dir : FilePath := match (pkg.getObjValAs? String "type").toOption,
+        (pkg.getObjValAs? String "dir").toOption with
+      | some "path", some dir => root / dir
+      | _, _ => root / packagesDir / name
+    return dir / ".lake" / "build" / "lib" / "lean"
+
 /-- The configuration for the project at `root`, whose own compiled modules are in
 `libraryDirs` (relative to `root`), from the environment variables above. Modules are searched
 for in the directories of `LEAN_PATH`, in its order (Lake sets it for a program it runs), then in
-the project's own directories and those of its Lake packages. -/
+the project's own directories and those of its Lake packages (those in `.lake/packages` and every
+package its manifest lists, also one from a path outside the project: `manifestLibraryDirs`), so
+that a module with a compiled file in more than one of them is seen (`duplicateModule?`). -/
 def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO ReplayConfig := do
   let projectDirs ← dedupDirs (libraryDirs.map fun dir : String => root / dir)
   let mut dirs : Array FilePath := #[]
@@ -381,6 +402,7 @@ def ReplayConfig.fromEnv (root : FilePath) (libraryDirs : Array String) : IO Rep
   if ← packages.isDir then
     for entry in (← packages.readDir).qsort (·.fileName < ·.fileName) do
       dirs := dirs.push (entry.path / ".lake" / "build" / "lib" / "lean")
+  dirs := dirs ++ (← manifestLibraryDirs root)
   let searchPath ← dedupDirs dirs
   let choice := ((← IO.getEnv replayCheckerVar).map (·.trimAscii.copy)).filter (!·.isEmpty)
   let off := choice == some "off"
@@ -916,10 +938,16 @@ def combineRuns (runs : Array Replay.CheckerRun) : Replay.Outcome × Option Stri
         (.failed, some s!"{c.label} {what}{(c.message.map (s!" ({·})")).getD ""}")
       | none => (.failed, some "no checker ran")
 
-/-- What the generator finds in an export file: its size, its declaration records (lines that
-start with `{"def":`, `{"thm":`, `{"opaque":`, `{"axiom":` or `{"inductive":`) and whether its
-last line is complete. The `{"quot":` records of the kernel's quotient package are not counted:
-the checkers add them without counting them among the declarations they accepted. -/
+/-- What the generator finds in an export file: its size, the number of declarations a checker
+that accepts it states at least (`records`), and whether its last line is complete.
+
+The count follows what the checkers of Lean 4.36 state, as measured on exports of every size: one
+per declaration record (a line that starts with `{"def":`, `{"thm":`, `{"opaque":`, `{"axiom":` or
+`{"inductive":`); one for the kernel's quotient package however many `{"quot":` records it has,
+when it has any; none for the record of the axiom `Quot.sound` or `sorryAx`, which the checkers
+have built in. So `records` is a lower bound of a checker's `accepted N declarations`: an
+acceptance needs `N ≥ records`, never less. A file cut off or padded after the worker wrote it is
+refused by its size and its last line, not by this count. -/
 structure ExportCensus where
   bytes : Nat
   records : Nat
@@ -936,37 +964,98 @@ private def startsWithAt (bytes : ByteArray) (at_ : Nat) (pre : ByteArray) : Boo
     if bytes.get! (at_ + i) != pre.get! i then return false
   return true
 
-/-- `ExportCensus` of the bytes `bytes`. -/
-def censusOf (bytes : ByteArray) : ExportCensus := Id.run do
-  let mut records := 0
-  let mut lineStart := true
-  for i in [0:bytes.size] do
-    if lineStart then
-      if recordPrefixes.any (startsWithAt bytes i ·) then records := records + 1
-    lineStart := bytes.get! i == 10
-  return { bytes := bytes.size, records, endsWithNewline := bytes.size > 0 && lineStart }
+/-- Whether `pre` occurs in `bytes` between `start` and `stop`. -/
+private def containsBetween (bytes : ByteArray) (start stop : Nat) (pre : ByteArray) : Bool :=
+  Id.run do
+    if pre.size == 0 then return true
+    for i in [start:stop] do
+      if i + pre.size > stop then return false
+      if startsWithAt bytes i pre then return true
+    return false
 
-/-- `ExportCensus` of the file `file`, read in pieces (a line's start is never cut: a piece is
-cut after a newline). -/
+/-- What the count of an export needs beyond its records, gathered line by line: whether it has
+`{"quot":` records, the name ids of its axiom records, and the name records that can spell
+`Quot.sound` or `sorryAx` (their id, the id of the name before, the last component). -/
+structure CensusParts where
+  bytes : Nat := 0
+  records : Nat := 0
+  quot : Bool := false
+  axiomNames : Array Nat := #[]
+  names : Std.HashMap Nat (Nat × String) := {}
+  endsWithNewline : Bool := false
+deriving Inhabited
+
+private def quotPrefix : ByteArray := "{\"quot\":".toUTF8
+private def axiomPrefix : ByteArray := "{\"axiom\":".toUTF8
+private def namePrefix : ByteArray := "{\"in\":".toUTF8
+private def nameWords : Array ByteArray :=
+  #["\"str\":\"Quot\"", "\"str\":\"sound\"", "\"str\":\"sorryAx\""].map (·.toUTF8)
+
+/-- The JSON of the line of `bytes` from `start` to `stop`. -/
+private def lineJson? (bytes : ByteArray) (start stop : Nat) : Option Json :=
+  (String.fromUTF8? (bytes.extract start stop)).bind fun s => (Json.parse s).toOption
+
+/-- `CensusParts` of the complete lines of `bytes`, added to `parts`. -/
+def CensusParts.add (parts : CensusParts) (bytes : ByteArray) : CensusParts := Id.run do
+  let mut p := { parts with bytes := parts.bytes + bytes.size }
+  let mut start := 0
+  for i in [0:bytes.size + 1] do
+    if i < bytes.size && bytes.get! i != 10 then continue
+    if start < i then
+      if recordPrefixes.any (startsWithAt bytes start ·) then
+        p := { p with records := p.records + 1 }
+        if startsWithAt bytes start axiomPrefix then
+          let id? := (lineJson? bytes start i).bind fun j =>
+            ((j.getObjValD "axiom").getObjValAs? Nat "name").toOption
+          if let some id := id? then p := { p with axiomNames := p.axiomNames.push id }
+      else if startsWithAt bytes start quotPrefix then
+        p := { p with quot := true }
+      else if startsWithAt bytes start namePrefix &&
+          nameWords.any (containsBetween bytes start i ·) then
+        if let some j := lineJson? bytes start i then
+          let str := j.getObjValD "str"
+          match (j.getObjValAs? Nat "in").toOption, (str.getObjValAs? Nat "pre").toOption,
+            (str.getObjValAs? String "str").toOption with
+          | some id, some pre, some last => p := { p with names := p.names.insert id (pre, last) }
+          | _, _, _ => pure ()
+    start := i + 1
+  return { p with endsWithNewline := bytes.size > 0 && bytes.get! (bytes.size - 1) == 10 ||
+    (bytes.size == 0 && parts.endsWithNewline) }
+
+/-- The count of the parts (`ExportCensus`). -/
+def CensusParts.census (p : CensusParts) : ExportCensus :=
+  let isName (id : Nat) (pre : Nat) (last : String) : Bool :=
+    p.names.get? id == some (pre, last)
+  let builtIn (id : Nat) : Bool :=
+    isName id 0 "sorryAx" ||
+      match p.names.get? id with
+      | some (pre, "sound") => isName pre 0 "Quot"
+      | _ => false
+  let skipped := (p.axiomNames.filter builtIn).size
+  { bytes := p.bytes, endsWithNewline := p.endsWithNewline
+    records := p.records - skipped + (if p.quot then 1 else 0) }
+
+/-- `ExportCensus` of the bytes `bytes`. -/
+def censusOf (bytes : ByteArray) : ExportCensus :=
+  ({} : CensusParts).add bytes |>.census
+
+/-- `ExportCensus` of the file `file`, read in pieces (a line is never cut: a piece is cut after a
+newline). -/
 def exportCensus (file : FilePath) : IO ExportCensus := do
   let handle ← IO.FS.Handle.mk file .read
-  let mut bytes := 0
-  let mut records := 0
+  let mut parts : CensusParts := {}
   let mut carry := ByteArray.emptyWithCapacity 0
-  let mut last : Option UInt8 := none
   repeat
     let chunk ← handle.read (4 * 1024 * 1024)
     if chunk.isEmpty then break
-    bytes := bytes + chunk.size
-    last := some (chunk.get! (chunk.size - 1))
     let data := carry ++ chunk
     -- count the complete lines; keep the rest for the next piece
     let mut cut := data.size
     while cut > 0 && data.get! (cut - 1) != 10 do cut := cut - 1
-    records := records + (censusOf (data.extract 0 cut)).records
+    parts := parts.add (data.extract 0 cut)
     carry := data.extract cut data.size
-  records := records + (censusOf carry).records
-  return { bytes, records, endsWithNewline := last == some 10 }
+  parts := parts.add carry
+  return parts.census
 
 /-! ## The replay -/
 

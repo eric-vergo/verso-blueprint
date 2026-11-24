@@ -411,8 +411,8 @@ private def writeDemoChallenge (root : System.FilePath) : IO Unit := do
   let stats ← IO.FS.readFile (site / "Project-Stats" / "index.html")
   let index ← IO.FS.readFile (site / "Comparator" / "index.html")
   let page ← IO.FS.readFile (site / "Comparator" / "Demo" / "index.html")
-  let notBuilt := "Not compared: The challenge module has not been built. \
-      (Comparator.Demo.Challenge: lake build failed: exit 1)"
+  let notBuilt := "Not compared: the challenge module has not been built \
+      (Comparator.Demo.Challenge: lake build failed: exit 1)."
   return code == 0 && hasSubstr stats "bp_stats_headline_unavailable" && hasSubstr stats notBuilt &&
     hasSubstr stats "class=\"bp_stats_challenge_link\"" &&
     hasSubstr index notBuilt && hasSubstr index "Comparator.Demo.Solution" &&
@@ -420,6 +420,32 @@ private def writeDemoChallenge (root : System.FilePath) : IO Unit := do
     hasSubstr page "Doubling &lt;b&gt;here&lt;/b&gt;." && !hasSubstr page "<b>here</b>" &&
     hasSubstr page "\"theorem_names\": [\"Demo.double_eq\"]" &&
     hasSubstr page (Informal.Commands.challengePageIntroText "Demo")
+
+-- A project that depends on another one, from a path outside it, with a challenge folder of the
+-- same name: the challenge's module has a compiled file in both builds, so it is not compared,
+-- and the card names the module and both files.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  writeDemoChallenge root
+  let dep := System.FilePath.mk s!"{root}-dependency"
+  try
+    for base in [root, dep] do
+      let lib := base / ".lake" / "build" / "lib" / "lean" / "Comparator" / "Demo"
+      IO.FS.createDirAll lib
+      IO.FS.writeFile (lib / "Challenge.olean") s!"compiled in {base}"
+    IO.FS.writeFile (root / "lake-manifest.json") (Json.mkObj [("version", "1.1.0"),
+      ("packagesDir", ".lake/packages"), ("packages", Json.arr #[Json.mkObj [("type", "path"),
+        ("name", "dependency"), ("dir", s!"../{dep.fileName.getD ""}")]])]).compress
+    let code ← generate (root / "code.json") root none
+      ["--output", (root / "_out").toString, "--reproducible"] (kernelReplay := false)
+    let stats ← IO.FS.readFile (root / "_out" / "html-multi" / "Project-Stats" / "index.html")
+    return code == 0 && hasSubstr stats "Not compared: a module of the comparison has a compiled \
+      file in more than one directory of the search path" &&
+      hasSubstr stats s!"(Comparator.Demo.Challenge: {← IO.FS.realPath root}/.lake" &&
+      hasSubstr stats s!"{← IO.FS.realPath dep}/.lake" &&
+      hasSubstr stats "give the challenges of each project folder names of their own."
+  finally IO.FS.removeDirAll dep
 
 -- A project whose Comparator files do not follow the layout is not generated: the generator
 -- fails and names the file, the rule and the change.

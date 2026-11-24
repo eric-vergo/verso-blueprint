@@ -276,6 +276,10 @@ inductive Unavailable where
   build record of it is missing, cannot be read, does not name the source, or describes other
   compiled files. -/
   | solutionProvenanceUnknown
+  /-- The challenge or the solution module has a compiled file in more than one directory of the
+  search path (a project that depends on another one with a challenge folder of the same name,
+  say), so which file a build means depends on the order of the path. -/
+  | moduleAmbiguous
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- A theorem a Comparator challenge states, and what the solution does with it. -/

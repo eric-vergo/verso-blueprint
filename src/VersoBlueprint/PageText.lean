@@ -32,7 +32,8 @@ def allowZoom (html : String) : String :=
   html.replace versoViewport blueprintViewport
 
 /-- A section number at the start of `s` as Verso writes it, `9.1.` or `A.2.3.`, with at least two
-components: the components and the length of the number in characters. -/
+components: the components and the length of the number in characters. Only the first component
+may be a letter (an appendix), so a title such as "U.S. Patent" has none. -/
 def leadingSectionNumber? (s : String) : Option (List String × Nat) := Id.run do
   let chars := (s.take 48).toString.toList
   let mut comps : Array String := #[]
@@ -42,7 +43,7 @@ def leadingSectionNumber? (s : String) : Option (List String × Nat) := Id.run d
     if c.isDigit then
       cur := cur.push c
       used := used + 1
-    else if c.isUpper && cur.isEmpty then
+    else if c.isUpper && cur.isEmpty && comps.isEmpty then
       cur := cur.push c
       used := used + 1
     else if c == '.' && !cur.isEmpty && (cur.all Char.isDigit || cur.length == 1) then
@@ -107,14 +108,18 @@ def sectionSigns (html : String) : String :=
 def finishPage (html : String) : String :=
   sectionSigns (allowZoom html)
 
-/-- Finish every page of the site in `dir`, and the site's cross-reference data (`xref.json`).
-Returns the number of files changed. -/
-def finishSite (dir : System.FilePath) : IO Nat := do
+/-- Finish every page of the site in `dir` that the build which began at `since` wrote, and the
+site's cross-reference data (`xref.json`): a file the build did not write (one a person put into
+the folder, or a page an earlier build left there) is never changed. Returns the number of files
+changed. -/
+def finishSite (dir : System.FilePath) (since : IO.FS.SystemTime) : IO Nat := do
   if !(← dir.isDir) then return 0
   let mut changed := 0
   for f in ← Informal.StaticMath.filesUnder dir do
     let page := f.extension == some "html"
     if !page && f.fileName != some "xref.json" then continue
+    let some md ← (try some <$> f.metadata catch _ => pure none) | continue
+    if md.modified < since then continue
     let text ← IO.FS.readFile f
     let out := if page then finishPage text else sectionSigns text
     if out != text then

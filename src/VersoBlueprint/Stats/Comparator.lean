@@ -121,6 +121,24 @@ def findCompiledModule? (path : System.SearchPath) (module : Name) :
     if ← file.pathExists then return some file
   return none
 
+/-- The compiled files of `module` on the search path `path`, each once by its real path: more
+than one means that which of them a build means depends on the order of the path. -/
+def compiledFilesOf (path : System.SearchPath) (module : Name) : IO (Array System.FilePath) := do
+  let mut files := #[]
+  for dir in path do
+    let file := modToFilePath dir module "olean"
+    if ← file.pathExists then
+      let real ← try IO.FS.realPath file catch _ => pure file
+      unless files.contains real do files := files.push real
+  return files
+
+/-- Why a module of a comparison cannot be named by its name alone, when it has more than one
+compiled file on `path` (`compiledFilesOf`): the module and its files. -/
+def ambiguousModule? (path : System.SearchPath) (module : Name) : IO (Option String) := do
+  let files ← compiledFilesOf path module
+  if files.size ≤ 1 then return none
+  return some s!"{module}: {", ".intercalate (files.toList.map (·.toString))}"
+
 /-! ## Source text -/
 
 /-- Whether `c` can be part of an identifier or keyword (any character outside ASCII that is not
@@ -440,6 +458,10 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   let path := libraryPath ++ layout.libraryDirs.toList.map fun dir : String => root / dir
   let some olean ← findCompiledModule? path config.challengeModule
     | return unavailable .challengeNotBuilt (some config.challengeModule.toString)
+  -- the fixed names `Comparator.<Name>.*` are the same in a project and in one it depends on
+  for module in #[config.challengeModule, config.solutionModule] do
+    if let some why ← ambiguousModule? path module then
+      return unavailable .moduleAmbiguous (some why)
   let challenge ← match ← (ChallengeModule.read olean).toBaseIO with
     | .ok challenge => pure challenge
     | .error e => return unavailable .challengeUnreadable (some (toString e))

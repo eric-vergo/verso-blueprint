@@ -40,6 +40,18 @@ class HarnessEntrypointSmokeTests(unittest.TestCase):
     def parse_config(self, output: str) -> dict[str, str]:
         return dict(line.split("=", 1) for line in output.splitlines())
 
+    def test_test_entry_points_keep_the_replay_record_out_of_the_users_cache(self) -> None:
+        # the Lean tests' script and the browser suite each name a scratch record before they
+        # run anything, so that a replay a test makes never writes the user's cache
+        script = (PACKAGE_ROOT / "scripts" / "run-lean-tests.sh").read_text(encoding="utf-8")
+        exported = script.find('export VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD="$replay_record_dir/')
+        self.assertGreater(exported, 0)
+        self.assertLess(exported, script.find("lake test"))
+        conftest = (PACKAGE_ROOT / "tests" / "browser" / "conftest.py").read_text(encoding="utf-8")
+        assigned = conftest.find('os.environ["VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD"] = str(REPLAY_RECORD_DIR')
+        self.assertGreater(assigned, 0)
+        self.assertLess(assigned, conftest.find("def "))
+
     def test_blueprint_harness_help(self) -> None:
         result = self.run_command([sys.executable, "-m", "scripts.blueprint_harness", "--help"])
         self.assertEqual(result.returncode, 0, msg=result.stderr)

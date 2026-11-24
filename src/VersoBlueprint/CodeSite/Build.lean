@@ -433,8 +433,10 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     claims := ← Stats.Claims.atRoot? root
   }
 
-/-- The compiled-module directories of the project at `root`: its own build, its packages'
-(`.lake/packages/*`) and those `layout` names. -/
+/-- The compiled-module directories of the project at `root`: those `layout` names, its own
+build, and its packages' (`.lake/packages/*`, and every package its manifest lists, also one from
+a path outside the project: `Stats.manifestLibraryDirs`). Not the generator's own search path,
+which can be another workspace's. -/
 def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
     IO System.SearchPath := do
   let mut path : System.SearchPath := layout.libraryDirs.toList.map fun dir : String => root / dir
@@ -445,7 +447,9 @@ def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
     for entry in (← packages.readDir).qsort (·.fileName < ·.fileName) do
       let lib := entry.path / ".lake" / "build" / "lib" / "lean"
       if ← lib.isDir then path := path ++ [lib]
-  return path
+  for lib in ← Stats.manifestLibraryDirs root do
+    if ← lib.isDir then path := path ++ [lib]
+  return (← Stats.dedupDirs path.toArray).toList
 
 /-- The modules of the data whose source text the site shows (`sources`) and that is not known to
 be the text their compiled module was compiled from, by Lake's build record beside the compiled
@@ -501,6 +505,12 @@ def headlinesOf (root : System.FilePath) (project : Project) (known : NameSet)
   for config in configs do
     let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
       | early := early.push (← uncompared config .challengeNotBuilt config.challengeModule.toString)
+    -- a project that depends on another one with a challenge folder of the same name
+    let ambiguous ← [config.challengeModule, config.solutionModule].filterMapM
+      (Stats.ambiguousModule? libraryPath ·)
+    if let some why := ambiguous.head? then
+      early := early.push (← uncompared config .moduleAmbiguous why)
+      continue
     match ← (Stats.ChallengeModule.read olean).toBaseIO with
     | .ok challenge =>
       ready := ready.push config
@@ -579,8 +589,8 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
     else if stated == decls then
       "; every node shows its informal statement beside its Lean side."
     else
-      s!"; {stated} of them have an informal statement, shown beside the Lean side, the \
-        others show their Lean side alone."
+      s!"; {stated} of them {if stated == 1 then "has" else "have"} an informal statement, shown \
+        beside the Lean side, the others show their Lean side alone."
   let statements := if stated == 0 then statements else
     statements ++ " An informal statement is shown with its source; no tool has checked that \
       it says the same as the Lean statement."

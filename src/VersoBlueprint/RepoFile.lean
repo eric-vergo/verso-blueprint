@@ -6,6 +6,7 @@ Author: Eric Vergo
 
 import VersoManual
 import VersoBlueprint.Git
+import VersoBlueprint.LeanSourceAnchor
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.RuntimeCache
 
@@ -16,8 +17,9 @@ Links from the text to files of the project's repository, at the commit the site
 repository, as the source links of Lean declarations do: on GitHub, at the commit of the checkout
 the site is generated from (`blob/<commit>/<path>`). A path may end with a fragment
 (`"Main.lean#L10-L20"`). The path is relative to the root of the repository and must name a file or
-folder there when the chapter is elaborated. A site generated outside a Git checkout with a GitHub
-`origin` shows the text without a link.
+folder there that the repository tracks when the chapter is elaborated (a file Git does not track
+has no address at the commit); in the link it is percent-encoded. A site generated outside a Git
+checkout with a GitHub `origin` shows the text without a link.
 -/
 
 namespace Informal.RepoFile
@@ -53,7 +55,13 @@ def href? (dir : System.FilePath) (path : String) : IO (Option String) := do
   let some info ← RuntimeCache.cachedGitRepoInfo? root (Git.repositoryInfoAtRoot? root)
     | return none
   let (file, fragment) := splitFragment path
-  return some s!"{info.githubUrl}/blob/{info.commit}/{file}{fragment}"
+  return some s!"{info.githubUrl}/blob/{info.commit}/{LeanSourceAnchor.percentEncode file}{fragment}"
+
+/-- Whether the Git repository at `root` tracks `path` (a file, or a folder with a tracked file). -/
+def tracked (root : System.FilePath) (path : String) : IO Bool := do
+  let out ← IO.Process.output
+    { cmd := "git", args := #["-C", root.toString, "ls-files", "--error-unmatch", "--", path] }
+  return out.exitCode == 0
 
 inline_extension Inline.repoFile (path : String) where
   data := toJson path
@@ -83,8 +91,14 @@ def repoFile : RoleExpanderOf Informal.RepoFile.RepoFileArgs
       throwError "repoFile: {problem}: {path}"
     let source ← IO.FS.realPath (← getFileName)
     let dir := source.parent.getD "."
-    let root := (← Informal.Git.toplevelAt? dir).getD (← IO.currentDir)
+    let top? ← Informal.Git.toplevelAt? dir
+    let root := top?.getD (← IO.currentDir)
     unless ← (root / file).pathExists do
       throwError "repoFile: {file} is not in the repository at {root}"
+    -- a file the repository does not track has no address at the commit
+    if top?.isSome then
+      unless ← Informal.RepoFile.tracked root file do
+        throwError "repoFile: {file} is not tracked by the repository at {root}: add it to Git, \
+          or link to a file that is"
     let content ← contents.mapM elabInline
     ``(Verso.Doc.Inline.other (Informal.RepoFile.Inline.repoFile $(quote path)) #[$content,*])

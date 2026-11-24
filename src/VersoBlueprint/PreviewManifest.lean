@@ -2910,10 +2910,15 @@ private def emitBlueprintHtml
   if finished.clashes > 0 then
     Verso.reportError s!"Blueprint math: {finished.clashes} glyph outlines share an id"
   -- zoom left to the reader; section numbers as `§9.1`
-  let _ ← Informal.PageText.finishSite (outDirForMode prepared.config.toConfig mode)
+  let _ ← Informal.PageText.finishSite (outDirForMode prepared.config.toConfig mode) started
   for step in extraSteps do
     step prepared
-  -- every place the site's navigation links to exists
+  let removed ← Informal.OutputPrune.finish outDir started
+  unless removed.isEmpty do
+    logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
+      build that this build did not write"
+  -- every place the site's navigation links to exists, in the folder as this build leaves it (a
+  -- page of an earlier build that was just removed is not there)
   let dead ← Informal.LinkCheck.checkSite (outDirForMode prepared.config.toConfig mode)
   for link in dead.extract 0 20 do
     Verso.reportError s!"Blueprint navigation: {link.page} links to {link.href}, a place the \
@@ -2921,10 +2926,6 @@ private def emitBlueprintHtml
   if dead.size > 20 then
     Verso.reportError s!"Blueprint navigation: {dead.size - 20} more links to places the site \
       does not have"
-  let removed ← Informal.OutputPrune.finish outDir started
-  unless removed.isEmpty do
-    logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
-      build that this build did not write"
 
 /-- Extract `--no-stats-page`: it turns the automatic Project Stats page off. -/
 def parseStatsPageFlag (statsPage? : Option Informal.Commands.StatsPageData) (args : List String) :

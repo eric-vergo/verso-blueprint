@@ -118,14 +118,13 @@ def Index.uncovered (index : Index) : Array Name :=
 
 /-- The nodes whose Lean code has no `sorry` but rests on an axiom outside Lean's standard three,
 as an accepted replay found by walking the terms, sorted: not exported and not checked, since
-both checkers decline an export that uses such an axiom. -/
+both checkers decline an export that uses such an axiom. Only nodes the compiled files report as
+having no `sorry` are counted as complete, so only those are among them: not a node whose Lean
+code is the axiom itself (declared without a proof), nor one with a `sorry`. -/
 def Index.resting (index : Index) : Array Name :=
   (index.standings.toArray.filterMap fun (label, standing) =>
     match standing with
-    -- a `sorry` the replay found keeps a node out unless it is counted as complete anyway
-    | .notChecked axioms =>
-      if axioms.contains Data.sorryAxiom && !index.reportedProved.contains label then none
-      else some label
+    | .notChecked _ => if index.reportedProved.contains label then some label else none
     | _ => none).qsort (·.toString < ·.toString)
 
 /-- The nodes whose Lean source is not known to be the text that was compiled (its module's

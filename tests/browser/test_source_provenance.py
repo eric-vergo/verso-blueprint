@@ -13,6 +13,7 @@ build", with no check mark, no "no sorry", no success colour; the other declarat
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -21,7 +22,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Page
 
-from conftest import serve_site
+from conftest import REPLAY_RECORD_DIR, serve_site
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from support import PACKAGE_ROOT, lake_hash
 
@@ -111,6 +112,14 @@ def graph_nodes(page: Page, url: str) -> list[dict]:
             label: n.getAttribute('aria-label') || '',
             fill: getComputedStyle(n.querySelector('ellipse, path')).fill
         }))""")
+
+
+def test_replay_record_is_scratch(code_sites: dict[str, Path]):
+    # the accepted replay of the fixture recorded its acceptance in the suite's scratch folder,
+    # not in the user's cache
+    record = Path(os.environ["VERSO_BLUEPRINT_KERNEL_REPLAY_RECORD"])
+    assert record.parent == REPLAY_RECORD_DIR
+    assert record.is_file()
 
 
 def test_lake_hash_is_lakes(code_sites: dict[str, Path]):

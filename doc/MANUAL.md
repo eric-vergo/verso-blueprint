@@ -2477,11 +2477,19 @@ The rules, as the messages number them:
 - **C1** `Challenge.lean` imports no module under `Comparator` (not its
   solution, not another challenge's module).
 - **C2** `Challenge.lean` states its theorems with `sorry`: the word `sorry`
-  occurs in its code (comments and strings aside).
+  occurs in its code (comments, strings, raw strings and character literals
+  aside, and nothing after a `#exit` command, which Lean does not read).
 - **C3** Every name of `theorem_names` is declared with `theorem` in
   `Challenge.lean`, and **S2** in `Solution.lean`. Names are read from the
   source text, with `namespace` and `end` followed, and a name written in full
   (`theorem Foo.bar`, `theorem _root_.bar`) taken as written.
+
+The rules C1 to C3, S1 and S2 are read from the text of the files, not by
+Lean's parser, so that the layout can be checked without building anything; a
+file can be written to mislead such a reading. What a page says about a
+challenge, its theorems and its solution comes from the compiled modules (the
+comparison of their declarations and the kernel replay), never from these
+rules.
 - **S1** `Solution.lean` imports no module under `Comparator`. It may import
   the project's library.
 - **K1** The project's Lake workspace can build both modules: a library holds
@@ -2500,12 +2508,29 @@ The files are the project's data: they are read with the limits above, never
 followed through a symbolic link, and never run; `comparator.json` is parsed
 only after its size and nesting were checked.
 
+**A project that depends on another.** The layout fixes the module names
+(`Comparator.<Name>.Challenge`, `Comparator.<Name>.Solution`), so two projects
+that follow it with a challenge folder of the same name have modules of the
+same names. When a project depends on such a project (a Lake package, from Git
+or from a path), the module has a compiled file in the build of each, and
+which of them a build means depends on the order of the search path. That
+challenge is then not compared, and its card says why, naming the module and
+its files: "Not compared: a module of the comparison has a compiled file in
+more than one directory of the search path, so which of them a build means
+depends on the order of the path (Comparator.Main.Challenge: …); give the
+challenges of each project folder names of their own." A kernel replay that
+loads such a module gives no verdict, for the same reason ("A module name with
+two files", under "Kernel replay"). A challenge whose name only one of the two
+projects has is compared as usual.
+
 **Why this layout works with `lake comparator`.** The layout is a strict subset
 of what `lake comparator` accepts: a configuration file per challenge with the
 four keys it requires (it accepts `definition_names`, `external_kernels` and
 `enable_nanoda` besides; the layout leaves out the last), modules it builds by
-name from the project's workspace, and a `theorem_names` it judges. So a
-project that follows the layout can run, from its root, for each challenge:
+name from the project's workspace, and a `theorem_names` it judges. `lake
+comparator` needs the project's `lake-manifest.json` (Lake writes it when it
+resolves the project's dependencies, with `lake update`). So a project that follows the layout can
+run, from its root, for each challenge:
 
 ```bash
 lake comparator --config Comparator/<Name>/comparator.json
@@ -2624,7 +2649,7 @@ what its own comparison and the replay establish.
 | Lean statement differs from the challenge: … | The solution's statement, or a declaration it uses, differs; the first difference is named. |
 | Not in the solution | The solution does not declare the theorem. |
 | Not a theorem in the challenge: … | A name of `theorem_names` that the challenge declares as something else; never judged as proved. |
-| Not compared: … | No comparison was made, with the reason: the challenge module not built, out of date or not known to come from its source; the solution's source not the one its compiled module came from; the solution not imported or not built; a module the challenge imports missing; the compiled modules not loaded for the replay. |
+| Not compared: … | No comparison was made, with the reason, in one sentence with what lies behind it in parentheses ("Not compared: the challenge module has not been built (Comparator.Demo.Challenge)."): the challenge module not built, out of date or not known to come from its source; the solution's source not the one its compiled module came from; the solution not imported or not built; a module the challenge imports missing; the compiled modules not loaded for the replay; the challenge or the solution module with a compiled file in more than one directory of the search path. |
 
 ### Project Stats page
 
@@ -2738,12 +2763,17 @@ kernel replay of what the declaration concerned depends on:
   compiled modules. **The replay accepts only when both accept.**
 - **Reading a checker's answer**: by its exit status first and its words
   second. Status 0 is an acceptance only with the checker's line `accepted N
-  declarations` and `N` at least the number of declaration records the
-  generator counts in the file (`def`, `thm`, `opaque`, `axiom` and `inductive`
-  lines; the `quot` lines of the quotient package are not counted, since the
-  checkers of Lean 4.36 add them without counting them); the file must also be exactly the one the worker wrote (its
-  size) and end with a complete line, and hold at least one declaration: both
-  checkers accept an empty, metadata-only or cut-off file with status 0. Status
+  declarations` and `N` at least the count the generator makes of the file,
+  which is the count the checkers of Lean 4.36 state, as measured on them: one
+  per `def`, `thm`, `opaque`, `axiom` and `inductive` record, one for the
+  quotient package when the file has its `quot` records (four of them, also
+  for `Quot.mk` without `Quot.sound`), and none for the records of the axioms
+  `Quot.sound` and `sorryAx`, which the checkers have built in. The count is a
+  lower bound, and `N` may only be larger; it does not tell a cut-off or padded
+  file from the one the worker wrote, so the file must also be exactly the one
+  the worker wrote (its size) and end with a complete line, and hold at least
+  one declaration: both checkers accept an empty, metadata-only or cut-off file
+  with status 0. Status
   1 is a rejection only with the checker's words of rejection (`invalid: …`
   from `con-leche`, `rejected: …` from `con-ron`); status 1 with an uncaught
   exception is an error. Status 2 is a decline. Status 3 (in `con-ron`'s
@@ -2778,7 +2808,11 @@ kernel replay of what the declaration concerned depends on:
   search path. When a loaded module, or the Comparator challenge, has a
   compiled file in more than one directory of the search path, which file a
   build means depends on the order of the path: the replay then gives no
-  verdict and names the module and the directories. Two paths to one file
+  verdict and names the module and the directories. The path searched is the
+  project's own build, every package in `.lake/packages` and every package the
+  project's `lake-manifest.json` lists, a package from a path outside the
+  project among them, and, for a Blueprint, the path Lean is given
+  (`LEAN_PATH`, which Lake sets for a program it runs). Two paths to one file
   (through a symbolic link) count once. A name is looked up as the file system
   looks it up, so on a file system that ignores case two files whose names
   differ only by case are two files for one module.
@@ -2824,7 +2858,7 @@ kernel replay of what the declaration concerned depends on:
   project that uses a broad part of Mathlib has tens of thousands of constants
   to export and check and an export of several hundred megabytes.
 - **Not twice**: the key of an export both checkers accepted is recorded: the
-  SHA-256 of the export's contents and its count of declaration records, with
+  SHA-256 of the export's contents and its count of declarations (as above), with
   both checkers, each by its name, the SHA-256 of its program file and its Lean
   version. A later build writes the export again, and when its key is recorded
   the checkers are not run; the page then says that an identical export was
@@ -3040,13 +3074,16 @@ source is not known to be the text that was compiled ("Source text and the
 build"), and `E` the clauses about them: "U nodes with Lean code are not part
 of the replay", "the Lean source of C nodes changed since the build or is not
 known to match it" and "R nodes without sorry rest on the axiom X" (in the
-singular for one node).
+singular for one node). A node whose Lean code is the axiom itself (declared
+without a proof) is not one of the `R`: it has the warning mark of its own
+("Declared without a proof or a body … assumed, not proved") and is never
+counted as complete.
 
 | Site | Beside an entry | After a card | Above the counts |
 |---|---|---|---|
 | accepted, every node covered, none resting | (none) | (none) | (none) |
 | accepted, U, C or R positive | (the kernel replay accepted the build; on this site E) | Counted as the compiled files report: the kernel replay accepted the build, and on this site E, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: E, so it was not checked and is not shown as proved. |
-| rejected, or the checkers disagree | (this build was rejected by a kernel checker) | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel. |
+| rejected, or the checkers disagree | (a kernel checker rejected this build) | A kernel checker rejected this build. | A kernel checker rejected this build: the counts say what the compiled files report, and nothing here counts as checked by a kernel. |
 | no verdict | (as the compiled files report, with no verdict of a kernel replay) | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: WHY. |
 | nothing replayed | (as the compiled files report, not replayed by a kernel) | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: WHY. |
 

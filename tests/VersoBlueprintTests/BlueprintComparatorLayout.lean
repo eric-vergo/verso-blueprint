@@ -337,4 +337,29 @@ info: ("Comparator/Challenge.lean is not a file here: this project does not have
 #guard_msgs (whitespace := lax) in
 #eval (codeOnly "a -- b\n/- c /- d -/ e -/ f \"g\\\"h\" i", importsOf (codeOnly "import A.B\npublic import all C\n-- import D"))
 
+-- Character literals are not strings, raw strings are strings, a name may end in `'`, and Lean
+-- reads nothing after `#exit` (the rules are read from the text; the verdict is the compiled
+-- module's).
+/--
+info: [true, false, true, false, true, false]
+#[A.t]
+-/
+#guard_msgs in
+#eval do
+  IO.println [
+    -- `'"'` does not open a string that would hide the `sorry`
+    hasSorry (codeOnly "def c := '\"'\ntheorem t : 1 = 1 := sorry\n"),
+    -- the `sorry` is in a raw string
+    hasSorry (codeOnly "def s := r#\"a \" sorry\"#\ntheorem t : 1 = 1 := rfl\n"),
+    -- escaped and plain character literals, then a `sorry` in code
+    hasSorry (codeOnly "def c := ('\\'', '-', '\\x41')\ntheorem t : 1 = 1 := sorry\n"),
+    -- after `#exit`
+    hasSorry (codeOnly "theorem t : 1 = 1 := rfl\n#exit\ntheorem u : 1 = 1 := sorry\n"),
+    -- `#exited` is not `#exit`
+    hasSorry (codeOnly "#exited\ntheorem u : 1 = 1 := sorry\n"),
+    -- a name that ends in `'` is not a character literal
+    hasSorry (codeOnly "def x' := 1\ndef y := x' -- '\n")]
+  IO.println (theoremsOf (codeOnly "namespace A\ntheorem t : True := trivial\nend A\n#exit\n\
+    theorem u : True := sorry\n"))
+
 end Verso.VersoBlueprintTests.BlueprintComparatorLayout

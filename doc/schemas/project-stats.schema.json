@@ -555,13 +555,13 @@
           "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/name" } }]
         },
         "unavailable": {
-          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source (also by Lake's build record of it), is not known to come from its source (challengeProvenanceUnknown: no usable build record), or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay; the solution's source differs from the one its compiled module was compiled from (solutionOutOfDate) or is not known to be it (solutionProvenanceUnknown). Null when the comparison was made.",
+          "description": "Why no comparison could be made: comparator.json is invalid; the challenge's compiled module is missing, does not match its source (also by Lake's build record of it), is not known to come from its source (challengeProvenanceUnknown: no usable build record), or is unreadable; the environment of the site lacks the solution module or a module the challenge imports; the compiled modules could not be loaded for the kernel replay; the solution's source differs from the one its compiled module was compiled from (solutionOutOfDate) or is not known to be it (solutionProvenanceUnknown); the challenge or solution module has a compiled file in more than one directory of the search path (moduleAmbiguous). Null when the comparison was made.",
           "oneOf": [
             { "type": "null" },
             { "enum": ["configInvalid", "challengeNotBuilt", "challengeOutOfDate", "challengeProvenanceUnknown",
                 "challengeUnreadable", "solutionNotImported", "importsNotAvailable",
                 "modulesNotLoaded", "solutionOutOfDate",
-                "solutionProvenanceUnknown"] }
+                "solutionProvenanceUnknown", "moduleAmbiguous"] }
           ]
         },
         "unavailableDetail": {
