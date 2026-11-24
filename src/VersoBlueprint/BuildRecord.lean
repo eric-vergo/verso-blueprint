@@ -128,6 +128,16 @@ def recordedSourceHash (olean : System.FilePath) (sourceFile : String)
     | return .error s!"Lake's build record of {what} does not name its source {sourceFile}"
   return .ok recorded
 
+/-- Whether Lake's build record beside the compiled module `olean` is one Lake writes when it takes
+the compiled files from its artifact cache (`"synthetic": true`): such a record names no input,
+so it says nothing of the source text; Lake checked the module's inputs, source text included,
+against the cache's key when it wrote it. -/
+def syntheticRecord (olean : System.FilePath) : IO Bool := do
+  let some json ← (try some <$> (IO.ofExcept (Json.parse
+      (← IO.FS.readFile (olean.withExtension "trace")))) catch _ => pure none)
+    | return false
+  return json.getObjValD "synthetic" == .bool true
+
 /-- Whether the compiled module `olean` was compiled from the source text `text` of the file
 `sourceFile` (relative to the project root), by the build record Lake writes beside it
 (`recordedSourceHash`). A source edited after the build differs; a record that is missing,

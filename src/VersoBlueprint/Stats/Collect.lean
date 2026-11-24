@@ -452,7 +452,11 @@ def nodeSourceModules (state : Environment.State) (root : System.FilePath) :
 
 /-- The source text each module of `nodeSourceModules` was compiled from, while the Blueprint is
 elaborated against these compiled modules: by Lake's build record of an imported module
-(`BuiltSource.read`), and for the module being elaborated, its own text. -/
+(`BuiltSource.read`), and for the module being elaborated, its own text. A module whose record
+Lake wrote when it took the compiled files from its artifact cache names no source
+(`syntheticRecord`); Lake checked that module against its source in the build that is elaborating
+the Blueprint, so the file's text as it reads now is the one compiled, up to an edit made during
+the build. -/
 def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
     CoreM (Array BuiltSource) := do
   let sp ← searchPathRef.get
@@ -461,7 +465,13 @@ def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
   (nodeSourceModules state root).mapM fun (module, file) => do
     if module == main then return { module, file, hash := some (lakeTextHash text) }
     let olean? ← liftM (m := IO) <| findBuiltModule? sp module
-    liftM <| BuiltSource.read module file olean?
+    let built ← liftM <| BuiltSource.read module file olean?
+    if built.hash.isSome then return built
+    let some olean := olean? | return built
+    unless ← liftM (m := IO) (syntheticRecord olean) do return built
+    let some text ← liftM (m := IO) (try some <$> IO.FS.readFile (root / file) catch _ => pure none)
+      | return built
+    return { module, file, hash := some (lakeTextHash text) }
 
 /-- The modules of `built` whose source, as it reads under `root` now, is not the one the
 Blueprint was elaborated against: changed since, or not known to match it. -/

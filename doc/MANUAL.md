@@ -2964,7 +2964,12 @@ complete.
   that captures the site's data is elaborated, the hash of the text each
   project module its nodes' Lean declarations are in was compiled from (from
   the module's build record; for the module being elaborated, its own text);
-  the generator compares it with the file when it runs. A generator that is
+  the generator compares it with the file when it runs. (A module whose
+  compiled files Lake took from its artifact cache has a record that names no
+  source; Lake checked it against its source in the build that elaborates the
+  Blueprint, so its text then is taken as the one compiled. A site from
+  compiled code, generated later, has no such build behind it: there such a
+  module is not known to match.) A generator that is
   run again without a build after a file was edited therefore shows that
   file's declarations with no verdict. Modules checked out as dependencies
   (`.lake/packages`) are not compared: no page shows their source.
