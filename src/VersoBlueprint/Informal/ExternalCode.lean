@@ -181,7 +181,7 @@ private def externalDeclStatusView (item : LinkedExternalDecl) : ExternalDeclSta
 
 private def externalDeclNode (item : LinkedExternalDecl) : Output.Html :=
   open Verso.Output.Html in
-  let declTxt := {{<code>{{.text s!"{item.decl.written}"}}</code>}}
+  let declTxt := html%{<code>{.text s!"{item.decl.written}"}</code>}
   if let some href := item.href then
     Informal.LeanCodeLink.renderResolved
       item.decl.canonical declTxt "" (some href)
@@ -195,7 +195,7 @@ private def externalDeclSourceRef? (item : LinkedExternalDecl) : Option Output.H
     none
   else
     item.decl.sourceHref?.map fun href =>
-      {{<a class="bp_code_link" href={{href}}>"open source"</a>}}
+      html%{<a class="bp_code_link" href={href}>open source</a>}
 
 private structure ExternalDeclRowData where
   liAttrs : Array (String × String) := #[]
@@ -205,12 +205,12 @@ private structure ExternalDeclRowData where
 
 private def externalDeclHead (item : LinkedExternalDecl) (status : ExternalDeclStatusView) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_external_decl_head">
-      {{externalDeclNode item}}
-      <span class={{status.className}}>{{.text status.panelText}}</span>
+      {externalDeclNode item}
+      <span class={status.className}>{.text status.panelText}</span>
     </div>
-  }}
+  }
 
 private def externalDeclRenderedMeta
     (item : LinkedExternalDecl) (status : ExternalDeclStatusView) : Output.Html :=
@@ -218,18 +218,23 @@ private def externalDeclRenderedMeta
   let metaText := status.panelText
   let statusBadge : Output.Html :=
     if !metaText.isEmpty then
-      {{<span class={{s!"bp_external_status_badge bp_external_decl_footer_status {status.className}"}}>{{.text metaText}}</span>}}
+      html%{
+        <span
+            class={s!"bp_external_status_badge bp_external_decl_footer_status {status.className}"}>
+          {.text metaText}
+        </span>
+      }
     else
       .empty
   let sourceRef? := externalDeclSourceRef? item
-  {{
+  html%{
     <div class="bp_external_decl_meta bp_external_decl_rendered_meta">
-      {{statusBadge}}
-      {{if let some sourceRef := sourceRef? then
-        {{<span class="bp_external_decl_rendered_source">{{sourceRef}}</span>}}
-       else .empty}}
+      {statusBadge}
+      {if let some sourceRef := sourceRef? then
+        html%{<span class="bp_external_decl_rendered_source">{sourceRef}</span>}
+       else .empty}
     </div>
-  }}
+  }
 
 /--
 All external declaration body strategies share the same success wrapper and
@@ -297,11 +302,12 @@ private def externalDeclRenderedWithPageHovers [Monad m]
 
 private def missingExternalDeclBody : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <pre class="bp_external_decl_stmt bp_code_hover_none">
-      {{.text s!"declaration not found ({Data.ExternalDeclLookupError.message .notPresentAtRegistration})"}}
+      {.text s!"declaration not found \
+        ({Data.ExternalDeclLookupError.message .notPresentAtRegistration})"}
     </pre>
-  }}
+  }
 
 private def externalDeclRowDataWith [Monad m]
     (renderBody : LinkedExternalDecl → m Output.Html)
@@ -332,13 +338,13 @@ private def externalDeclRowDataWith [Monad m]
 
 private def renderExternalDeclRow (row : ExternalDeclRowData) : Output.Html :=
   open Verso.Output.Html in
-  {{
-    <li {{row.liAttrs}}>
-      {{row.head}}
-      {{row.body}}
-      {{row.footer}}
+  html%{
+    <li {...row.liAttrs}>
+      {row.head}
+      {row.body}
+      {row.footer}
     </li>
-  }}
+  }
 
 /--
 Render external declaration rows while leaving the declaration body strategy
@@ -360,7 +366,7 @@ private def renderExternalDeclRows (linkedDecls : Array LinkedExternalDecl) : Ar
 
 private def renderExternalDeclList (rows : Array Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{<ul class="bp_code_hover_list bp_external_decl_list">{{.seq rows}}</ul>}}
+  html%{<ul class="bp_code_hover_list bp_external_decl_list">{.seq rows}</ul>}
 
 private abbrev ExternalDeclCacheHoverRender :=
   StateM (Verso.Code.Hover.State Output.Html)
@@ -429,10 +435,10 @@ def renderLeanJumpLinks (externalDecls : Array Data.ExternalRef) : Output.Html :
   open Verso.Output.Html in
   let links := externalDecls.filter (·.present) |>.map fun decl =>
     let name := LeanSourceAnchor.declText decl.canonical
-    {{<a class="bp_lean_jump" href={{LeanSourceAnchor.declHref decl.canonical}}
-        data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>{{.text name}}</a>}}
+    html%{<a class="bp_lean_jump" href={LeanSourceAnchor.declHref decl.canonical}
+        data-lean-decl={name} title={s!"Open {name} in the editor"}>{.text name}</a>}
   if links.isEmpty then .empty
-  else {{<span class="bp_lean_jumps">{{links}}</span>}}
+  else html%{<span class="bp_lean_jumps">{links}</span>}
 
 /--
 Render an external-code panel into a real page `Html.State`.
@@ -477,19 +483,19 @@ private def declarationSourceMeta (decl : Data.ExternalRef) : Output.Html :=
   let pathNode : Output.Html :=
     match pathText?, decl.sourceHref? with
     | some path, some href =>
-      {{<a class="bp_decl_source_path" href={{href}} title="View the source">{{.text path}}</a>}}
-    | some path, none => {{<span class="bp_decl_source_path">{{.text path}}</span>}}
+      html%{<a class="bp_decl_source_path" href={href} title="View the source">{.text path}</a>}
+    | some path, none => html%{<span class="bp_decl_source_path">{.text path}</span>}
     | none, _ => .empty
   let name := LeanSourceAnchor.declText decl.canonical
-  {{
+  html%{
     <div class="bp_decl_source_meta">
-      {{pathNode}}
+      {pathNode}
       <span class="bp_lean_jumps">
-        <a class="bp_lean_jump" href={{LeanSourceAnchor.declHref decl.canonical}}
-          data-lean-decl={{name}} title={{s!"Open {name} in the editor"}}>"open in editor"</a>
+        <a class="bp_lean_jump" href={LeanSourceAnchor.declHref decl.canonical}
+          data-lean-decl={name} title={s!"Open {name} in the editor"}>open in editor</a>
       </span>
     </div>
-  }}
+  }
 
 /-- One card of the side-by-side Lean column: the defining command's highlighted source, its
 hovers registered by `renderHtml` (a page's or the generated cache's hover table). -/
@@ -512,12 +518,20 @@ private def renderDeclarationSourceCardWith [Monad m]
         else #[("class", "bp_code_line"), ("style", s!"--bp-indent: {indent}")]
       .element "span" attrs (htmls[i]?.getD .empty)
     let code (start stop : Nat) : Output.Html :=
-      {{<code class="hl lean block bp_decl_source_code">{{(List.range' start (stop - start)).toArray.map line}}</code>}}
+      html%{
+        <code class="hl lean block bp_decl_source_code">
+          {(List.range' start (stop - start)).toArray.map line}
+        </code>
+      }
     let proofHtml : Output.Html :=
       if proofLines.isEmpty then .empty
       else
-        {{<details class="bp_decl_source_proof"><summary>"Lean proof"</summary>{{
-          code statementLines.size htmls.size}}</details>}}
+        html%{
+          <details class="bp_decl_source_proof">
+            <summary>Lean proof</summary>
+            {code statementLines.size htmls.size}
+          </details>
+        }
     .seq #[code 0 statementLines.size, proofHtml]
   let html ← renderHtml rendered
   let kindClass := if isTheoremLike item.decl then "bp_decl_source_theorem" else "bp_decl_source_definition"
