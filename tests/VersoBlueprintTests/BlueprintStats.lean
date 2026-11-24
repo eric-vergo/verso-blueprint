@@ -172,7 +172,7 @@ info: ([("«thm:st.sorry»", "unproved", ["sorryAx"])], [("«thm:st.dep»", "onU
 
 -- Progress and graph size: unknown references are not nodes.
 /--
-info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalizedWithAncestors := 3 },
+info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalizedWithAncestors := 3, sourceChanged := 0 },
  { nodes := 6,
    statementEdges := 4,
    proofEdges := 0,
@@ -216,7 +216,7 @@ info: ({ notReady := 1, ready := 0, incomplete := 2, formalized := 0, formalized
     stats.layout.projectRoot == none
 
 -- JSON round trip, and the schema version.
-/-- info: (true, 8) -/
+/-- info: (true, 9) -/
 #guard_msgs in
 #eval
   match fromJson? (α := ProjectStats) (toJson stats) with
@@ -389,5 +389,82 @@ private partial def schemaFieldsAgree (root s v : Json) (at_ : String := "") : E
   let agree := (schemaFieldsAgree schema schema (toJson sample)).toBool &&
     (schemaFieldsAgree schema schema (toJson ({} : ProjectStats))).toBool
   return (agree, version == some projectStatsSchemaVersion)
+
+-- Source text and the build, on a Blueprint. The data a Blueprint captures records the source
+-- text each module of its nodes' declarations was compiled from; the generator compares it with
+-- the file when it runs and shows the declarations of a module whose file changed with no
+-- positive mark.
+
+/-- The source of `Demo.A` as it was compiled. -/
+private def builtText : String := "theorem t : True := trivial\n"
+
+/-- A model with a node `t.node` on `Demo.t` of `Demo.A`, rendered with the status badge of a
+declaration without `sorry`, and a node `u.node` that depends on it, both complete with their
+dependencies, and the record that `Demo.A` was compiled from `builtText`. -/
+private def builtModel (root : System.FilePath) : RenderModel :=
+  let view := ProvedStatus.proved.presentation
+  let badge : ExternalDeclHeaderBadge :=
+    { className := view.externalDeclClass, text := view.externalHeaderText }
+  let ref : ExternalRef := { ExternalRef.ofName `Demo.t with
+    present := true, provedStatus := .proved
+    provenance := .inWorkspace `Demo.A (root / "Demo" / "A.lean").toString
+    render := .ok { html := s!"<div class=\"decl\">{badge.html.render}</div>", hoverPayloads := #[] } }
+  let graphNode (label : Name) (uses : Array Name) : Graph.NodeData :=
+    { label, title := label.toString, displayLabel := label.toString, kind := some .theorem
+      statementUses := uses.map fun l => { label := l, origin := .automatic }
+      statementStatus := .formalized, proofStatus := .formalizedWithAncestors
+      visual := { fillcolor := "#ffffff" } }
+  { nodes := #[{ label := `t.node, kind := .theorem, externalRefs := #[ref] },
+               { label := `u.node, kind := .theorem }]
+    graph := { nodes := #[graphNode `t.node #[], graphNode `u.node #[`t.node]] }
+    stats := { (default : ProjectStats) with
+      builtSources := #[{ module := `Demo.A, file := "Demo/A.lean"
+                          hash := some (lakeTextHash builtText) }] } }
+
+-- The file edited after the data was captured: the declaration says so, its rendered badge says
+-- so, its node has the neutral status, the node that depends on it is not complete with its
+-- dependencies, the counts have it in a bucket of its own, and its mark is ◌. As built: nothing
+-- changes.
+/-- info: (true, true) -/
+#guard_msgs in
+#eval show IO _ from do
+  let root := System.FilePath.mk s!"/tmp/vbp-built-source-test-{← IO.monoNanosNow}"
+  IO.FS.createDirAll (root / "Demo")
+  try
+    IO.FS.writeFile (root / "Demo" / "A.lean") builtText
+    let model := builtModel root
+    let same ← sourceChangesNow model.stats.builtSources root
+    IO.FS.writeFile (root / "Demo" / "A.lean") (builtText ++ "-- edited after the build\n")
+    let changes ← sourceChangesNow model.stats.builtSources root
+    let m := model.withSourceChanges changes
+    let refs := (m.nodes[0]?.map (·.externalRefs)).getD #[]
+    let some ref := refs[0]? | return (false, false)
+    let html := match ref.render with | .ok r => r.html | _ => ""
+    let mark? := CodeSummary.statusMark? .theorem (some { externalDecls := refs })
+    let (kind, words) := statusGlyph mark? none
+    let unchanged := model.withSourceChanges same
+    return (same.isEmpty && unchanged.graph.nodes.all (·.proofStatus == .formalizedWithAncestors) &&
+        unchanged.stats.sourceChanged.isEmpty,
+      changes.size == 1 && changes.all (·.changed) &&
+      ref.sourceChange? == some "the source of Demo.A (Demo/A.lean) changed since the build" &&
+      hasSubstr html "source changed since the build" && !hasSubstr html "no sorry" &&
+      m.graph.nodes[0]!.proofStatus == .sourceChanged &&
+      m.graph.nodes[1]!.proofStatus == .formalized &&
+      m.stats.progress.sourceChanged == 1 && m.stats.progress.formalizedWithAncestors == 0 &&
+      m.stats.sourceChanged.size == 1 && kind.glyph == "◌" &&
+      words.startsWith "Lean proof: the source of Demo.A (Demo/A.lean) changed since the build")
+  finally IO.FS.removeDirAll root
+
+-- A source not known to match the build: no record, and a file that cannot be read.
+/-- info: [(false, "its compiled module was not found"), (false, "the source file cannot be read")] -/
+#guard_msgs in
+#eval show IO _ from do
+  let root := System.FilePath.mk s!"/tmp/vbp-built-source-test-{← IO.monoNanosNow}"
+  IO.FS.createDirAll root
+  let noRecord ← BuiltSource.read `Demo.A "Demo/A.lean" none
+  let changes ← sourceChangesNow
+    #[noRecord, { module := `Demo.B, file := "Demo/B.lean", hash := some (lakeTextHash "x") }] root
+  IO.FS.removeDirAll root
+  return changes.toList.map fun c => (c.changed, c.why)
 
 end Verso.VersoBlueprintTests.BlueprintStats

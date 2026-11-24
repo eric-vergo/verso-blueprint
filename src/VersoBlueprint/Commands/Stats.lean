@@ -120,6 +120,9 @@ structure StatsPageView where
   /-- The nodes whose Lean code an accepted replay covers, under which it found an axiom outside
   Lean's standard three, sorted (`ReplayView.Index.resting`). -/
   resting : Array Name := #[]
+  /-- The nodes whose Lean source is not known to be the text that was compiled, sorted
+  (`ReplayView.Index.sourceChanged`). -/
+  sourceChanged : Array Name := #[]
   /-- The address of each challenge's page, by the challenge's name. -/
   challengeHrefs : Array (String × String) := #[]
 deriving Inhabited
@@ -188,7 +191,13 @@ deriving Inhabited, Repr
 It is said of theorems and definitions alike, and says nothing about an informal statement. -/
 def leanCompleteLabel : String := "Lean complete"
 
-/-- The progress counts as buckets, most complete first. The tokens are the status tokens of
+/-- The words of the bucket of nodes whose Lean source is not known to be the text that was
+compiled: nothing is shown as known of their code. -/
+def sourceChangedBucketLabel : String :=
+  "Lean source changed since the build or not known to match it, not shown as checked"
+
+/-- The progress counts as buckets, most complete first, then the nodes whose Lean source is not
+known to be the text that was compiled, when there are any. The tokens are the status tokens of
 the stylesheet; the labels say what was looked at: the node's Lean code and the nodes it depends
 on. The two buckets of `sorry`-free code are drawn in a success colour only under an accepted
 kernel replay; in any other `site` state their labels say what the count rests on. -/
@@ -203,7 +212,8 @@ def progressBuckets (c : ProgressCounts)
   { token := "incomplete", label := "Lean code incomplete", count := c.incomplete },
   { token := "ready", label := "ready to formalize", count := c.ready },
   { token := "not-ready", label := "not ready", count := c.notReady }
-]
+] ++ (if c.sourceChanged == 0 then #[] else #[
+  { token := "source-changed", label := sourceChangedBucketLabel, count := c.sourceChanged }])
 
 /-! ## HTML helpers -/
 
@@ -340,6 +350,8 @@ def headlineVerdict (t : HeadlineTheorem)
     | .notReplayed _ => ("not-replayed", conditionsMetText)
     | .noVerdict _ => ("not-replayed", conditionsMetNoVerdictText)
     | .notChecked axioms => ("axioms", conditionsMetNotCheckedText axioms)
+    | .sourceChanged why =>
+      ("not-replayed", s!"Same Lean statement as the challenge; not shown as checked: {why}")
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -467,6 +479,7 @@ def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing)
   | .notReplayed why => s!"No kernel replay: {why}."
   | .noVerdict why => s!"No verdict of a kernel replay: {why}."
   | .notChecked axioms => s!"Kernel replay: not checked: {Replay.notCheckedClause axioms}."
+  | .sourceChanged why => s!"Not shown as checked: {why}."
 
 /-- What the replay establishes for a judged theorem of a headline: whether both checkers
 checked the theorem with everything it depends on. A theorem that rests on an axiom outside
@@ -617,6 +630,30 @@ def noReplaySummary : String :=
   s!"Not replayed by a kernel: {Replay.noReplayText}. The marks on this site say what the \
     compiled files report."
 
+/-- The sentence above the modules whose source is not known to be the text that was compiled. -/
+def sourceChangedLeadText (modules : Nat) : String :=
+  let these := if modules == 1 then "this module" else "these modules"
+  s!"Not known to be what was built: the source of {these} changed since the build, or no \
+    build record says which source was compiled. This site shows nothing as checked for their \
+    declarations: what the compiled files report, and what a kernel replay checked, is about \
+    the compiled modules, not the text shown."
+
+/-- The modules of the site whose source is not known to be the text that was compiled, each
+with why, and the nodes that concern; nothing when there are none. -/
+private def sourceChangedHtml (view : StatsPageView) : Output.Html :=
+  let changes := view.stats.sourceChanged
+  if changes.isEmpty && view.sourceChanged.isEmpty then .empty else
+  el "div" "bp_stats_replay_source_changed" (.seq #[
+    el "p" "bp_stats_replay_source_changed_lead" (txt (sourceChangedLeadText changes.size)),
+    el "ul" "bp_stats_files" (.seq (changes.map fun c =>
+      .element "li" #[("data-bp-module", c.module.toString)] (txt c.text))),
+    if view.sourceChanged.isEmpty then .empty
+    else el "details" "bp_stats_more bp_stats_replay_source_changed_nodes" (.seq #[
+      .element "summary" #[] (txt s!"Nodes shown with no verdict \
+        ({formatCount view.sourceChanged.size})"),
+      el "ul" "bp_stats_files" (.seq (view.sourceChanged.map fun label =>
+        .element "li" #[] (nodeLink view label)))])])
+
 /-- The band on the kernel replay: its result, the checker with its version, the checker's
 message when it rejected the build or could not run, the declarations checked and those left
 out, the axioms found, and what a replay leaves trusted. -/
@@ -674,6 +711,7 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
       #[("data-bp-replay", token)],
+    sourceChangedHtml view,
     message,
     modules,
     uncovered,
@@ -1046,6 +1084,7 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
     site := replays.siteState
     notReplayed := replays.uncovered
     resting := replays.resting
+    sourceChanged := replays.sourceChanged
     workQueueSize := (workQueue graph).size
     summaryHref := (pageSection? sections summaryPageTitle).map (·.link.relativeLink)
     workQueueHref := (pageSection? sections workQueuePageTitle).map (·.link.relativeLink)

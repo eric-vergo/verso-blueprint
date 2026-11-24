@@ -42,13 +42,25 @@ private def groupTitle? (state : TraverseState) (label : Name) : Option String :
     let title := groupData.header.trimAscii.toString
     if title.isEmpty then none else some title
 
+/-- What a node's tooltip and accessible name say of it: the words of its heading's mark
+(`Informal.statusGlyph`, under the replay made while the site is generated), then the warnings
+of the graph data. -/
+def nodeStateText (state : TraverseState) (replays : Informal.ReplayView.Index)
+    (node : Informal.Graph.NodeData) : Option String :=
+  if node.warnings.unknownRef then node.visual.tooltip? else
+  let data? := Informal.TraversalIndex.Nodes.renderedData? state node.label
+  let mark? := data?.bind fun data => Informal.CodeSummary.statusMark? data.kind data.codeData
+  let words := (Informal.statusGlyph mark? replays.replay?).2
+  some (" | ".intercalate (words :: Informal.Graph.warningTooltipParts node.warnings))
+
 private def enrichNode (state : TraverseState) (replays : Informal.ReplayView.Index)
     (node : Informal.Graph.NodeData) : Informal.Graph.NodeData :=
   let title := (nodeTitle? state node.label).getD node.title
   let href := nodeHref? state node.label <|> node.href
   let previewKey := Informal.PreviewSource.traversalPreviewCandidateKey? state node.label
+  let visual := { node.visual with tooltip? := nodeStateText state replays node }
   -- a node's success colours follow the kernel replay made while the site is generated
-  { node with title, href, previewKey }.withReplay (replays.nodeReplay node.label)
+  { node with title, href, previewKey, visual }.withReplay (replays.nodeReplay node.label)
 
 private def enrichGroup (state : TraverseState) (group : Informal.Graph.GroupMetadata) :
     Informal.Graph.GroupMetadata :=

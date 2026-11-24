@@ -322,6 +322,13 @@ def leanProgressOf (state : Environment.State) (graph : Graph.GraphModel) : Lean
     if (node.kind.map (·.isTheoremLike)).getD true then { p with theorems := add p.theorems }
     else { p with definitions := add p.definitions }
 
+/-- `leanProgressOf` counted again from `graph`, keeping the counts of informal statements of
+`captured`, which the graph does not hold. -/
+def leanProgressWith (captured : LeanProgress) (graph : Graph.GraphModel) : LeanProgress :=
+  let counted := leanProgressOf {} graph
+  { theorems := { counted.theorems with informal := captured.theorems.informal }
+    definitions := { counted.definitions with informal := captured.definitions.informal } }
+
 /-- The size of the graph. Edges are counted from the uses of real nodes. -/
 def graphSizeOf (graph : Graph.GraphModel) : GraphSize := Id.run do
   let nodes := graph.nodes.filter (!·.warnings.unknownRef)
@@ -428,6 +435,42 @@ private def resolve (file : String) : IO System.FilePath := do
   let path := if path.isAbsolute then path else cwd / path
   try IO.FS.realPath path catch _ => pure path
 
+/-- The project modules whose declarations the nodes of `state` refer to, with each one's source
+file relative to `root`, each once and sorted by name: the modules whose source a site can show
+beside what it reports of them. A module checked out as a dependency (`.lake/packages`) is not
+one of them. -/
+def nodeSourceModules (state : Environment.State) (root : System.FilePath) :
+    Array (Name × String) := Id.run do
+  let mut out : Array (Name × String) := #[]
+  for (_, registered) in state.data do
+    for ref in registered.toNode.associatedExternalRefs do
+      let .inWorkspace module path := ref.provenance | continue
+      if (path.splitOn "/.lake/").length > 1 || out.any (·.1 == module) then continue
+      let file := (relativeTo? root path).getD path
+      out := out.push (module, file)
+  return out.qsort (·.1.toString < ·.1.toString)
+
+/-- The source text each module of `nodeSourceModules` was compiled from, while the Blueprint is
+elaborated against these compiled modules: by Lake's build record of an imported module
+(`BuiltSource.read`), and for the module being elaborated, its own text. -/
+def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
+    CoreM (Array BuiltSource) := do
+  let sp ← searchPathRef.get
+  let main := (← getEnv).mainModule
+  let text := (← getFileMap).source
+  (nodeSourceModules state root).mapM fun (module, file) => do
+    if module == main then return { module, file, hash := some (lakeTextHash text) }
+    let olean? ← liftM (m := IO) <| findBuiltModule? sp module
+    liftM <| BuiltSource.read module file olean?
+
+/-- The modules of `built` whose source, as it reads under `root` now, is not the one the
+Blueprint was elaborated against: changed since, or not known to match it. -/
+def sourceChangesNow (built : Array BuiltSource) (root : System.FilePath) :
+    IO (Array SourceChange) :=
+  built.filterMapM fun b => do
+    let text? ← try some <$> IO.FS.readFile (root / b.file) catch _ => pure none
+    return b.check text?
+
 /-- The project statistics of the current environment, Blueprint state and graph, with the
 project's files read from the working directory. -/
 def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
@@ -452,6 +495,7 @@ def ProjectStats.capture (graph : Graph.GraphModel) : CoreM ProjectStats := do
     graph := graphSizeOf graph
     trust := trustLedgerOf state graph
     claims := ← Claims.atRoot? root
+    builtSources := ← builtSourcesOf state root
   }
 
 /-- Read the project's files again from the working directory, keeping what was captured from

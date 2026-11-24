@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
-from support import PACKAGE_ROOT, find_free_port, wait_for_server, write_large_code_site
+from support import (PACKAGE_ROOT, find_free_port, record_builds, wait_for_server,
+                     write_large_code_site)
 
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
@@ -211,12 +212,12 @@ def generate_code_site(data: Path, root: Path, output_dir: Path, *flags: str) ->
 
 @pytest.fixture(scope="session")
 def code_site_dir(tmp_path_factory) -> Path:
-    """The site of `code_site_fixture/`, four declarations in a chain."""
-    return generate_code_site(
-        CODE_SITE_FIXTURE / "code-site.json",
-        CODE_SITE_FIXTURE,
-        tmp_path_factory.mktemp("code-site-fixture") / "_out",
-    )
+    """The site of a copy of `code_site_fixture/`, four declarations in a chain, each module with
+    a build record of its source as it is (`record_builds`)."""
+    root = tmp_path_factory.mktemp("code-site-fixture") / "project"
+    shutil.copytree(CODE_SITE_FIXTURE, root)
+    record_builds(root, root / "code-site.json")
+    return generate_code_site(root / "code-site.json", root, root.parent / "_out")
 
 
 @pytest.fixture(scope="session")

@@ -10,6 +10,7 @@ import VersoManual
 import VersoBlueprint.Axioms
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Common
+import VersoBlueprint.Informal.Block.StatusGlyph
 import VersoBlueprint.Informal.LeanCodePreviewKey
 import VersoBlueprint.Informal.LeanCodeLink
 import VersoBlueprint.Lib.HoverRender
@@ -276,11 +277,13 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     let view := statusMark.status.presentation
     let symbol :=
       if !statusMark.status.isProved then view.codeEntrySymbol
-      else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced with
+      else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
+          statusMark.sourceChange? with
         | .accepted => view.codeEntrySymbol
         | .rejected => "⊘"
         | .notReplayed _ | .noVerdict _ => "◇"
         | .notChecked _ => "⚠"
+        | .sourceChanged _ => "◌"
     { classSuffix := view.codeEntryClassSuffix, symbol }
 
 private structure ExternalRenderHealth where
@@ -318,7 +321,7 @@ private def renderCodeEntryNode (href : Option String) (title : String) (visual 
   }}
   match href with
   | some href =>
-      {{<a class={{linkClass}} href={{href}} title={{title}}>{{body}}</a>}}
+      {{<a class={{linkClass}} href={{href}} title={{title}} aria-label={{title}}>{{body}}</a>}}
   | none =>
       {{<span class={{linkClass}} title={{title}}>{{body}}</span>}}
 
@@ -392,9 +395,9 @@ private def completionStatusMark (kind : Data.NodeKind) (extraAxioms : Array Nam
   else
     { status, title, kind, extraAxioms, symbolOverride? := some "⚠" }
 
-private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
-    (health : Informal.Graph.CodeHealth) (declarations : Array Name := #[])
-    (unplaced : Option Name := none) : BlockStatusMark :=
+private def statusMarkOfHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
+    (health : Informal.Graph.CodeHealth) (declarations : Array Name)
+    (unplaced : Option Name) : BlockStatusMark :=
   if health.hasMissingExternalDecls then
     {
       status := .missing
@@ -407,6 +410,11 @@ private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Nam
         declarations, unplaced }
     else
       { completionStatusMark kind extraAxioms health with declarations, unplaced }
+
+private def statusMarkFromHealth (kind : Data.NodeKind) (extraAxioms : Array Name)
+    (health : Informal.Graph.CodeHealth) (declarations : Array Name := #[])
+    (unplaced : Option Name := none) (sourceChange? : Option String := none) : BlockStatusMark :=
+  { statusMarkOfHealth kind extraAxioms health declarations unplaced with sourceChange? }
 
 /-- A Lean declaration of `source` whose module is not known (`BlockCodeData.unplaced`). -/
 def unplacedOf (source : BlockCodeData) : Option Name := source.unplaced
@@ -550,6 +558,9 @@ private def externalIndicatorText
         s!"{health.totalDecls} declarations"
   if health.missingDecls > 0 then
     s!"{declText}, {health.missingDecls} missing"
+  else if health.hasChangedSource then
+    if health.totalDecls == 1 then s!"{declText}, {health.sourceChangeWords}"
+    else s!"{declText}, {health.changedDecls} with {health.sourceChangeWords}"
   else if health.anyGapCount > 0 then
     if health.totalDecls == 1 then
       s!"{declText}, incomplete"
@@ -575,6 +586,14 @@ private def externalIndicatorPresentation
       title := s!"Lean declarations: {health.presentDecls}/{health.totalDecls} present ({health.missingDecls} missing)"
       badgeText
     }
+  else if health.hasChangedSource then
+    {
+      className := "bp_external_status_changed"
+      iconText := "◌"
+      title := s!"Lean declarations: all present, {health.changedDecls} with \
+        {health.sourceChangeWords}: not shown as checked"
+      badgeText
+    }
   else if health.anyGapCount > 0 then
     {
       className := "bp_external_status_sorry"
@@ -597,7 +616,8 @@ private def renderExternalPanelIndicator (decls : Array Data.ExternalRef)
   let presentation := externalIndicatorPresentation decls health
   let summaryTitle :=
     s!"Lean code for {label}: " ++ appendRenderHealthSummary
-      (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
+      (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls
+        health.anyGapCount health.changedDecls health.sourceChangeWords)
       renderHealth
   let badgeTitle :=
     appendRenderHealthSummary presentation.title renderHealth
@@ -652,10 +672,13 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let renderHealth := externalRenderHealth source.externalDecls
   let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
     (declarationsOf source)
-    (unplacedOf source)
+    (unplacedOf source) source.sourceChange?
   let title := if source.isEmpty then "No associated Lean declarations" else
-    appendRenderHealthSummary
-      (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls health.anyGapCount)
+    -- the state first, in the words of the heading's mark, so that what a reader hears or sees
+    -- on the link is the verdict, then what the declarations are
+    s!"{(statusGlyph (some statusMark) replay?).2}. " ++ appendRenderHealthSummary
+      (externalCodeEntryTitle health.presentDecls health.totalDecls health.missingDecls
+        health.anyGapCount health.changedDecls health.sourceChangeWords)
       renderHealth
   { statusMark := if source.isEmpty then none else some statusMark
     codeEntry := renderCodeEntryWrap cdata.codeHref title heading
@@ -670,7 +693,7 @@ def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option
   if source.isEmpty then none else
     some (statusMarkFromHealth kind (extraAxiomsOf source)
       (Informal.Graph.codeHealthOfBlockSource kind {} source?) (declarationsOf source)
-      (unplacedOf source))
+      (unplacedOf source) source.sourceChange?)
 
 end CodeSummary
 end Informal

@@ -362,6 +362,18 @@ structure ExternalDeclHeaderBadge where
   className : String
   text : String
 
+/-- The status badge in the header of a rendered declaration. -/
+def ExternalDeclHeaderBadge.html (badge : ExternalDeclHeaderBadge) : ExternalDeclHtml :=
+  open Verso.Output.Html in
+  {{<span class={{s!"bp_external_status_badge bp_external_decl_header_status {badge.className}"}}>{{.text badge.text}}</span>}}
+
+/-- The rendered declaration with its header's status badge `old` replaced by `new`: the status
+is the one thing of a rendered declaration that a site can know better later than when it was
+rendered (the declaration's source changed since the build, say). -/
+def ExternalDeclRenderedHtml.withHeaderBadge (rendered : ExternalDeclRenderedHtml)
+    (old new : ExternalDeclHeaderBadge) : ExternalDeclRenderedHtml :=
+  { rendered with html := rendered.html.replace old.html.render new.html.render }
+
 structure ExternalDeclHeaderSource where
   text : String
   href? : Option String := none
@@ -441,9 +453,7 @@ private def renderExternalDeclWrapper
           {{headerLinks}}
         </div>
         <div class="bp_external_decl_kicker_status">
-          {{if let some badge := headerBadge? then
-            {{<span class={{s!"bp_external_status_badge bp_external_decl_header_status {badge.className}"}}>{{.text badge.text}}</span>}}
-          else .empty}}
+          {{if let some badge := headerBadge? then badge.html else .empty}}
         </div>
       </div>
       {{signature}}
@@ -738,7 +748,8 @@ def renderCodeDecl (decl : Name) (kindMarker : String)
     (signature : SubVerso.Highlighting.Highlighted) (docHtml? : Option String)
     (source? : Option SubVerso.Highlighting.Highlighted := none)
     (headerSource? : Option ExternalDeclHeaderSource := none)
-    (links : Array ExternalDeclHeaderLink := #[]) : ExternalDeclRenderedHtml :=
+    (links : Array ExternalDeclHeaderLink := #[])
+    (sourceNote? : Option String := none) : ExternalDeclRenderedHtml :=
   open Verso.Output.Html in
   renderWithHoverPayloads do
     let sigHtml ← highlightedToHtml signature
@@ -750,12 +761,23 @@ def renderCodeDecl (decl : Name) (kindMarker : String)
     let sourceHtml : ExternalDeclHtml ← match source? with
       | some src => do
         let srcHtml ← highlightedToHtml src
-        pure {{
-          <details class="bp_plain_decl_source">
-            <summary>"Source"</summary>
-            <pre class="hl lean block">{{srcHtml}}</pre>
-          </details>
-        }}
+        match sourceNote? with
+        | none =>
+          pure {{
+            <details class="bp_plain_decl_source">
+              <summary>"Source"</summary>
+              <pre class="hl lean block">{{srcHtml}}</pre>
+            </details>
+          }}
+        | some note =>
+          -- the file as it reads now, which is not known to be what was compiled
+          pure {{
+            <details class="bp_plain_decl_source bp_plain_decl_source_changed">
+              <summary>"Source, not the compiled one"</summary>
+              <p class="bp_plain_decl_source_note">{{.text note}}</p>
+              <pre class="hl lean block">{{srcHtml}}</pre>
+            </details>
+          }}
       | none => pure .empty
     let docHtml : ExternalDeclHtml := match docHtml? with
       | some html => {{<div class="docs"><div class="docstring">{{.raw html}}</div></div>}}

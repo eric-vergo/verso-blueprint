@@ -40,7 +40,7 @@ def replay? (state : TraverseState) : Option Replay.Result := do
 module is known, the replay checked each with everything it depends on and accepted them, and
 it found no axiom outside Lean's standard three under them. -/
 def standingOfCode (replay? : Option Replay.Result) (code : BlockCodeData) : Replay.Standing :=
-  Replay.provedStanding replay? code.declarations code.unplaced
+  Replay.provedStanding replay? code.declarations code.unplaced code.sourceChange?
 
 /-- The standing of a node's Lean code, the code its heading's mark is about; `none` for a node
 without Lean code. -/
@@ -128,6 +128,14 @@ def Index.resting (index : Index) : Array Name :=
       else some label
     | _ => none).qsort (·.toString < ·.toString)
 
+/-- The nodes whose Lean source is not known to be the text that was compiled (its module's
+source changed since the build), sorted. -/
+def Index.sourceChanged (index : Index) : Array Name :=
+  (index.standings.toArray.filterMap fun (label, standing) =>
+    match standing with
+    | .sourceChanged _ => some label
+    | _ => none).qsort (·.toString < ·.toString)
+
 /-- The axioms outside Lean's standard three under the nodes of `Index.resting`, each once. -/
 def Index.restingAxioms (index : Index) : Array Name :=
   let resting := index.resting
@@ -139,6 +147,7 @@ def Index.restingAxioms (index : Index) : Array Name :=
 /-- What the site as a whole may show in the success colour. -/
 def Index.siteState (index : Index) : Replay.SiteState :=
   Replay.siteState index.replay? index.uncovered index.resting index.restingAxioms
+    index.sourceChanged
 
 /-- What the replay establishes for node `label` of a dependency graph. -/
 def Index.nodeReplay (index : Index) (label : Name) : Graph.NodeReplay :=

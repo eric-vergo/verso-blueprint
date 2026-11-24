@@ -488,6 +488,8 @@ private def nodeView : NodeView.NodeView := {
   try
     IO.FS.writeFile (root / "Demo" / "Basic.lean") BlueprintCodeSite.basicSource
     IO.FS.writeFile (root / "Demo" / "Hard.lean") "theorem hard : False := sorry\n"
+    BlueprintCodeSite.recordBuild root `Demo.Basic "Demo/Basic.lean"
+    BlueprintCodeSite.recordBuild root `Demo.Hard "Demo/Hard.lean"
     IO.FS.writeFile (root / "code.json") (toJson statedFixture).compress
     IO.FS.writeFile (root / "README.md") "# Readme\n\nA small project.\n"
     IO.FS.writeFile (root / "lake-manifest.json") "{\"name\": \"demo\", \"packages\": []}"

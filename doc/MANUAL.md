@@ -2881,9 +2881,10 @@ mark's:
 - **Counts, bars and legends** (the progress bars and their legend on the
   Project Stats page, the cards of the Blueprint Summary, the legend of the
   dependency graph) are about every node at once. They are green only when the
-  replay accepted the build, leaves no node with Lean code uncovered, and
-  found no node without `sorry` resting on an axiom outside Lean's standard
-  three. Otherwise they are grey, and each says what it rests on, in words
+  replay accepted the build, leaves no node with Lean code uncovered, found no
+  node without `sorry` resting on an axiom outside Lean's standard three, and
+  no node's Lean source is not known to be the text that was compiled ("Source
+  text and the build"). Otherwise they are grey, and each says what it rests on, in words
   that are true of the site in its state (the table below): nothing
   replayed, no verdict, a rejection, or an accepted replay with the nodes it
   does not cover and the nodes that rest on such an axiom, with the reason
@@ -2906,6 +2907,61 @@ inside it the properties take their green values; `bp_replay_none` and
 carries none of these classes shows no green. In the graph data a node's
 field `replay` (`none`, `accepted`, `acceptedWithDependencies`) says the same,
 and its `visual` colours follow it.
+
+##### Source text and the build
+
+A page shows a declaration's source as the file reads when the site is
+generated, beside what the build established about the compiled module: its
+mark, its colour, "no sorry", the kernel replay's verdict. So every module
+whose source a site shows is held to the build that compiled it, and a module
+whose source is not known to be that text gets **no positive mark** for its
+declarations: no check mark, no success colour, no "no sorry", no count as
+complete.
+
+- **What it is compared with**: Lake's build record of the compiled module (the
+  `<Module>.trace` file beside its `.olean`), which names the hash of the source
+  text the module was compiled from and the hashes of the compiled files. The
+  record must describe the compiled files that are there (beside it, or in
+  Lake's artifact cache, `LAKE_CACHE_DIR`), and the file's text must have the
+  hash the record names, both as Lake computes them. This is the check the
+  Comparator pages make of a challenge and its solution.
+- **When**: `vbp code-site` compares each module the data lists, whose source
+  it shows, when the site is generated. A Blueprint records, while the module
+  that captures the site's data is elaborated, the hash of the text each
+  project module its nodes' Lean declarations are in was compiled from (from
+  the module's build record; for the module being elaborated, its own text);
+  the generator compares it with the file when it runs. A generator that is
+  run again without a build after a file was edited therefore shows that
+  file's declarations with no verdict. Modules checked out as dependencies
+  (`.lake/packages`) are not compared: no page shows their source.
+- **What is shown**: such a declaration's mark is ◌, with the words "Lean
+  proof: the source of M (F) changed since the build, so nothing is shown as
+  checked: what the compiled files report and what a kernel replay found are
+  about the compiled module, not the text shown" (or "… is not known to match
+  the build: WHY, …" when no build record says which text it was, with the
+  reason: the record is missing, describes other compiled files, does not name
+  the file, or the compiled module was not found). The same words are the
+  node's tooltip and accessible name in the dependency graph, whose fill is
+  neutral (`proofStatus` `sourceChanged`, its own legend entry); the Lean-code
+  entry and the badges of its declarations say "source changed since the
+  build"; a node that depends on such a node is not complete with its
+  dependencies. A source excerpt of a site from compiled code is headed
+  "Source, not the compiled one" with the sentence why; a Blueprint shows no
+  highlighted source of such a module at all (the side-by-side layout falls
+  back to the signature), and the status badge its declarations were rendered
+  with is replaced.
+- **Counts**: such a node is in a bucket of its own on the Project Stats page
+  ("Lean source changed since the build or not known to match it, not shown as
+  checked") and in the statistics' `progress.sourceChanged`, never among the
+  complete ones; an accepted replay then does not make the counts green, and
+  the sentences about the site add "the Lean source of C nodes changed since
+  the build or is not known to match it". The replay band on the Project Stats
+  page names the modules, each with why, and lists the nodes. The statistics
+  carry the modules (`sourceChanged`) and, for a Blueprint, what was recorded
+  when its data was captured (`builtSources`).
+- **Cost**: one read of each such module's build record, and Lake's hash of
+  its source and of its compiled files (`.olean`, `.olean.server`,
+  `.olean.private`). Lake hashes them the same way when it builds.
 
 ##### What each state says
 
@@ -2945,6 +3001,8 @@ A node's mark and its tooltip:
 | nothing replayed | no `sorry` | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (WHY) |
 | nothing replayed | no `sorry`, an axiom the compiled files report, or `native_decide` | ⚠ | Lean proof without sorry, as the compiled files report, resting on X; not replayed by a kernel (WHY) |
 | any | a `sorry` in the proof or in what it uses | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (the status) |
+| any | its module's source changed since the build | ◌ | Lean proof: the source of M (F) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown |
+| any | its module's source is not known to match the build | ◌ | Lean proof: the source of M (F) is not known to match the build: WHY, so nothing is shown as checked: … (as above) |
 
 The reasons `WHY` of the new states read: a decline, "C1 declined to check the
 export: the checker's words"; no answer, "the replay could not run to a
@@ -2977,14 +3035,17 @@ after a summary card's description, and the sentence above the counts
 (Project Stats, Blueprint Summary). Under an accepted replay of every node
 there are none, and the counts are green. `U` is the number of nodes with Lean
 code the replay does not cover, `R` the number of nodes without `sorry` that
-rest on an axiom outside the standard three, and `E` the clauses about them:
-"U nodes with Lean code are not part of the replay" and "R nodes without sorry
-rest on the axiom X" (in the singular for one node).
+rest on an axiom outside the standard three, `C` the number of nodes whose Lean
+source is not known to be the text that was compiled ("Source text and the
+build"), and `E` the clauses about them: "U nodes with Lean code are not part
+of the replay", "the Lean source of C nodes changed since the build or is not
+known to match it" and "R nodes without sorry rest on the axiom X" (in the
+singular for one node).
 
 | Site | Beside an entry | After a card | Above the counts |
 |---|---|---|---|
 | accepted, every node covered, none resting | (none) | (none) | (none) |
-| accepted, U or R positive | (the kernel replay accepted the build; on this site E) | Counted as the compiled files report: the kernel replay accepted the build, and on this site E, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: E, so it was not checked and is not shown as proved. |
+| accepted, U, C or R positive | (the kernel replay accepted the build; on this site E) | Counted as the compiled files report: the kernel replay accepted the build, and on this site E, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: E, so it was not checked and is not shown as proved. |
 | rejected, or the checkers disagree | (this build was rejected by a kernel checker) | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel. |
 | no verdict | (as the compiled files report, with no verdict of a kernel replay) | Counted as the compiled files report, with no verdict of a kernel replay. | The counts are as the compiled files report, with no verdict of a kernel replay: WHY. |
 | nothing replayed | (as the compiled files report, not replayed by a kernel) | Counted as the compiled files report, not replayed by a kernel. | The counts are as the compiled files report, not replayed by a kernel: WHY. |
@@ -3572,7 +3633,9 @@ The site is an ordinary Blueprint site:
   highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
   the data's occurrences for the constants, with their hovers), the docstring
   rendered as Markdown (raw HTML shown as text, link targets other than web,
-  mail and site-relative ones dropped), where it is defined (a link to the file
+  mail and site-relative ones dropped; a module whose source is not known to be
+  the text that was compiled gets no positive mark, "Source text and the
+  build"), where it is defined (a link to the file
   on GitHub when `--root` is a GitHub checkout), a link to its neighbourhood in
   the dependency graph, the status and the axioms;
 - the search box finds declarations by name (as Lean constant documentation),

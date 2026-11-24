@@ -245,7 +245,22 @@ def paraText (blocks : Array (Verso.Doc.Block Verso.Genre.Manual)) : String :=
     "Let [inline:y] be [display:x^2], and [inline:z]." &&
   paraText (moduleDocBlocks "costs `5` and $`a`") == "costs  and [inline:a]"
 
-/-- A scratch project root with the module sources and a README. -/
+/-- A build record as Lake writes it beside a compiled module (`<module>.trace` in the project's
+`.lake/build/lib/lean`, beside a stand-in `.olean` whose bytes it names), saying that `module` was
+compiled from the text `file` (relative to `root`) has now. -/
+def recordBuild (root : System.FilePath) (module : Name) (file : String) : IO Unit := do
+  let text ← IO.FS.readFile (root / file)
+  let olean := modToFilePath (root / ".lake" / "build" / "lib" / "lean") module "olean"
+  if let some dir := olean.parent then IO.FS.createDirAll dir
+  let bytes := s!"compiled {module}".toUTF8
+  IO.FS.writeBinFile olean bytes
+  let trace := Json.mkObj [
+    ("outputs", Json.mkObj [("o", Json.arr #[.str s!"{Stats.lakeBytesHash bytes}.olean"])]),
+    ("inputs", Json.arr #[Json.arr #[.str (root / file).toString, .str (Stats.lakeTextHash text)]])]
+  IO.FS.writeFile (olean.withExtension "trace") trace.compress
+
+/-- A scratch project root with the module sources and a README, each module with a build record
+of its source as written (`recordBuild`). -/
 def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   let root := System.FilePath.mk s!"/tmp/vbp-code-site-test-{← IO.monoNanosNow}"
   IO.FS.createDirAll (root / "Demo")
@@ -253,6 +268,8 @@ def withProject (k : System.FilePath → IO Bool) : IO Bool := do
   IO.FS.writeFile (root / "Demo" / "Hard.lean") "theorem hard : False := sorry\n"
   IO.FS.writeFile (root / "README.md") "# Demo project\n\nA small project.\n"
   IO.FS.writeFile (root / "code.json") fixtureJson
+  recordBuild root `Demo.Basic "Demo/Basic.lean"
+  recordBuild root `Demo.Hard "Demo/Hard.lean"
   -- the generator's progress lines (the kernel replay's, for one) are not what is tested
   try (·.2) <$> IO.FS.withIsolatedStreams (k root) finally IO.FS.removeDirAll root
 
@@ -425,6 +442,7 @@ private def writeDemoChallenge (root : System.FilePath) : IO Unit := do
   IO.FS.writeFile (root / "Demo" / "Basic.lean")
     ("/-! Lists: type List<Nat> here, a <br> break, a<b and c>d, inline <b>bold</b> html.\n\n" ++
       "The number is\n$$`\\rho = \\sum_k 2^{-k}`.\n-/\n" ++ basicSource)
+  recordBuild root `Demo.Basic "Demo/Basic.lean"
   let code ← generate (root / "code.json") root none
     ["--output", (root / "_out").toString, "--reproducible"]
   let chapter ← IO.FS.readFile (root / "_out" / "html-multi" / "Demo___Basic" / "index.html")
@@ -542,5 +560,80 @@ private def writeDemoChallenge (root : System.FilePath) : IO Unit := do
   return first == 0 && second == 0 && hardBefore &&
     !(← (html / "Demo___Hard").pathExists) && (← (html / "Demo___Basic" / "index.html").pathExists) &&
     (← IO.FS.readFile (html / "notes.txt")) == "kept"
+
+/-! ## Source text and the build
+
+A site shows a module's source as it reads when the site is generated, and what the build says of
+the compiled module. When the two are not known to be of the same text, nothing positive is shown
+for the module's declarations. -/
+
+/-- The parts of a generated site a reader sees that the next tests look at. -/
+structure SitePages where
+  chapter : String
+  graph : String
+  stats : String
+  views : String
+
+/-- Generate the site of the project at `root` without a kernel replay, and read its pages. -/
+def sitePages (root : System.FilePath) : IO (UInt32 × SitePages) := do
+  let code ← generate (root / "code.json") root none
+    ["--output", (root / "_out").toString, "--reproducible"] (kernelReplay := false)
+  let html := root / "_out" / "html-multi"
+  return (code, { chapter := ← IO.FS.readFile (html / "Demo___Basic" / "index.html")
+                  graph := ← IO.FS.readFile (html / "Dependency-Graph" / "index.html")
+                  stats := ← IO.FS.readFile (html / "Project-Stats" / "index.html")
+                  views := ← IO.FS.readFile (html / "-verso-data" / "blueprint-node-views.json") })
+
+/-- Whether the pages show the module `Demo.Basic` with no positive mark: the words `words` on its
+declarations' heading, Lean-code link, graph node and stats page, no "no sorry" beside them, the
+neutral graph fill, and the module on the stats page. -/
+def shownWithoutVerdict (pages : SitePages) (words : String) : Bool :=
+  hasSubstr pages.chapter "Lean proof: the source of Demo.Basic (Demo/Basic.lean)" &&
+  hasSubstr pages.chapter words &&
+  !hasSubstr pages.chapter "Lean proof without sorry, as the compiled files report" &&
+  !hasSubstr pages.chapter "bp_code_decl_status bp_code_decl_status_ok" &&
+  hasSubstr pages.graph "class=\"node bp_graph_status_source_changed" &&
+  hasSubstr pages.graph "Demo.double_eq: Lean proof: the source of Demo.Basic" &&
+  hasSubstr pages.stats "data-bp-module=\"Demo.Basic\"" &&
+  hasSubstr pages.stats "data-bp-status=\"source-changed\"" &&
+  hasSubstr pages.views "so nothing is shown as checked"
+
+-- The module's source edited after the build: its declarations are shown with no verdict, as
+-- "source changed since the build"; the other module keeps its marks.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / "Demo" / "Basic.lean") (basicSource ++ "-- edited after the build\n")
+  let (code, pages) ← sitePages root
+  return code == 0 && shownWithoutVerdict pages "changed since the build" &&
+    hasSubstr pages.chapter "This is Demo/Basic.lean as it reads now" &&
+    !hasSubstr pages.stats "data-bp-module=\"Demo.Hard\""
+
+-- No build record: "not known to match the build", with the reason.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.removeDirAll (root / ".lake")
+  let (code, pages) ← sitePages root
+  return code == 0 && shownWithoutVerdict pages "is not known to match the build: its compiled \
+    module was not found"
+
+-- A build record of other compiled files than those beside it says nothing.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  IO.FS.writeFile (root / ".lake" / "build" / "lib" / "lean" / "Demo" / "Basic.olean") "other"
+  let (code, pages) ← sitePages root
+  return code == 0 && shownWithoutVerdict pages "describes other compiled files than Basic.olean"
+
+-- The same project with its records as built: no module is shown without a verdict.
+/-- info: true -/
+#guard_msgs in
+#eval withProject fun root => do
+  let (code, pages) ← sitePages root
+  return code == 0 && !hasSubstr pages.chapter "so nothing is shown as checked" &&
+    hasSubstr pages.chapter "Lean proof without sorry, as the compiled files report" &&
+    !hasSubstr pages.graph "class=\"node bp_graph_status_source_changed" &&
+    !hasSubstr pages.stats "data-bp-module="
 
 end Verso.VersoBlueprintTests.BlueprintCodeSite

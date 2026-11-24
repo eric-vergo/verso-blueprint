@@ -1096,6 +1096,7 @@ info: ("Informal.Replay.Outcome.accepted", [`ReplayReach.double_zero, `ReplayRea
     | .notChecked _ => "not checked"
     | .rejected => "rejected"
     | .notReplayed _ | .noVerdict _ => "none"
+    | .sourceChanged _ => "source changed"
   IO.println (repr ((names.push `ReplayReach.double).toList.map fun (d : Name) =>
     (d.toString, standingOf d)))
   IO.println (repr (r.notCovered.toList.map fun ((d, why) : Name × String) => (d.toString, why)))

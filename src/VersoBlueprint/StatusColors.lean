@@ -171,6 +171,11 @@ def mathlibBorder : ColorToken := mathlibBorderColor.token
 def unresolved : ColorToken :=
   { name := "--bp-color-status-unresolved", light := "#fee2e2", dark := "#450a0a" }
 
+/-- Fill of a node whose Lean source is not known to be the text that was compiled: neutral, since
+nothing is shown as known of it. -/
+def sourceChanged : ColorToken :=
+  { name := "--bp-color-status-source-changed", light := "#e7e5e4", dark := "#3b3734" }
+
 /-- Border of an unresolved-reference node. -/
 def unresolvedBorder : ColorToken :=
   { name := "--bp-color-status-unresolved-border", light := "#b91c1c", dark := "#f87171" }
@@ -199,7 +204,7 @@ def all : List ColorToken := [
   notReady, definition, ready, incomplete, formalized, formalizedWithAncestors,
   fillText, formalizedWithAncestorsText,
   blockedBorder, readyBorder, formalizedBorder, mathlibBorder,
-  unresolved, unresolvedBorder, unresolvedText
+  unresolved, unresolvedBorder, unresolvedText, sourceChanged
 ] ++ successColors.flatMap fun c => [c.acceptedToken, c.reportedToken]
 
 /-- The rules that give the success colours their value by the kernel replay behind an element.

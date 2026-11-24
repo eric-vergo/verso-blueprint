@@ -258,6 +258,13 @@ inductive VerificationReason where
   | bodyUnavailable
   | declarationUnavailable
   | uncheckedExpression
+  /-- The source of the declaration's module differs from the one its compiled module was
+  compiled from (`Informal.Stats.SourceChange`): what was found in the compiled module is not
+  known to hold of the text a site shows. -/
+  | sourceChanged
+  /-- The source of the declaration's module is not known to be the one its compiled module was
+  compiled from (no build record says so). -/
+  | sourceNotKnownToMatch
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson, Quote
 
 /-- Missing verification information, distinct from an observed sorry term. -/
@@ -573,6 +580,13 @@ structure ExternalRef where
   Snapshot of the direct external rendering outcome.
   -/
   render : ExternalDeclRender := .error (.moduleUnavailable canonical)
+  /--
+  Why the source of the declaration's module, as a site shows it, is not known to be the text
+  its compiled module was compiled from ("the source of Demo.A (Demo/A.lean) changed since the
+  build"); `none` when it is. A declaration with such a reason has the status
+  `ProvedStatus.ofSourceChange`, so nothing positive is shown for it.
+  -/
+  sourceChange? : Option String := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson, Quote
 
 def ExternalRef.ofName (name : Name) (origin : ExternalOrigin := .directiveLean) : ExternalRef :=

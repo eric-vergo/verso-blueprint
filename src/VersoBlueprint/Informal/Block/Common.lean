@@ -65,6 +65,9 @@ structure BlockStatusMark where
   /-- A Lean declaration of the node whose module is not known (it is declared in the module
   that captured the site's data, which need not be compiled): no replay is known to cover it. -/
   unplaced : Option Lean.Name := none
+  /-- Why the source of one of the node's Lean declarations is not known to be the text that was
+  compiled (`Data.ExternalRef.sourceChange?`): nothing is shown as checked for the node. -/
+  sourceChange? : Option String := none
 deriving Repr, Inhabited
 
 def BlockStatusMark.text (s : BlockStatusMark) : String :=
@@ -148,9 +151,15 @@ register_option verso.blueprint.foldCodeBlocks : Bool := {
 def externalDeclHasGap (decl : Data.ExternalRef) : Bool :=
   decl.present && decl.provedStatus.isIncomplete
 
-def externalCodeEntryTitle (found total missing withGaps : Nat) : String :=
+/-- The title of a node's Lean-code entry: how many of its declarations are present, and how
+many have a gap (`withGaps`) or a source not known to be the text that was compiled (`changed`,
+in the words `changedWords`). -/
+def externalCodeEntryTitle (found total missing withGaps : Nat) (changed : Nat := 0)
+    (changedWords : String := "source changed since the build") : String :=
   if missing > 0 then
     s!"Lean declarations ({found}/{total} present)"
+  else if changed > 0 then
+    s!"Lean declarations (all present: {found}/{total}; {changedWords}: {changed})"
   else if withGaps > 0 then
     s!"Lean declarations (all present: {found}/{total}; incomplete: {withGaps})"
   else

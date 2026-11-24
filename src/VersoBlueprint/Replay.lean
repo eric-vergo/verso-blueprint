@@ -246,6 +246,10 @@ inductive Standing where
   /-- The declarations rest on these axioms outside Lean's standard three, so they were not
   exported and not checked. -/
   | notChecked (axioms : Array Name)
+  /-- The source of a module of the declarations is not known to be the text that was compiled
+  (`Informal.Stats.SourceChange`), whatever a replay said of the compiled module. `why` is the
+  clause ("the source of Demo.A (Demo/A.lean) changed since the build"). -/
+  | sourceChanged (why : String)
 deriving Repr, Inhabited, DecidableEq
 
 private def nameList (names : Array Name) : String :=
@@ -321,8 +325,13 @@ def standing (r? : Option Result) (needed : Array Name) : Standing :=
     | o => if o.stoppedWithoutVerdict then .noVerdict r.whyNot else .notReplayed r.whyNot
 
 /-- `standing` for a node: `unplaced` is a declaration of it whose module is not known, which no
-replay is known to cover. -/
-def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Name) : Standing :=
+replay is known to cover; `sourceChange?` says why the source of one of its declarations is not
+known to be the text that was compiled, which stands before any verdict of a replay. -/
+def standingOf (r? : Option Result) (needed : Array Name) (unplaced : Option Name)
+    (sourceChange? : Option String := none) : Standing :=
+  match sourceChange? with
+  | some why => .sourceChanged why
+  | none =>
   match r?.map (·.outcome), unplaced with
   | some Outcome.accepted, some d =>
     .notReplayed s!"not part of the replay: the module of {d} is not known"
@@ -333,9 +342,9 @@ declaration that rests on an axiom outside Lean's standard three is never accept
 exported, since both checkers decline an export that uses such an axiom (`notChecked`). So
 the axioms a challenge permits cannot widen what is accepted: an accepted standing always means
 the standard three at most. -/
-def provedStanding (r? : Option Result) (needed : Array Name) (unplaced : Option Name := none) :
-    Standing :=
-  standingOf r? needed unplaced
+def provedStanding (r? : Option Result) (needed : Array Name) (unplaced : Option Name := none)
+    (sourceChange? : Option String := none) : Standing :=
+  standingOf r? needed unplaced sourceChange?
 
 /-- The clause for declarations left out because they rest on `axioms`: "it rests on the axiom
 sorryAx, and a replay checks only what rests on Lean's standard three axioms alone". -/
@@ -350,6 +359,7 @@ def Standing.why : Standing → String
   | .rejected => rejectedClause
   | .notReplayed why | .noVerdict why => why
   | .notChecked axioms => s!"not checked: {notCheckedClause axioms}"
+  | .sourceChanged why => why
 where
   rejectedClause := "a kernel checker rejected this build"
 
@@ -362,7 +372,7 @@ def Standing.isAccepted : Standing → Bool
 def Standing.token : Standing → String
   | .accepted => "accepted"
   | .rejected => "rejected"
-  | .notReplayed _ | .noVerdict _ | .notChecked _ => "none"
+  | .notReplayed _ | .noVerdict _ | .notChecked _ | .sourceChanged _ => "none"
 
 /-- The words for Lean code that no verdict of a replay covers, with the reason: "not replayed
 by a kernel (…)" when nothing was replayed for it, "no verdict of a kernel replay (…)" when a
@@ -372,6 +382,7 @@ def Standing.unreplayed? : Standing → Option String
   | .notReplayed why => some s!"not replayed by a kernel ({why})"
   | .noVerdict why => some s!"no verdict of a kernel replay ({why})"
   | .notChecked axioms => some s!"not checked by the kernel replay ({notCheckedClause axioms})"
+  | .sourceChanged why => some s!"not known to be what was built ({why})"
   | _ => none
 
 /-- The class that tells the stylesheets what stands behind an element (`Standing.token`).
@@ -394,10 +405,10 @@ inductive SiteState where
   kernel replay: …". -/
   | noVerdict (why : String)
   /-- Both checkers accepted the build, but not for every node: `uncovered` nodes with Lean code
-  are not part of it, and `resting` nodes without `sorry` rest on an axiom outside Lean's
-  standard three (`axioms`, sorted), so they were not checked. One of the two counts is
-  positive. -/
-  | acceptedExcept (uncovered resting : Nat) (axioms : Array Name)
+  are not part of it, `resting` nodes without `sorry` rest on an axiom outside Lean's
+  standard three (`axioms`, sorted), so they were not checked, and the Lean source of `changed`
+  nodes is not known to be the text that was compiled. One of the three counts is positive. -/
+  | acceptedExcept (uncovered resting : Nat) (axioms : Array Name) (changed : Nat := 0)
 deriving Repr, Inhabited, DecidableEq
 
 /-- The state of a site: `uncovered` are the nodes with Lean code that an accepted replay does
@@ -405,15 +416,16 @@ not cover (`standingOf` is not accepted for them), `resting` the nodes whose Lea
 `sorry` and depends on an axiom outside Lean's standard three, `axioms` those axioms. One such
 node keeps the counts neutral: a count in the success colour would include it. -/
 def siteState (r? : Option Result) (uncovered : Array Name := #[])
-    (resting : Array Name := #[]) (axioms : Array Name := #[]) : SiteState :=
+    (resting : Array Name := #[]) (axioms : Array Name := #[]) (changed : Array Name := #[]) :
+    SiteState :=
   match r? with
   | Option.none => .none noReplayText
   | some r =>
     match r.outcome with
     | .rejected | .disagreed => .rejected
     | .accepted =>
-      if uncovered.isEmpty && resting.isEmpty then .accepted
-      else .acceptedExcept uncovered.size resting.size (Data.sortAxioms axioms)
+      if uncovered.isEmpty && resting.isEmpty && changed.isEmpty then .accepted
+      else .acceptedExcept uncovered.size resting.size (Data.sortAxioms axioms) changed.size
     | o => if o.stoppedWithoutVerdict then .noVerdict r.whyNot else .none r.whyNot
 
 /-- The state as a token for markup: `accepted`, `rejected` or `none`. -/
@@ -460,7 +472,8 @@ def axiomsPhrase (axioms : Array Name) : String :=
 /-- What keeps a replay that accepted the build from standing behind every node, as clauses
 about the site: the nodes it does not cover, and the nodes without `sorry` that rest on an
 axiom outside the standard three. `long` adds what follows from such an axiom. -/
-def exceptionsText (uncovered resting : Nat) (axioms : Array Name) (long : Bool) : String :=
+def exceptionsText (uncovered resting : Nat) (axioms : Array Name) (long : Bool)
+    (changed : Nat := 0) : String :=
   let notPart := if uncovered == 0 then [] else
     [nodesWith uncovered "with Lean code" "is not part of the replay" "are not part of the replay"]
   let tail := if !long then "" else
@@ -469,7 +482,12 @@ def exceptionsText (uncovered resting : Nat) (axioms : Array Name) (long : Bool)
   let rests := if resting == 0 then [] else
     [nodesWith resting "without sorry" s!"rests on {axiomsPhrase axioms}{tail}"
       s!"rest on {axiomsPhrase axioms}{tail}"]
-  (if long then "; " else ", and ").intercalate (notPart ++ rests)
+  let sources := if changed == 0 then [] else
+    [if changed == 1 then
+      "the Lean source of 1 node changed since the build or is not known to match it"
+     else s!"the Lean source of {groupedNumber changed} nodes changed since the build or is not \
+       known to match it"]
+  (if long then "; " else ", and ").intercalate (notPart ++ sources ++ rests)
 
 /-- The qualification of a count or a legend entry about `sorry`-free Lean code: nothing under
 an accepted replay of every node, else what the count rests on. Each is true of the site as a
@@ -479,9 +497,9 @@ def SiteState.note? : SiteState → Option String
   | .rejected => some rejectedNote
   | .none _ => some reportedNote
   | .noVerdict _ => some noVerdictNote
-  | .acceptedExcept u r axioms =>
+  | .acceptedExcept u r axioms c =>
     some s!"the kernel replay accepted the build; on this site \
-      {exceptionsText u r axioms (long := false)}"
+      {exceptionsText u r axioms (long := false) c}"
 
 /-- A sentence after a count's description that says what the count rests on; nothing under an
 accepted replay of every node. -/
@@ -490,9 +508,9 @@ def SiteState.countSentence? : SiteState → Option String
   | .rejected => some "A kernel checker rejected this build."
   | .none _ => some "Counted as the compiled files report, not replayed by a kernel."
   | .noVerdict _ => some "Counted as the compiled files report, with no verdict of a kernel replay."
-  | .acceptedExcept u r axioms =>
+  | .acceptedExcept u r axioms c =>
     some s!"Counted as the compiled files report: the kernel replay accepted the build, and on \
-      this site {exceptionsText u r axioms (long := true)}."
+      this site {exceptionsText u r axioms (long := true) c}."
 
 /-- One sentence for a page that shows counts: what stands behind them. Empty under an accepted
 replay of every node. -/
@@ -504,9 +522,9 @@ def SiteState.sentence : SiteState → String
   | .none why => s!"The counts are as the compiled files report, not replayed by a kernel: {why}."
   | .noVerdict why =>
     s!"The counts are as the compiled files report, with no verdict of a kernel replay: {why}."
-  | .acceptedExcept u r axioms =>
+  | .acceptedExcept u r axioms c =>
     s!"The kernel replay accepted the build, and the counts are as the compiled files report: \
-      {exceptionsText u r axioms (long := true)}."
+      {exceptionsText u r axioms (long := true) c}."
 
 /-- `n` things: "1 constant", "3,409 constants". -/
 def counted (n : Nat) (noun : String) : String :=

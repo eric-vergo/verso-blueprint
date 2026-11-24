@@ -407,6 +407,12 @@ html[data-lean-links] .bp_stats_meaning_more {
     transparent 1px 4px);
 }
 
+.bp_stats_status_source-changed {
+  background-color: var(--bp-color-status-source-changed);
+  background-image: repeating-linear-gradient(90deg, var(--bp-stats-pattern-ink) 0 1px,
+    transparent 1px 4px);
+}
+
 .bp_stats_legend {
   margin: 0.45rem 0 0.2rem;
   font-size: 0.85rem;

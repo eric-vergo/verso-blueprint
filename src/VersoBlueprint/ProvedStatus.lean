@@ -30,6 +30,32 @@ def ProvedStatus.isProved : ProvedStatus → Bool
   | .proved => true
   | _ => false
 
+/-- The status of a declaration whose module's source is not known to be the text its compiled
+module was compiled from: whatever the compiled module says, nothing is known of the text a site
+shows. `changed`: the source differs from the one the build record names; otherwise no record
+says which source it was. -/
+def ProvedStatus.ofSourceChange (declaration : Name) (changed : Bool) : ProvedStatus :=
+  let reason : VerificationReason := if changed then .sourceChanged else .sourceNotKnownToMatch
+  .incomplete { unverified := #[{ declaration, reason }] }
+
+/-- Whether the status says that the declaration's source is not known to be the one compiled
+(`ofSourceChange`): `some true` when it changed since the build, `some false` when it is not
+known to match it. -/
+def ProvedStatus.sourceChange? : ProvedStatus → Option Bool
+  | .incomplete info =>
+    if info.unverified.any (·.reason == .sourceChanged) then some true
+    else if info.unverified.any (·.reason == .sourceNotKnownToMatch) then some false
+    else none
+  | _ => none
+
+/-- The words for declarations whose source is not known to be the text that was compiled:
+`changed` of them changed since the build, `unknown` are not known to match it. -/
+def sourceChangeWords (changed unknown : Nat) : String :=
+  if unknown == 0 then "source changed since the build"
+  else if changed == 0 then "source not known to match the build"
+  else "source changed since the build or not known to match it"
+
+
 /-- True when the declaration is intentionally axiom-like (no body). -/
 def ProvedStatus.isAxiomLike : ProvedStatus → Bool
   | .axiomLike => true
@@ -114,7 +140,9 @@ def ProvedStatus.sorryLocationText (status : ProvedStatus) : String :=
     if status.hasUnverifiedCoverage then known ++ "; coverage unverified" else known
 
 def ProvedStatus.statusLabel (status : ProvedStatus) : String :=
-  if status.isProved then "proved"
+  if let some changed := status.sourceChange? then
+    if changed then "source changed since the build" else "source not known to match the build"
+  else if status.isProved then "proved"
   else if status.isMissing then "missing"
   else if status.isAxiomLike then "axiom-like"
   else if status.containsExplicitSorry then "contains sorry"
@@ -210,6 +238,21 @@ def ProvedStatus.presentation (status : ProvedStatus) (present : Bool := true) :
         statusMarkSymbol := "⚠"
       }
     | .incomplete _ =>
+      match status.sourceChange? with
+      | some changed =>
+        let text := if changed then "source changed since the build"
+          else "source not known to match the build"
+        {
+          summaryText := text
+          externalPanelText := text
+          externalHeaderText := text
+          codeDeclClass := "bp_code_decl_status_changed"
+          externalDeclClass := "bp_external_decl_changed"
+          codeEntryClassSuffix := "changed"
+          codeEntrySymbol := "◌"
+          statusMarkSymbol := "◌"
+        }
+      | none =>
       let locationText := status.sorryLocationText
       let direct := status.containsExplicitSorry
       let dependency := status.dependsOnSorry
@@ -377,5 +420,20 @@ def analyzeDeclarations [Monad m] [MonadEnv m] [MonadLiftT BaseIO m] (names : Ar
       | some (.axiomInfo _) => .axiomLike
       | _ => completion
   names.mapM analyzeDeclaration
+
+/-- The reference with its module's source not known to be the text its compiled module was
+compiled from, for the reason `change` (`ExternalRef.sourceChange?`), and the status that goes
+with it (`ProvedStatus.ofSourceChange`). -/
+def ExternalRef.withSourceChange (ref : ExternalRef) (change : String) (changed : Bool) :
+    ExternalRef :=
+  let status := ProvedStatus.ofSourceChange ref.canonical changed
+  let badge (s : ProvedStatus) : ExternalDeclHeaderBadge :=
+    let view := s.presentation
+    { className := view.externalDeclClass, text := view.externalHeaderText }
+  -- a declaration rendered when the site's data was captured carries the status it had then
+  let render := match ref.render with
+    | .ok html => .ok (html.withHeaderBadge (badge ref.provedStatus) (badge status))
+    | other => other
+  { ref with provedStatus := status, sourceChange? := some change, render }
 
 end Informal.Data

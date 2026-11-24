@@ -6,10 +6,10 @@
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
     "progress", "leanProgress", "chapters", "graph", "trust", "challenges", "hasComparatorChallenge",
-    "claims", "replay"],
+    "claims", "replay", "builtSources", "sourceChanged"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 8 },
+    "schemaVersion": { "const": 9 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -436,6 +436,42 @@
         }
       ]
     },
+    "builtSources": {
+      "description": "What was known, when the site's data was captured, of the source text each project module whose declarations the nodes refer to was compiled from: Lake's hash of that text (from Lake's build record, or of the module being elaborated), or why none is known. Empty for a site generated from compiled-code data.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module", "file", "hash", "why"],
+        "additionalProperties": false,
+        "properties": {
+          "module": { "$ref": "#/$defs/name" },
+          "file": { "$ref": "#/$defs/path" },
+          "hash": {
+            "description": "Lake's hash of the text, sixteen hexadecimal digits; null when none is known.",
+            "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{16}$" }]
+          },
+          "why": { "description": "Why no hash is known; empty when one is.", "type": "string" }
+        }
+      }
+    },
+    "sourceChanged": {
+      "description": "The modules whose source text, as the site shows it, is not known to be the text their compiled module was compiled from, sorted by name: no positive mark, success colour or complete count is shown for their declarations.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module", "file", "changed", "why"],
+        "additionalProperties": false,
+        "properties": {
+          "module": { "$ref": "#/$defs/name" },
+          "file": { "$ref": "#/$defs/path" },
+          "changed": {
+            "description": "true: the source differs from the one the build compiled; false: no build record says which source it was (why).",
+            "type": "boolean"
+          },
+          "why": { "type": "string" }
+        }
+      }
+    },
     "claims": {
       "description": "The author's claims about what Lean declarations state (informal-claims.json at the project root); null without the file. Author-supplied text: nothing compares it with the Lean statements.",
       "oneOf": [
@@ -641,14 +677,19 @@
     "progress": {
       "description": "Nodes by the dependency graph's fill status.",
       "type": "object",
-      "required": ["notReady", "ready", "incomplete", "formalized", "formalizedWithAncestors"],
+      "required": ["notReady", "ready", "incomplete", "formalized", "formalizedWithAncestors",
+        "sourceChanged"],
       "additionalProperties": false,
       "properties": {
         "notReady": { "$ref": "#/$defs/count" },
         "ready": { "$ref": "#/$defs/count" },
         "incomplete": { "$ref": "#/$defs/count" },
         "formalized": { "$ref": "#/$defs/count" },
-        "formalizedWithAncestors": { "$ref": "#/$defs/count" }
+        "formalizedWithAncestors": { "$ref": "#/$defs/count" },
+        "sourceChanged": {
+          "description": "Nodes whose Lean source is not known to be the text that was compiled (changed since the build, or no build record says which text it was): not complete, and shown with no verdict.",
+          "$ref": "#/$defs/count"
+        }
       }
     },
     "trustEntries": {

@@ -159,7 +159,10 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
   let project := { project with title := title? <|> project.title }
   let hovers : Lean.NameMap Hover := project.hovers.foldl (init := {}) fun acc h => acc.insert h.name h
   let ctx : RenderContext := { hovers, sourceBase? := ← sourceBaseOf? root }
-  let state := stateOf project sources.get? ctx
+  -- the source excerpts are read from the disk now, the statuses come from the build: a module
+  -- whose source is not the one it was compiled from gets no positive mark
+  let changes ← sourceChangesOf root project sources.get?
+  let state := stateOf project sources.get? ctx changes
   let known : Lean.NameSet := project.modules.foldl (init := {}) fun acc m =>
     m.declarations.foldl (fun acc d => acc.insert d.name) acc
   let compare := compare && challengeNotBuilt?.isNone
@@ -168,6 +171,7 @@ def generate (data root : FilePath) (title? : Option String) (args : List String
     -- with a replay the comparison is made in the replay's environment, below
     | none => if compare && !kernelReplay then headlinesOf root project known else pure #[]
   let model ← modelOf root project state headlines
+  let model := { model with stats := { model.stats with sourceChanged := changes } }
   -- the replay is of the project at `root`, which need not be the working directory
   let model ← if kernelReplay then
       let config ← replayConfigOf root model.stats.layout

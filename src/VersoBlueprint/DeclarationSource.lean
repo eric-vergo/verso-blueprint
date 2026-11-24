@@ -36,6 +36,9 @@ layout), and the loaded modules (`none`: highlighting or loading failed).
 structure State where
   enabled : Bool := false
   modules : Std.HashMap Name (Option SubVerso.Module.Module) := {}
+  /-- Modules whose source is not the one the site's data was computed from (their source changed
+  since the build): their source is neither highlighted nor shown. -/
+  excluded : NameSet := {}
 deriving Inhabited
 
 initialize stateRef : IO.Ref State ← IO.mkRef {}
@@ -57,6 +60,10 @@ def withEnabled {α : Type} (enabled : Bool) (act : IO α) : IO α := do
   let before ← DeclarationSource.enabled
   setEnabled enabled
   try act finally setEnabled before
+
+/-- Show no source of `modules` (`State.excluded`): their files are not what was built. -/
+def excludeModules (modules : Array Name) : IO Unit :=
+  stateRef.modify fun st => { st with excluded := modules.foldl (·.insert ·) st.excluded }
 
 /-- Register a module directly (used by tests and by callers that load data themselves). -/
 def insert (moduleName : Name) (mod : SubVerso.Module.Module) : IO Unit :=
@@ -113,8 +120,9 @@ def prepare (root : System.FilePath) (modules : Array Name)
     (logWarning : String → IO Unit) (logProgress : String → IO Unit := fun _ => pure ()) :
     IO Unit := do
   let loaded := (← stateRef.get).modules
+  let excluded := (← stateRef.get).excluded
   let todo := modules.foldl (init := #[]) fun acc m =>
-    if loaded.contains m || acc.contains m then acc else acc.push m
+    if loaded.contains m || acc.contains m || excluded.contains m then acc else acc.push m
   if todo.isEmpty then return
   let targets := todo.map fun m => s!"+{m}:highlighted"
   logProgress s!"highlighting {todo.size} Lean modules for declaration sources"
@@ -146,12 +154,16 @@ def prepare (root : System.FilePath) (modules : Array Name)
 /-- Find the highlighted source of a declaration in the loaded modules. -/
 def find? (decl : Data.ExternalRef) : IO (Option DeclSource) := do
   let some moduleName := wantsSource decl | return none
-  let some (some mod) := (← stateRef.get).modules[moduleName]? | return none
+  let st ← stateRef.get
+  if st.excluded.contains moduleName then return none
+  let some (some mod) := st.modules[moduleName]? | return none
   return mod.findDecl? decl.canonical (decl.range?.map (·.pos))
 
 /-- The whole highlighted source of a loaded module: the code of its items in order. -/
 def moduleCode? (moduleName : Name) : IO (Option Highlighted) := do
-  let some (some mod) := (← stateRef.get).modules[moduleName]? | return none
+  let st ← stateRef.get
+  if st.excluded.contains moduleName then return none
+  let some (some mod) := st.modules[moduleName]? | return none
   return some (.seq (mod.items.map (·.code)))
 
 /-! ## Presentation helpers -/

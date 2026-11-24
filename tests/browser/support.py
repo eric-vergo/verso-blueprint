@@ -159,6 +159,66 @@ def serve_with_headers(site_dir: Path, headers: dict[str, str]):
         thread.join()
 
 
+_MASK = (1 << 64) - 1
+_MURMUR = 0xC6A4A7935BD1E995
+
+
+def _murmur64(data: bytes, seed: int = 11) -> int:
+    """Lean's hash of a string's or a byte array's bytes (MurmurHash64A, seed 11)."""
+    h = (seed ^ (len(data) * _MURMUR)) & _MASK
+    blocks = len(data) // 8
+    for i in range(blocks):
+        k = int.from_bytes(data[8 * i:8 * i + 8], "little")
+        k = (k * _MURMUR) & _MASK
+        k ^= k >> 47
+        k = (k * _MURMUR) & _MASK
+        h ^= k
+        h = (h * _MURMUR) & _MASK
+    tail = data[8 * blocks:]
+    if tail:
+        for j in range(len(tail) - 1, -1, -1):
+            h ^= tail[j] << (8 * j)
+        h = (h * _MURMUR) & _MASK
+    h ^= h >> 47
+    h = (h * _MURMUR) & _MASK
+    h ^= h >> 47
+    return h
+
+
+def lake_hash(data: bytes) -> str:
+    """Lake's content hash of `data` as its build records write it (`Lake.Hash`: Lean's hash of
+    the bytes mixed with 1723, sixteen hexadecimal digits). A source file's text is hashed with
+    its line endings as `\\n`."""
+    k = (_murmur64(data) * _MURMUR) & _MASK
+    k ^= k >> 47
+    k ^= _MURMUR
+    h = (1723 ^ k) & _MASK
+    return format((h * _MURMUR) & _MASK, "016x")
+
+
+def record_build(root: Path, module: str, source: str) -> None:
+    """A build record as Lake writes it beside a compiled module (`<module>.trace` in the
+    project's `.lake/build/lib/lean`, beside a stand-in `.olean` whose bytes it names), saying that
+    `module` was compiled from the text the file `source` (relative to `root`) has now."""
+    base = root / ".lake" / "build" / "lib" / "lean" / Path(*module.split("."))
+    base.parent.mkdir(parents=True, exist_ok=True)
+    olean = f"compiled {module}".encode()
+    base.with_suffix(".olean").write_bytes(olean)
+    text = (root / source).read_bytes().replace(b"\r\n", b"\n")
+    trace = {"outputs": {"o": [f"{lake_hash(olean)}.olean"]},
+             "inputs": [[str(root / source), lake_hash(text)]]}
+    base.with_suffix(".trace").write_text(json.dumps(trace), encoding="utf-8")
+
+
+def record_builds(root: Path, data: Path) -> None:
+    """`record_build` for every module of the code-site data `data` whose source is a file under
+    `root`."""
+    for module in json.loads(data.read_text(encoding="utf-8"))["modules"]:
+        source = module.get("source")
+        if source and (root / source).is_file():
+            record_build(root, module["module"], source)
+
+
 def large_code_site_data(modules: int = 8, per_module: int = 48, chains: int = 2) -> dict:
     """Data for `vbp code-site` of a large dependency graph: `modules` modules of `per_module`
     declarations each, in `chains` separate families of modules (so the graph has that many

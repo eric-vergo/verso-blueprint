@@ -730,6 +730,10 @@ span[class$="_thmlabel"]::after {
   background: var(--bp-color-accent-warning);
 }
 
+.bp_external_status_changed {
+  background: var(--bp-color-text-faint);
+}
+
 .bp_external_status_missing {
   background: var(--bp-color-accent-danger);
 }
@@ -1358,6 +1362,16 @@ html[data-lean-links] .bp_lean_jumps {
 
 .bp_external_decl_sorry {
   color: var(--bp-color-status-warning-text);
+}
+
+.bp_external_decl_changed {
+  color: var(--bp-color-text-muted);
+}
+
+.bp_plain_decl_source_note {
+  margin: 0.35rem 0;
+  color: var(--bp-color-status-warning-text);
+  font-size: 0.85rem;
 }
 
 .bp_external_decl_missing {

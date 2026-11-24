@@ -73,12 +73,15 @@ def labelLines (node : GraphNode Ref) : Array String :=
   (((node.caption?.getD node.displayLabel).splitOn "\n").toArray).flatMap wrapDotted
 
 /-- The accessible name of a drawn node: the text of its label, followed by its name (the
-node's label, also its tooltip) when the label shows something else, as a numbered title does
-(`Theorem 6.5 (critical_radius)`). -/
+node's label) when the label shows something else, as a numbered title does
+(`Theorem 6.5 (critical_radius)`), then its tooltip, which says the node's state in the words of
+its mark ("Theorem 6.5 (critical_radius): Lean proof without sorry, as the compiled files
+report; …"). -/
 def accessibleName (node : PILean.Graph.WebNode) : String :=
   let shown := String.join node.lines.toList
-  if shown == node.name || node.name.isEmpty then shown
-  else s!"{" ".intercalate node.lines.toList} ({node.name})"
+  let named := if shown == node.name || node.name.isEmpty then shown
+    else s!"{" ".intercalate node.lines.toList} ({node.name})"
+  if node.tooltip.isEmpty then named else s!"{named}: {node.tooltip}"
 
 /-- The outline of a node. -/
 def webShape (node : GraphNode Ref) : PILean.Graph.WebShape :=

@@ -189,6 +189,11 @@ def BlockCodeData.unplaced (code : BlockCodeData) : Option Name :=
       (·.canonical)) <|>
     ((code.literateDeclarations.declarations.find? (·.module.isNone)).map (·.name))
 
+/-- Why the source of a present external declaration of `code` is not known to be the text that
+was compiled (`Data.ExternalRef.sourceChange?`), for the first such declaration. -/
+def BlockCodeData.sourceChange? (code : BlockCodeData) : Option String :=
+  (code.externalDecls.find? fun d => d.present && d.sourceChange?.isSome).bind (·.sourceChange?)
+
 /-- The Lean declarations of `code`, each once, sorted: its present external declarations and
 the declarations of its code blocks. A kernel replay must cover them all, with everything they
 depend on, before the code counts as replayed. -/

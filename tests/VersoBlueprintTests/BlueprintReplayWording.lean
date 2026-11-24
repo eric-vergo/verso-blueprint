@@ -123,7 +123,14 @@ private def nodes : List (String × Bool × BlockStatusMark) := [
   ("a sorry", true, { mark #[`P.sorry] (status := directSorry) with
       title := "Lean statement: no sorry; Lean proof: sorry" }),
   ("not checked by the replay", false, mark #[`P.other]),
-  ("module not known", false, mark #[] (unplaced := some `Main.local))]
+  ("module not known", false, mark #[] (unplaced := some `Main.local)),
+  ("source changed since the build", true,
+    { mark #[`P.clean] (status := .ofSourceChange `P.clean true) with
+      sourceChange? := some "the source of P (P.lean) changed since the build" }),
+  ("source not known to match the build", true,
+    { mark #[`P.clean] (status := .ofSourceChange `P.clean false) with
+      sourceChange? := some "the source of P (P.lean) is not known to match the build: Lake's \
+        build record P.trace of the compiled module P is missing or cannot be read" })]
 
 /-! ## A node's mark -/
 
@@ -146,6 +153,8 @@ accepted | native_decide | ⚠ | Lean proof without sorry, as the compiled files
 accepted | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 accepted | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: P.other is not among the declarations that were checked)
 accepted | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: the module of Main.local is not known)
+accepted | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+accepted | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 accepted (reproducible) | no axiom | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
 accepted (reproducible) | standard axioms only | ✓ | Lean proof complete: no sorry in it or in what it uses; checked again by con-leche and con-ron (Lean 4.35.0), with everything it depends on, and both accepted it
 accepted (reproducible) | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report; not checked by the kernel replay: it rests on an axiom outside Lean's standard three (Demo.ax), and a replay checks only what rests on Lean's standard three axioms alone, so it is not shown as proved
@@ -154,6 +163,8 @@ accepted (reproducible) | native_decide | ⚠ | Lean proof without sorry, as the
 accepted (reproducible) | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 accepted (reproducible) | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: P.other is not among the declarations that were checked)
 accepted (reproducible) | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (not part of the replay: the module of Main.local is not known)
+accepted (reproducible) | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+accepted (reproducible) | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 rejected | no axiom | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
 rejected | standard axioms only | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
 rejected | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
@@ -162,6 +173,8 @@ rejected | native_decide | ⚠ | Lean proof without sorry, as the compiled files
 rejected | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 rejected | not checked by the replay | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
 rejected | module not known | ⊘ | Lean proof not accepted: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build
+rejected | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+rejected | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 disagreed | no axiom | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
 disagreed | standard axioms only | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
 disagreed | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
@@ -170,6 +183,8 @@ disagreed | native_decide | ⚠ | Lean proof without sorry, as the compiled file
 disagreed | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 disagreed | not checked by the replay | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
 disagreed | module not known | ⊘ | Lean proof not accepted: the two checkers disagree on this build: con-leche (Lean 4.35.0) accepted it and con-ron (Lean 4.35.0) rejected it
+disagreed | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+disagreed | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 declined | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
 declined | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
 declined | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
@@ -178,6 +193,8 @@ declined | native_decide | ⚠ | Lean proof without sorry, as the compiled files
 declined | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 declined | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
 declined | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (con-ron (Lean 4.35.0) declined to check the export: con-ron: declined: non-standard axiom [at axiom P.ax])
+declined | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+declined | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 no answer | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
 no answer | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
 no answer | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
@@ -186,6 +203,8 @@ no answer | native_decide | ⚠ | Lean proof without sorry, as the compiled file
 no answer | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 no answer | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
 no answer | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay could not run to a verdict: con-ron (Lean 4.35.0) gave no answer (status 3: con-ron: fuel exhausted))
+no answer | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+no answer | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 timed out | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
 timed out | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
 timed out | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
@@ -194,6 +213,8 @@ timed out | native_decide | ⚠ | Lean proof without sorry, as the compiled file
 timed out | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 timed out | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
 timed out | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay with con-leche and con-ron (Lean 4.35.0) did not finish within 900 s)
+timed out | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+timed out | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 over memory | no axiom | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
 over memory | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
 over memory | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
@@ -202,6 +223,8 @@ over memory | native_decide | ⚠ | Lean proof without sorry, as the compiled fi
 over memory | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 over memory | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
 over memory | module not known | ◇ | Lean proof without sorry, as the compiled files report; no verdict of a kernel replay (the replay was stopped: con-ron (Lean 4.35.0) went over its memory limit of 64 MiB)
+over memory | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+over memory | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 no checker shipped | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
 no checker shipped | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
 no checker shipped | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
@@ -210,6 +233,8 @@ no checker shipped | native_decide | ⚠ | Lean proof without sorry, as the comp
 no checker shipped | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 no checker shipped | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
 no checker shipped | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this project's Lean (v4.34.0) ships no con-leche or con-ron)
+no checker shipped | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+no checker shipped | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 export over its limit | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
 export over its limit | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
 export over its limit | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
@@ -218,6 +243,8 @@ export over its limit | native_decide | ⚠ | Lean proof without sorry, as the c
 export over its limit | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 export over its limit | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
 export over its limit | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the export of what the site's declarations depend on went over its size limit of 8 MiB, so the checker was not run)
+export over its limit | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+export over its limit | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 switched off | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the kernel replay was switched off for this build)
 switched off | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the kernel replay was switched off for this build)
 switched off | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (the kernel replay was switched off for this build)
@@ -226,6 +253,8 @@ switched off | native_decide | ⚠ | Lean proof without sorry, as the compiled f
 switched off | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 switched off | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the kernel replay was switched off for this build)
 switched off | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (the kernel replay was switched off for this build)
+switched off | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+switched off | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 not run | no axiom | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)
 not run | standard axioms only | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)
 not run | an axiom of the project | ⚠ | Lean proof without sorry, as the compiled files report, resting on an axiom outside Lean's standard three (Demo.ax); not replayed by a kernel (this site was generated without a kernel replay)
@@ -234,6 +263,8 @@ not run | native_decide | ⚠ | Lean proof without sorry, as the compiled files 
 not run | a sorry | ◐ | Lean code incomplete: a sorry in the proof or in what it uses (Lean statement: no sorry; Lean proof: sorry)
 not run | not checked by the replay | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)
 not run | module not known | ◇ | Lean proof without sorry, as the compiled files report; not replayed by a kernel (this site was generated without a kernel replay)
+not run | source changed since the build | ◌ | Lean proof: the source of P (P.lean) changed since the build, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
+not run | source not known to match the build | ◌ | Lean proof: the source of P (P.lean) is not known to match the build: Lake's build record P.trace of the compiled module P is missing or cannot be read, so nothing is shown as checked: what the compiled files report and what a kernel replay found are about the compiled module, not the text shown
 -/
 #guard_msgs in
 #eval for (state, node, glyph, text) in markRows do IO.println (row [state, node, glyph, text])
@@ -249,7 +280,9 @@ private def sites : List (String × Replay.SiteState) :=
      Replay.siteState (some (result .accepted)) #[] #[`n] #[`Demo.ax]),
    ("accepted, two nodes on axioms",
      Replay.siteState (some (result .accepted)) #[] #[`n, `m] #[nativeAxiom, `Demo.ax]),
-   ("accepted, both", Replay.siteState (some (result .accepted)) #[`a, `b] #[`n] #[`Demo.ax])] ++
+   ("accepted, both", Replay.siteState (some (result .accepted)) #[`a, `b] #[`n] #[`Demo.ax]),
+   ("accepted, a node with its source changed",
+     Replay.siteState (some (result .accepted)) #[] #[] #[] #[`c])] ++
   (replays.drop 1).map fun (state, replay?) => (state, Replay.siteState replay? #[`n] #[`m])
 
 -- Every state of a site: its token, the words beside a legend entry or a count of `sorry`-free
@@ -260,6 +293,7 @@ accepted, a node not covered | none | the kernel replay accepted the build; on t
 accepted, a node on an axiom | none | the kernel replay accepted the build; on this site 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved.
 accepted, two nodes on axioms | none | the kernel replay accepted the build; on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code) | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), so they were not checked and are not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes without sorry rest on the axioms Demo.ax, P.native._native.native_decide.ax_1_1 (the result of compiled code), so they were not checked and are not shown as proved.
 accepted, both | none | the kernel replay accepted the build; on this site 2 nodes with Lean code are not part of the replay, and 1 node without sorry rests on the axiom Demo.ax | Counted as the compiled files report: the kernel replay accepted the build, and on this site 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 2 nodes with Lean code are not part of the replay; 1 node without sorry rests on the axiom Demo.ax, so it was not checked and is not shown as proved.
+accepted, a node with its source changed | none | the kernel replay accepted the build; on this site the Lean source of 1 node changed since the build or is not known to match it | Counted as the compiled files report: the kernel replay accepted the build, and on this site the Lean source of 1 node changed since the build or is not known to match it. | The kernel replay accepted the build, and the counts are as the compiled files report: the Lean source of 1 node changed since the build or is not known to match it.
 accepted (reproducible) | none | the kernel replay accepted the build; on this site 1 node with Lean code is not part of the replay, and 1 node without sorry rests on an axiom outside Lean's standard three | Counted as the compiled files report: the kernel replay accepted the build, and on this site 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved. | The kernel replay accepted the build, and the counts are as the compiled files report: 1 node with Lean code is not part of the replay; 1 node without sorry rests on an axiom outside Lean's standard three, so it was not checked and is not shown as proved.
 rejected | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
 disagreed | rejected | this build was rejected by a kernel checker | A kernel checker rejected this build. | This build was rejected by a kernel checker: the counts say what the compiled files report, and nothing here counts as checked by a kernel.
