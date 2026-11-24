@@ -457,20 +457,20 @@ def citationPreviewBody (entryHtml : Verso.Output.Html)
     Verso.Output.Html :=
   open Verso.Output.Html in
   let locator? := locatorText kind index
-  {{
+  html%{
     <div class="bp_bibliography_hover">
       <div class="bp_bibliography_hover_entry">
-        {{entryHtml}}
+        {entryHtml}
       </div>
-      {{match locator? with
+      {match locator? with
         | some loc =>
-          {{<div class="bp_bibliography_hover_meta">
-              <span class="bp_bibliography_hover_meta_label">"Locator"</span>
-              <span class="bp_bibliography_hover_meta_value">{{.text loc}}</span>
-            </div>}}
-        | Option.none => .empty}}
+          html%{<div class="bp_bibliography_hover_meta">
+              <span class="bp_bibliography_hover_meta_label">Locator</span>
+              <span class="bp_bibliography_hover_meta_value">{.text loc}</span>
+            </div>}
+        | Option.none => .empty}
     </div>
-  }}
+  }
 
 open Verso Doc Elab Genre Manual in
 inline_extension Inline.bpCite (citations : List CiteItem) (style : CitationStyle := .parenthetical)
@@ -560,7 +560,7 @@ inline_extension Inline.bpCite (citations : List CiteItem) (style : CitationStyl
       let citeAnchorId? := st.externalTags[id]? |>.map (·.htmlId.toString)
       let wrapTarget (h : Output.Html) : Output.Html :=
         match citeAnchorId? with
-        | some anchorId => {{<span id={{anchorId}}>{{h}}</span>}}
+        | some anchorId => html%{<span id={anchorId}>{h}</span>}
         | Option.none => h
       let mkLink (item : CiteItem) := do
         let base? :=
@@ -577,8 +577,8 @@ inline_extension Inline.bpCite (citations : List CiteItem) (style : CitationStyl
         let txt := pieceText cfg.style item.citation
         let linkNode : Output.Html :=
           match href? with
-          | some href => {{<a href={{href}}>{{.text txt}}</a>}}
-          | Option.none => {{<span>{{.text txt}}</span>}}
+          | some href => html%{<a href={href}>{.text txt}</a>}
+          | Option.none => html%{<span>{.text txt}</span>}
         if inPreviewRender then
           pure linkNode
         else
@@ -587,8 +587,9 @@ inline_extension Inline.bpCite (citations : List CiteItem) (style : CitationStyl
             previewKey (citationPreviewTitle item)
           pure <| Informal.HoverRender.inlinePreviewTargetNode linkNode previewTarget
       let links ← cfg.citations.mapM mkLink
-      let body := joinHtml {{<span>"; "</span>}} links
-      let locatorHtml? := (locatorText cfg.kind cfg.index).map (fun loc => {{<span>{{.text loc}}</span>}})
+      let body := joinHtml html%{<span>{"; "}</span>} links
+      let locatorHtml? :=
+        (locatorText cfg.kind cfg.index).map (fun loc => html%{<span>{.text loc}</span>})
       let htmlNote? : Option Output.Html ←
         if content.isEmpty then
           pure Option.none
@@ -599,18 +600,18 @@ inline_extension Inline.bpCite (citations : List CiteItem) (style : CitationStyl
         let core :=
           match locatorHtml? with
           | Option.none => body
-          | some loc => {{<span>{{body}} ", " {{loc}}</span>}}
+          | some loc => html%{<span>{body}{", "}{loc}</span>}
         match htmlNote? with
-        | Option.none => pure <| wrapTarget {{<span>"(" {{core}} ")"</span>}}
-        | some htmlNote => pure <| wrapTarget {{<span>"(" {{core}} ", " {{htmlNote}} ")"</span>}}
+        | Option.none => pure <| wrapTarget html%{<span>({core})</span>}
+        | some htmlNote => pure <| wrapTarget html%{<span>({core}{", "}{htmlNote})</span>}
       | .textual | .here =>
         let core :=
           match locatorHtml? with
           | Option.none => body
-          | some loc => {{<span>{{body}} ", " {{loc}}</span>}}
+          | some loc => html%{<span>{body}{", "}{loc}</span>}
         match htmlNote? with
         | Option.none => pure <| wrapTarget core
-        | some htmlNote => pure <| wrapTarget {{<span>{{core}} ", " {{htmlNote}}</span>}}
+        | some htmlNote => pure <| wrapTarget html%{<span>{core}{", "}{htmlNote}</span>}
 
 end Informal.Cite
 

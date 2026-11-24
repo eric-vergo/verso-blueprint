@@ -141,29 +141,29 @@ private def graphToHtml
         d.variant == firstKey && d.direction == graphData.options.direction &&
           d.pack.all (· == graphData.options.pack)
       let prerendered : Output.Html := match drawings.find? isFirst with
-        | some d => {{
-            <div class="bp_graph_first_drawing" "data-variant"={{d.variant}}
-                "data-direction"={{d.direction.rankdir}} "data-pack"={{packValue d.pack}}>
-              {{.raw d.svg}}
-              {{match d.note with
-                | some note => {{<p class="bp_graph_notice">{{note}}</p>}}
-                | none => .empty}}
+        | some d => html%{
+            <div class="bp_graph_first_drawing" data-variant={d.variant}
+                data-direction={d.direction.rankdir} data-pack={packValue d.pack}>
+              {.raw d.svg}
+              {match d.note with
+                | some note => html%{<p class="bp_graph_notice">{note}</p>}
+                | none => .empty}
             </div>
-          }}
+          }
         | none => .empty
-      let layoutHtml : Array Output.Html := (drawings.filter (!isFirst ·)).map fun d => {{
-        <script type="image/svg+xml" class="bp-graph-drawing" "data-variant"={{d.variant}}
-            "data-direction"={{d.direction.rankdir}} "data-pack"={{packValue d.pack}}>
-          {{.raw d.svg}}
+      let layoutHtml : Array Output.Html := (drawings.filter (!isFirst ·)).map fun d => html%{
+        <script type="image/svg+xml" class="bp-graph-drawing" data-variant={d.variant}
+            data-direction={d.direction.rankdir} data-pack={packValue d.pack}>
+          {.raw d.svg}
         </script>
-      }}
+      }
       let publicGraphDataJson : String := Lean.Json.compress (toJson publicGraphData)
       let graphVariants := publicGraphData.variants
       let hasGroupVariant := graphVariants.any (fun variant => variant.key == groupVariantKey)
       let graphVariantOptions : Array Output.Html :=
-        graphVariants.map fun variant => {{
-          <option value={{variant.key}}>{{variant.label}}</option>
-        }}
+        graphVariants.map fun variant => html%{
+          <option value={variant.key}>{variant.label}</option>
+        }
       let includeMathlibLegend :=
         publicGraphData.nodes.any (fun node => node.visual.color == Informal.Graph.statementBorderMathlibColor)
       -- the legend's success colours follow the kernel replay of the site as a whole
@@ -175,59 +175,59 @@ private def graphToHtml
           groups.map fun group =>
             let summaryHtml : Output.Html :=
               match group.summary? with
-              | some summary => {{
+              | some summary => html%{
                   <p class="bp_graph_legend_group_summary">
-                    {{.raw summary}}
+                    {.raw summary}
                   </p>
-                }}
+                }
               | Option.none => .empty
             let itemHtml : Array Output.Html :=
               group.items.map fun item =>
                 match item.swatch? with
-                | some swatch => {{
+                | some swatch => html%{
                     <span class="bp_graph_legend_item">
-                      <span class="bp_graph_legend_swatch" "style"={{swatch.inlineStyle}}></span>
-                      {{.raw item.label}}
+                      <span class="bp_graph_legend_swatch" style={swatch.inlineStyle}></span>
+                      {.raw item.label}
                     </span>
-                  }}
-                | Option.none => {{
+                  }
+                | Option.none => html%{
                     <span class="bp_graph_legend_item">
-                      {{.raw item.label}}
+                      {.raw item.label}
                     </span>
-                  }}
-            {{
+                  }
+            html%{
               <section class="bp_graph_legend_group">
                 <div class="bp_graph_legend_group_header">
-                  <span class="bp_graph_legend_group_title">{{.raw group.title}}</span>
-                  {{summaryHtml}}
+                  <span class="bp_graph_legend_group_title">{.raw group.title}</span>
+                  {summaryHtml}
                 </div>
                 <div class="bp_graph_legend_items">
-                  {{itemHtml}}
+                  {itemHtml}
                 </div>
               </section>
-            }}
+            }
         let noteHtml : Output.Html :=
           match note? with
-          | some note => {{
+          | some note => html%{
               <p class="bp_graph_legend_note">
-                {{.raw note}}
+                {.raw note}
               </p>
-            }}
+            }
           | Option.none => .empty
         if hidden then
-          {{
-            <div class={{legendClass}} "data-bp-legend-kind"={{kind}} hidden>
-              {{noteHtml}}
-              {{legendGroupHtml}}
+          html%{
+            <div class={legendClass} data-bp-legend-kind={kind} hidden>
+              {noteHtml}
+              {legendGroupHtml}
             </div>
-          }}
+          }
         else
-          {{
-            <div class={{legendClass}} "data-bp-legend-kind"={{kind}}>
-              {{noteHtml}}
-              {{legendGroupHtml}}
+          html%{
+            <div class={legendClass} data-bp-legend-kind={kind}>
+              {noteHtml}
+              {legendGroupHtml}
             </div>
-          }}
+          }
       let fullLegendHtml :=
         renderLegend "full" (Informal.Graph.graphLegendGroups includeMathlibLegend site)
           (note? := some Informal.Graph.graphLegendFullViewNote)
@@ -254,40 +254,40 @@ private def graphToHtml
       let graphDirectionOptions : Array Output.Html :=
         allGraphDirections.map fun direction =>
           if direction == graphData.options.direction then
-            {{ <option value={{direction.rankdir}} selected>{{direction.rankdir}}</option> }}
+            html%{<option value={direction.rankdir} selected>{direction.rankdir}</option>}
           else
-            {{ <option value={{direction.rankdir}}>{{direction.rankdir}}</option> }}
+            html%{<option value={direction.rankdir}>{direction.rankdir}</option>}
       let graphPackChecked : Array (String × String) :=
         if graphData.options.pack then #[("checked", "checked")] else #[]
       let graphPackDefault : String := if graphData.options.pack then "true" else "false"
       let previewModeDefault : String := graphData.previewMode.dataValue
       let graphPreviewModeOptions : Array Output.Html := #[
         if graphData.previewMode == .pinned then
-          {{ <option value="pinned" selected>"Click to pin"</option> }}
+          html%{<option value="pinned" selected>Click to pin</option>}
         else
-          {{ <option value="pinned">"Click to pin"</option> }},
+          html%{<option value="pinned">Click to pin</option>},
         if graphData.previewMode == .hover then
-          {{ <option value="hover" selected>"Hover"</option> }}
+          html%{<option value="hover" selected>Hover</option>}
         else
-          {{ <option value="hover">"Hover"</option> }}
+          html%{<option value="hover">Hover</option>}
       ]
       let previewPlacementDefault : String := graphData.previewPlacement.dataValue
       let graphPreviewPlacementOptions : Array Output.Html := #[
         if graphData.previewPlacement == .docked then
-          {{ <option value="docked" selected>"Docked"</option> }}
+          html%{<option value="docked" selected>Docked</option>}
         else
-          {{ <option value="docked">"Docked"</option> }},
+          html%{<option value="docked">Docked</option>},
         if graphData.previewPlacement == .anchored then
-          {{ <option value="anchored" selected>"Near node"</option> }}
+          html%{<option value="anchored" selected>Near node</option>}
         else
-          {{ <option value="anchored">"Near node"</option> }}
+          html%{<option value="anchored">Near node</option>}
       ]
       let previewPanel :=
         Informal.HoverRender.graphPreviewPanel
           graphData.previewMode
           graphData.previewPlacement
       let groupHoverPanel := Informal.HoverRender.graphGroupPreviewPanel
-      return {{
+      return html%{
         <div class="bp_graph_fullwidth">
           <div class="bp_graph_controls">
             <div class="bp_graph_controls_primary">
@@ -296,13 +296,12 @@ private def graphToHtml
                 class="bp_graph_controls_button bp_graph_legend_button"
                 aria-haspopup="dialog"
                 aria-expanded="false"
-                aria-controls={{graphLegendPanelId}}
-              >
-                "Legend"
+                aria-controls={graphLegendPanelId}>
+                Legend
               </button>
-              <label class="bp_graph_controls_label" for={{graphViewSelectId}}>"View"</label>
-              <select id={{graphViewSelectId}} class="bp_graph_controls_select bp_graph_view_select">
-                {{graphVariantOptions}}
+              <label class="bp_graph_controls_label" for={graphViewSelectId}>View</label>
+              <select id={graphViewSelectId} class="bp_graph_controls_select bp_graph_view_select">
+                {graphVariantOptions}
               </select>
             </div>
             <div class="bp_graph_controls_actions">
@@ -311,80 +310,82 @@ private def graphToHtml
                 class="bp_graph_controls_button bp_graph_options_button"
                 aria-haspopup="dialog"
                 aria-expanded="false"
-                aria-controls={{graphOptionsPanelId}}
-              >
-                "Graph options"
+                aria-controls={graphOptionsPanelId}>
+                Graph options
               </button>
             </div>
           </div>
-          <div id={{graphLegendPanelId}} class="bp_graph_legend_popover" hidden>
+          <div id={graphLegendPanelId} class="bp_graph_legend_popover" hidden>
             <div class="bp_graph_legend_popover_header">
-              <span class="bp_graph_legend_popover_title">"Legend"</span>
-              <button type="button" class="bp_graph_legend_popover_close" aria-label="Close legend">"Close"</button>
+              <span class="bp_graph_legend_popover_title">Legend</span>
+              <button type="button" class="bp_graph_legend_popover_close" aria-label="Close legend">
+                Close
+              </button>
             </div>
             <div class="bp_graph_legend_popover_body">
-              {{fullLegendHtml}}
-              {{groupLegendHtml}}
+              {fullLegendHtml}
+              {groupLegendHtml}
             </div>
           </div>
-          <div id={{graphOptionsPanelId}} class="bp_graph_options_popover" hidden>
+          <div id={graphOptionsPanelId} class="bp_graph_options_popover" hidden>
             <div class="bp_graph_options_popover_header">
-              <span class="bp_graph_options_popover_title">"Graph options"</span>
-              <button type="button" class="bp_graph_options_popover_close" aria-label="Close graph options">"Close"</button>
+              <span class="bp_graph_options_popover_title">Graph options</span>
+              <button type="button" class="bp_graph_options_popover_close"
+                  aria-label="Close graph options">
+                Close
+              </button>
             </div>
             <div class="bp_graph_options_popover_body">
-              <label class="bp_graph_controls_label" for={{graphDirectionSelectId}}>"Direction"</label>
+              <label class="bp_graph_controls_label" for={graphDirectionSelectId}>Direction</label>
               <select
-                id={{graphDirectionSelectId}}
+                id={graphDirectionSelectId}
                 class="bp_graph_controls_select bp_graph_direction_select"
-                data-bp-graph-default-direction={{graphData.options.direction.rankdir}}
-              >
-                {{graphDirectionOptions}}
+                data-bp-graph-default-direction={graphData.options.direction.rankdir}>
+                {graphDirectionOptions}
               </select>
-              <label class="bp_graph_option_toggle" for={{graphPackInputId}}>
+              <label class="bp_graph_option_toggle" for={graphPackInputId}>
                 <input
-                  id={{graphPackInputId}}
+                  id={graphPackInputId}
                   type="checkbox"
                   class="bp_graph_pack_input"
-                  data-bp-graph-default-pack={{graphPackDefault}}
-                  {{graphPackChecked}}/>
-                <span>"Pack disconnected components"</span>
+                  data-bp-graph-default-pack={graphPackDefault}
+                  {...graphPackChecked}/>
+                <span>Pack disconnected components</span>
               </label>
-              <label class="bp_graph_controls_label" for={{graphPreviewModeSelectId}}>"Preview"</label>
+              <label class="bp_graph_controls_label" for={graphPreviewModeSelectId}>Preview</label>
               <select
-                id={{graphPreviewModeSelectId}}
+                id={graphPreviewModeSelectId}
                 class="bp_graph_controls_select bp_graph_preview_mode_select"
-                data-bp-graph-default-preview-mode={{previewModeDefault}}
-              >
-                {{graphPreviewModeOptions}}
+                data-bp-graph-default-preview-mode={previewModeDefault}>
+                {graphPreviewModeOptions}
               </select>
-              <label class="bp_graph_controls_label" for={{graphPreviewPlacementSelectId}}>"Position"</label>
+              <label class="bp_graph_controls_label" for={graphPreviewPlacementSelectId}>
+                Position
+              </label>
               <select
-                id={{graphPreviewPlacementSelectId}}
+                id={graphPreviewPlacementSelectId}
                 class="bp_graph_controls_select bp_graph_preview_placement_select"
-                data-bp-graph-default-preview-placement={{previewPlacementDefault}}
-              >
-                {{graphPreviewPlacementOptions}}
+                data-bp-graph-default-preview-placement={previewPlacementDefault}>
+                {graphPreviewPlacementOptions}
               </select>
             </div>
           </div>
           <div
             class="bp_graph_canvas"
-            "data-bp-graph-direction"={{graphData.options.direction.rankdir}}
-            "data-bp-graph-pack"={{graphPackDefault}}
-            "data-bp-graph-initial-view"={{graphData.initialView.getD ""}}
-            "data-bp-graph-drawings"={{Informal.GraphLayout.drawingsFolder publicGraphData.key}}
-          >
-            {{prerendered}}
+            data-bp-graph-direction={graphData.options.direction.rankdir}
+            data-bp-graph-pack={graphPackDefault}
+            data-bp-graph-initial-view={graphData.initialView.getD ""}
+            data-bp-graph-drawings={Informal.GraphLayout.drawingsFolder publicGraphData.key}>
+            {prerendered}
             <script type="application/json" class="bp-graph-data">
-              {{.raw s!"{publicGraphDataJson}"}}
+              {.raw s!"{publicGraphDataJson}"}
             </script>
-            {{layoutHtml}}
+            {layoutHtml}
           </div>
-          {{previewPanel}}
-          {{groupHoverPanel}}
+          {previewPanel}
+          {groupHoverPanel}
         </div>
-      }}
+      }
 
 open Verso Doc Elab Genre Manual in
 block_extension Block.graph (graphData : GraphBlockData) where

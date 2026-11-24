@@ -59,12 +59,12 @@ public def renderedContent?
 end RenderContext
 
 public def renderNotice (baseClass kind title detail : String) : Html :=
-  {{
-    <div class={{baseClass ++ " " ++ baseClass ++ "_" ++ kind}}>
-      <strong>{{Html.ofString title}}</strong><br/>
-      {{Html.ofString detail}}
+  html%{
+    <div class={baseClass ++ " " ++ baseClass ++ "_" ++ kind}>
+      <strong>{.text title}</strong><br/>
+      {.text detail}
     </div>
-  }}
+  }
 
 private def defaultRenderMissingNode (node : BlueprintNode) (title detail : String) : Html :=
   .element "div" node.renderedAttrs <|

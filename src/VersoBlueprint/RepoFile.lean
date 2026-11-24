@@ -76,7 +76,7 @@ inline_extension Inline.repoFile (path : String) where
         | contents.mapM go
       let inner ← contents.mapM go
       match ← href? (← IO.currentDir) path with
-      | some href => pure {{<a class="bp_repo_file" href={{href}}>{{inner}}</a>}}
+      | some href => pure html%{<a class="bp_repo_file" href={href}>{inner}</a>}
       | none => pure (.seq inner)
 
 end Informal.RepoFile

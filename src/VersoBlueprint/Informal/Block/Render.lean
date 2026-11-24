@@ -112,13 +112,15 @@ def renderBlockTitleRow (style : BlockKindRenderStyle)
       "bp_heading_title_row"
   let captionClass := s!"bp_caption bp_kind_{style.kindCss}_caption {style.captionCss}"
   let labelClass := s!"bp_label bp_kind_{style.kindCss}_label {style.labelCss}"
-  {{
-    <div class={{titleRowClass}}>
-      <span class={{captionClass}} title={{labelText}}> {{.text captionText}} </span>
-      {{ if style.showLabel then {{<span class={{labelClass}}> {{.text numberText}} </span>}} else .empty }}
-      {{titleSuffix}}
+  html%{
+    <div class={titleRowClass}>
+      <span class={captionClass} title={labelText}>{.text captionText}</span>
+      {if style.showLabel then
+        html%{<span class={labelClass}>{.text numberText}</span>}
+      else .empty}
+      {titleSuffix}
     </div>
-  }}
+  }
 
 /-- Standard and custom Blueprint block header extra kinds. -/
 inductive HeaderExtraKind where
@@ -264,7 +266,7 @@ private def renderHeaderExtraSlot (extra : HeaderExtra) : Verso.Output.Html :=
       extra.kind.slotClass
     else
       s!"{extra.kind.slotClass} {extra.wrapperClass}"
-  {{<span class={{slotClass}}>{{extra.html}}</span>}}
+  html%{<span class={slotClass}>{extra.html}</span>}
 
 def renderHeaderExtras (extras : HeaderExtras) : Verso.Output.Html :=
   open Verso.Output.Html in
@@ -272,11 +274,11 @@ def renderHeaderExtras (extras : HeaderExtras) : Verso.Output.Html :=
   if renderable.isEmpty then
     .empty
   else
-    {{
-      <div class={{extras.wrapperClass}}>
-        {{renderable.map renderHeaderExtraSlot}}
+    html%{
+      <div class={extras.wrapperClass}>
+        {renderable.map renderHeaderExtraSlot}
       </div>
-    }}
+    }
 
 private def externalMarkupBadgeText : Data.ExternalMarkupLanguage → String
   | .markdown => "MD"
@@ -378,24 +380,24 @@ private def renderMetadataItem (key : String) (value : Verso.Output.Html) (extra
       "bp_metadata_item"
     else
       s!"bp_metadata_item {extraClass}"
-  {{
-    <span class={{itemClass}}>
-      <span class="bp_metadata_key">{{.text key}}</span>
-      {{value}}
+  html%{
+    <span class={itemClass}>
+      <span class="bp_metadata_key">{.text key}</span>
+      {value}
     </span>
-  }}
+  }
 
 private def renderMetadataTextValue (value : String) : Verso.Output.Html :=
-  {{<span class="bp_metadata_value">{{.text value}}</span>}}
+  html%{<span class="bp_metadata_value">{.text value}</span>}
 
 private def renderMetadataLinkValue (href : String) (label : String) : Verso.Output.Html :=
-  {{<a class="bp_metadata_link bp_metadata_value" href={{href}}>{{.text label}}</a>}}
+  html%{<a class="bp_metadata_link bp_metadata_value" href={href}>{.text label}</a>}
 
 private def renderMetadataCodeValue (value : Data.AuthorId) : Verso.Output.Html :=
-  {{<span class="bp_metadata_value"><code>s!"{value}"</code></span>}}
+  html%{<span class="bp_metadata_value"><code>{s!"{value}"}</code></span>}
 
 private def renderMetadataCodeLinkValue (href : String) (value : Data.AuthorId) : Verso.Output.Html :=
-  {{<a class="bp_metadata_link bp_metadata_value" href={{href}}><code>s!"{value}"</code></a>}}
+  html%{<a class="bp_metadata_link bp_metadata_value" href={href}><code>{s!"{value}"}</code></a>}
 
 private def sourceSpanPages (spans : Array Source.Span) : Array String :=
   collectTrimmedUniqueBy spans (·.page)
@@ -500,11 +502,11 @@ private def sourceSpanPreviewText (span : Source.Span) : String :=
 private def renderSourceSpanPreview (span : Source.Span) : Verso.Output.Html :=
   open Verso.Output.Html in
   let summary := sourceSpanPreviewText span
-  {{
+  html%{
     <li class="bp_source_ref_panel_span">
-      <span class="bp_source_ref_panel_span_text">{{.text summary}}</span>
+      <span class="bp_source_ref_panel_span_text">{.text summary}</span>
     </li>
-  }}
+  }
 
 private def renderSourceRefPreviewItem (sourceRef : Source.Ref) : Verso.Output.Html :=
   open Verso.Output.Html in
@@ -512,27 +514,27 @@ private def renderSourceRefPreviewItem (sourceRef : Source.Ref) : Verso.Output.H
   let title := sourceRefTitle sourceRef
   let spanNodes :=
     if sourceRef.spans.isEmpty then
-      #[{{
+      #[html%{
         <li class="bp_source_ref_panel_span bp_source_ref_panel_span_empty">
-          "No source span recorded."
+          No source span recorded.
         </li>
-      }}]
+      }]
     else
       sourceRef.spans.map renderSourceSpanPreview
-  {{
+  html%{
     <li class="bp_source_ref_panel_item"
-        title={{title}}
-        data-bp-source-document={{sourceRef.document}}>
+        title={title}
+        data-bp-source-document={sourceRef.document}>
       <div class="bp_source_ref_panel_document">
-        <span class="bp_source_ref_panel_key">"Document"</span>
-        <code>{{.text sourceRef.document}}</code>
+        <span class="bp_source_ref_panel_key">Document</span>
+        <code>{.text sourceRef.document}</code>
       </div>
-      <div class="bp_source_ref_panel_summary">{{.text summary}}</div>
+      <div class="bp_source_ref_panel_summary">{.text summary}</div>
       <ul class="bp_source_ref_panel_spans">
-        {{spanNodes}}
+        {spanNodes}
       </ul>
     </li>
-  }}
+  }
 
 private def renderSourceRefPreview (sourceRefs : Array Source.Ref) : Verso.Output.Html :=
   open Verso.Output.Html in
@@ -541,38 +543,38 @@ private def renderSourceRefPreview (sourceRefs : Array Source.Ref) : Verso.Outpu
   let panelTitle := sourceRefsPanelTitle sourceRefs
   let panelMeta := sourceRefsPanelMeta sourceRefs
   let previewItems := sourceRefs.map renderSourceRefPreviewItem
-  {{
+  html%{
     <div class="bp_relation_wrap bp_source_ref_wrap">
       <button type="button"
           class="bp_relation_chip bp_source_ref_chip"
-          title={{chipTitle}}
+          title={chipTitle}
           aria-expanded="false">
-        {{.text chipText}}
+        {.text chipText}
       </button>
       <div class="bp_relation_panel bp_source_ref_panel">
         <div class="bp_relation_panel_header">
-          <div class="bp_relation_panel_title">{{.text panelTitle}}</div>
-          <div class="bp_relation_panel_meta">{{.text panelMeta}}</div>
+          <div class="bp_relation_panel_title">{.text panelTitle}</div>
+          <div class="bp_relation_panel_meta">{.text panelMeta}</div>
         </div>
         <div class="bp_relation_panel_body bp_source_ref_panel_body">
           <div class="bp_relation_preview_surface bp_source_ref_preview_surface">
             <div class="bp_relation_preview_header">
-              <div class="bp_relation_preview_label">"Preview"</div>
+              <div class="bp_relation_preview_label">Preview</div>
               <div class="bp_relation_preview_heading bp_preview_header_heading">
-                <div class="bp_relation_preview_title">{{.text panelTitle}}</div>
+                <div class="bp_relation_preview_title">{.text panelTitle}</div>
                 <a class="bp_relation_preview_header_label bp_preview_header_label" hidden></a>
               </div>
             </div>
             <div class="bp_relation_preview_body bp_source_ref_preview_body">
               <ul class="bp_source_ref_panel_list">
-                {{previewItems}}
+                {previewItems}
               </ul>
             </div>
           </div>
         </div>
       </div>
     </div>
-  }}
+  }
 
 def renderSourceHeaderExtra? (sourceRefs : Array Source.Ref) : Option HeaderExtra :=
   if sourceRefs.isEmpty then
@@ -590,7 +592,7 @@ private def renderOwnerMetadataItem (data : BlockData) : Verso.Output.Html :=
   open Verso.Output.Html in
   let avatar : Verso.Output.Html :=
     match data.ownerImageUrl with
-    | some href => {{ <img class="bp_metadata_avatar" src={{href}} alt="" /> }}
+    | some href => html%{<img class="bp_metadata_avatar" src={href} alt=""/>}
     | none => .empty
   match data.ownerDisplayName, data.owner, data.ownerUrl with
   | some displayName, _, some href =>
@@ -627,22 +629,22 @@ private def renderStatementMetadataPanel (data : BlockData) : Verso.Output.Html 
     if metadata.tags.isEmpty then
       .empty
     else
-      renderMetadataItem "Tags" {{
+      renderMetadataItem "Tags" html%{
         <span class="bp_metadata_tags">
-          {{metadata.tags.map (fun tag => {{ <span class="bp_metadata_tag">{{.text tag}}</span> }})}}
+          {metadata.tags.map (fun tag => html%{<span class="bp_metadata_tag">{.text tag}</span>})}
         </span>
-      }}
+      }
   if metadata.hasAny then
-    {{
+    html%{
       <div class="bp_metadata_panel">
-        {{ownerItem}}
-        {{effortNode}}
-        {{priorityNode}}
-        {{tagNodes}}
-        {{prNode}}
-        {{issueNode}}
+        {ownerItem}
+        {effortNode}
+        {priorityNode}
+        {tagNodes}
+        {prNode}
+        {issueNode}
       </div>
-    }}
+    }
   else
     .empty
 
@@ -777,34 +779,34 @@ def renderInformalBlockShell (shell : InformalBlockShell)
   let titleRow := renderShellTitleRow shell
   let extras := renderHeaderExtras shell.headerExtras
   if !shell.showHeader then
-    {{
-      <div class={{wrapperClass}} title={{shell.labelText}} {{shell.attrs}}>
-        {{shell.metadataPanel}}
-        <div class={{contentClass}}> {{content}} </div>
+    html%{
+      <div class={wrapperClass} title={shell.labelText} {...shell.attrs}>
+        {shell.metadataPanel}
+        <div class={contentClass}>{content}</div>
       </div>
-    }}
+    }
   else if shell.folded then
-    {{
-      <details class={{wrapperClass}} title={{shell.labelText}} {{shell.attrs}}>
-        <summary class={{headingClass}}>
-          {{titleRow}}
-          {{extras}}
+    html%{
+      <details class={wrapperClass} title={shell.labelText} {...shell.attrs}>
+        <summary class={headingClass}>
+          {titleRow}
+          {extras}
         </summary>
-        {{shell.metadataPanel}}
-        <div class={{contentClass}}> {{content}} </div>
+        {shell.metadataPanel}
+        <div class={contentClass}>{content}</div>
       </details>
-    }}
+    }
   else
-    {{
-      <div class={{wrapperClass}} title={{shell.labelText}} {{shell.attrs}}>
-        <div class={{headingClass}}>
-          {{titleRow}}
-          {{extras}}
+    html%{
+      <div class={wrapperClass} title={shell.labelText} {...shell.attrs}>
+        <div class={headingClass}>
+          {titleRow}
+          {extras}
         </div>
-        {{shell.metadataPanel}}
-        <div class={{contentClass}}> {{content}} </div>
+        {shell.metadataPanel}
+        <div class={contentClass}>{content}</div>
       </div>
-    }}
+    }
 
 /--
 Render the reusable HTML shell for an informal Blueprint block.
@@ -866,22 +868,22 @@ def renderSideBySideNode (label : String) (informal : Verso.Output.Html)
   open Verso.Output.Html in
   match formal? with
   | some formal =>
-    {{
-      <div class="bp_sbs" data-bp-node={{label}}>
+    html%{
+      <div class="bp_sbs" data-bp-node={label}>
         <div class="bp_sbs_grid">
-          <div class="bp_sbs_informal">{{informal}}{{sourceNote}}</div>
-          <div class="bp_sbs_formal">{{formal}}</div>
+          <div class="bp_sbs_informal">{informal}{sourceNote}</div>
+          <div class="bp_sbs_formal">{formal}</div>
         </div>
       </div>
-    }}
+    }
   | none =>
-    {{
-      <div class="bp_sbs bp_sbs_single" data-bp-node={{label}}>
+    html%{
+      <div class="bp_sbs bp_sbs_single" data-bp-node={label}>
         <div class="bp_sbs_grid">
-          <div class="bp_sbs_informal">{{informal}}</div>
+          <div class="bp_sbs_informal">{informal}</div>
         </div>
       </div>
-    }}
+    }
 
 private def statusGlyphSpan (kind : StatusGlyphKind) (attrs : Array (String × String)) :
     Verso.Output.Html :=
@@ -910,8 +912,16 @@ the page) on pages whose nodes carry glyphs.
 def statusLegendTemplate : Verso.Output.Html :=
   open Verso.Output.Html in
   let rows := StatusGlyphKind.all.map fun kind =>
-    {{<dt>{{statusGlyphSpan kind #[("aria-hidden", "true")]}}</dt><dd>{{.text kind.meaning}}</dd>}}
-  {{<template id={{statusLegendId}}><details class="bp_status_legend"><summary>"Status legend"</summary><dl>{{rows}}</dl><p class="bp_status_legend_note">{{.text statusLegendNote}}</p></details></template>}}
+    html%{<dt>{statusGlyphSpan kind #[("aria-hidden", "true")]}</dt><dd>{.text kind.meaning}</dd>}
+  html%{
+    <template id={statusLegendId}>
+      <details class="bp_status_legend">
+        <summary>Status legend</summary>
+        <dl>{rows}</dl>
+        <p class="bp_status_legend_note">{.text statusLegendNote}</p>
+      </details>
+    </template>
+  }
 
 /-- Render a complete informal block model, including companion panels. -/
 def renderInformalBlockModel (model : InformalBlockRenderModel) : Verso.Output.Html :=

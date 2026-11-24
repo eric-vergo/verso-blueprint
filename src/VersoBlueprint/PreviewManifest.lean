@@ -146,7 +146,7 @@ def pageRuntimeModuleFilename : String := "blueprint-page-runtime.mjs"
 
 private def blueprintPageRuntimeHead : Verso.Output.Html :=
   open Verso.Output.Html in
-  {{<script type="module" src={{"-verso-data/" ++ pageRuntimeModuleFilename}}></script>}}
+  html%{<script type="module" src={"-verso-data/" ++ pageRuntimeModuleFilename}></script>}
 
 def withBuildMetadataAssets (config : RenderConfig := {}) : RenderConfig :=
   let htmlConfig := config.toHtmlConfig
@@ -550,44 +550,46 @@ private def buildMetadataCodeHtml (value : String) (href? : Option String) : Out
 
 def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_build_metadata" aria-label="Build metadata">
-      {{if let some compiledAt := metadata.compiledAt then
-        {{<span class="bp_build_metadata_item">
-            <span class="bp_build_metadata_label">"Compiled"</span>
-            <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text compiledAt}}</span>
-          </span>}}
-        else .empty}}
-      {{if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
-            {{match metadata.commit with
+      {if let some compiledAt := metadata.compiledAt then
+        html%{<span class="bp_build_metadata_item">
+            <span class="bp_build_metadata_label">Compiled</span>
+            <span class="bp_build_metadata_value">{VersoBlueprint.Html.text compiledAt}</span>
+          </span>}
+        else .empty}
+      {if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}
+            {match metadata.commit with
               | some commit => buildMetadataCodeHtml commit metadata.projectCommitUrl
-              | none => .empty}}
-          </span>}}
-        else .empty}}
+              | none => .empty}
+          </span>}
+        else .empty}
       <span class="bp_build_metadata_item">
-        <span class="bp_build_metadata_label">"Lean"</span>
-        <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.leanToolchain}}</span>
+        <span class="bp_build_metadata_label">Lean</span>
+        <span class="bp_build_metadata_value">
+          {VersoBlueprint.Html.text metadata.leanToolchain}
+        </span>
       </span>
       <span class="bp_build_metadata_item">
-        {{buildMetadataLabelHtml "VersoBlueprint" metadata.blueprintRepositoryUrl}}
-        {{buildMetadataCodeHtml metadata.blueprintVersion metadata.blueprintCommitUrl}}
+        {buildMetadataLabelHtml "VersoBlueprint" metadata.blueprintRepositoryUrl}
+        {buildMetadataCodeHtml metadata.blueprintVersion metadata.blueprintCommitUrl}
       </span>
-      {{if let some upstream := metadata.upstreamBlueprint then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Upstream" upstream.repositoryUrl}}
-            {{buildMetadataCodeHtml upstream.commit upstream.commitUrl}}
-          </span>}}
-        else .empty}}
-      {{if let some mathlibVersion := metadata.mathlibVersion then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Mathlib" metadata.mathlibRepositoryUrl}}
-            {{buildMetadataCodeHtml mathlibVersion metadata.mathlibCommitUrl}}
-          </span>}}
-        else .empty}}
+      {if let some upstream := metadata.upstreamBlueprint then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Upstream" upstream.repositoryUrl}
+            {buildMetadataCodeHtml upstream.commit upstream.commitUrl}
+          </span>}
+        else .empty}
+      {if let some mathlibVersion := metadata.mathlibVersion then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Mathlib" metadata.mathlibRepositoryUrl}
+            {buildMetadataCodeHtml mathlibVersion metadata.mathlibCommitUrl}
+          </span>}
+        else .empty}
     </div>
-  }}
+  }
 
 def buildMetadataHtmlString (metadata : BuildMetadata) : String :=
   Lean.Html.render <| buildMetadataHtml metadata

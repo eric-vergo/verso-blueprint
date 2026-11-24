@@ -56,7 +56,7 @@ def buildComparatorChallenges (ws : Lake.Workspace) (challenges : Array Challeng
   for config in challenges do
     let some mod := ws.findModule? config.challengeModule | continue
     try
-      let _ ← ws.runBuild mod.leanArts.fetch { outLv := .error }
+      let _ ← ws.runBuild mod.elabArts.fetch { outLv := .error }
     catch err =>
       IO.eprintln s!"vbp build: the Comparator challenge {config.challengeModule} did not build: \
         {err}"

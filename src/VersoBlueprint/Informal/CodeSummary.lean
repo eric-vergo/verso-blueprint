@@ -107,7 +107,7 @@ private def renderDeclSummaryItems (items : Array DeclSummaryItem) : Array Outpu
   open Verso.Output.Html in
   items.map fun item =>
     let nameNode : Output.Html :=
-      let txt := {{<code>{{.text s!"{item.displayName}"}}</code>}}
+      let txt := html%{<code>{.text s!"{item.displayName}"}</code>}
       match item.href with
       | some href =>
         Informal.LeanCodeLink.renderResolved
@@ -115,14 +115,14 @@ private def renderDeclSummaryItems (items : Array DeclSummaryItem) : Array Outpu
           (previewTitle := s!"{item.displayName}")
           (previewLookupKey? := item.previewLookupKey?)
       | none => txt
-    {{
+    html%{
       <li class="bp_code_decl_item">
-        <span class="bp_code_decl_name">{{nameNode}}</span>
-        <span class={{s!"bp_code_decl_status {declSummaryStatusClass item}"}}>
-          {{.text s!"[{declSummaryStatusText item}]"}}
+        <span class="bp_code_decl_name">{nameNode}</span>
+        <span class={s!"bp_code_decl_status {declSummaryStatusClass item}"}>
+          {.text s!"[{declSummaryStatusText item}]"}
         </span>
       </li>
-    }}
+    }
 
 private def summaryTooltipSection (tooltipSection : SummaryTooltipSection) : Output.Html :=
   let items :=
@@ -134,11 +134,11 @@ private def summaryTooltipSection (tooltipSection : SummaryTooltipSection) : Out
 
 private def renderSummaryPreviewBody (sections : Array SummaryTooltipSection) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_code_summary_preview_content">
-      {{.seq (sections.map summaryTooltipSection)}}
+      {.seq (sections.map summaryTooltipSection)}
     </div>
-  }}
+  }
 
 private def renderExternalRenderFailureItems (failures : Array ExternalRenderFailure)
     (hrefOf : Name → Option String) : Array Output.Html :=
@@ -152,16 +152,16 @@ private def renderExternalRenderFailureItems (failures : Array ExternalRenderFai
       else
         hrefOf failure.decl.written
     let declNode :=
-      let txt := {{<code>{{.text s!"{failure.decl.written}"}}</code>}}
+      let txt := html%{<code>{.text s!"{failure.decl.written}"}</code>}
       match href with
       | some href =>
         Informal.LeanCodeLink.renderResolved
           failure.decl.canonical txt "" (some href)
           (previewTitle := s!"{failure.decl.canonical}")
       | none => txt
-    codeHoverListItem {{
-      <span>{{declNode}}": " {{.text failure.message}}</span>
-    }}
+    codeHoverListItem html%{
+      <span>{declNode}{": "}{.text failure.message}</span>
+    }
 
 private def inlineDeclSummaryItems (definedDefs definedTheorems : Array CodeDeclData)
     (hrefOf : Name → Option String) (previewLookupKey? : Option String := none) :
@@ -252,12 +252,12 @@ private def renderSummaryPreview (cdata : ComputedData)
   else
     let failureSection := codeHoverSection "Render diagnostics" (renderExternalRenderFailureItems failures hrefOf)
     open Verso.Output.Html in
-    {{
+    html%{
       <div class="bp_code_summary_preview_content">
-        {{.seq (sections.map summaryTooltipSection)}}
-        {{failureSection}}
+        {.seq (sections.map summaryTooltipSection)}
+        {failureSection}
       </div>
-    }}
+    }
 
 private structure CodeEntryVisual where
   classSuffix : String
@@ -307,23 +307,26 @@ private def renderCodeHeadingRenderHealthBadge (health : ExternalRenderHealth) :
   if !health.hasFailures then
     .empty
   else
-    {{<span class="bp_render_warning_badge bp_code_render_warning_badge" title={{health.summaryText}}>"!"</span>}}
+    html%{
+      <span class="bp_render_warning_badge bp_code_render_warning_badge"
+          title={health.summaryText}>!</span>
+    }
 
 private def renderCodeEntryNode (href : Option String) (title : String) (visual : CodeEntryVisual)
     (renderHealth : ExternalRenderHealth := {}) : Output.Html :=
   open Verso.Output.Html in
   let linkClass := s!"bp_code_link bp_code_link_status bp_code_link_status_{visual.classSuffix}" ++
     (if visual.absent then " bp_code_link_empty" else "")
-  let body : Output.Html := {{
-    {{renderCodeHeadingRenderHealthBadge renderHealth}}
-    <span class="bp_code_status_symbol">{{.text visual.symbol}}</span>
-    <span class="bp_code_link_label">"L∃∀N"</span>
-  }}
+  let body : Output.Html := html%{
+    {renderCodeHeadingRenderHealthBadge renderHealth}
+    <span class="bp_code_status_symbol">{.text visual.symbol}</span>
+    <span class="bp_code_link_label">L∃∀N</span>
+  }
   match href with
   | some href =>
-      {{<a class={{linkClass}} href={{href}} title={{title}} aria-label={{title}}>{{body}}</a>}}
+      html%{<a class={linkClass} href={href} title={title} aria-label={title}>{body}</a>}
   | none =>
-      {{<span class={{linkClass}} title={{title}}>{{body}}</span>}}
+      html%{<span class={linkClass} title={title}>{body}</span>}
 
 private def codeSummaryPreviewId : String := "bp-code-summary"
 
@@ -473,16 +476,16 @@ private def codeSummaryText (label : Data.Label)
 private def wrapPanelIndicator (label : Data.Label) (summaryTitle : String)
     (node previewBody : Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <span class="bp_code_summary_indicator">
-      {{renderCodeSummaryPreview
+      {renderCodeSummaryPreview
         s!"{label}"
         node
         previewBody
         (focusable := true)
-        (ariaLabel? := some summaryTitle)}}
+        (ariaLabel? := some summaryTitle)}
     </span>
-  }}
+  }
 
 private def renderInlinePanelIndicator (label : Data.Label) (cdata : ComputedData)
     (hrefOf : Name → Option String) : PanelIndicatorParts :=
@@ -509,10 +512,12 @@ private def renderInlinePanelIndicator (label : Data.Label) (cdata : ComputedDat
               s!"{decl.name}: {statusView.summaryText}"
           else
             s!"{decl.name}: no sorry"
-        {{
-          <span class={{cls}} title={{title}} style={{s!"flex: {weight} 1 0%"}}></span>
-        }}
-      let bar := {{<span class="bp_code_progress" aria-label="Lean declaration progress">{{segments}}</span>}}
+        html%{
+          <span class={cls} title={title} style={s!"flex: {weight} 1 0%"}></span>
+        }
+      let bar := html%{
+        <span class="bp_code_progress" aria-label="Lean declaration progress">{segments}</span>
+      }
       wrapPanelIndicator label summaryTitle bar previewBody
   {
     summaryTitle
@@ -621,12 +626,15 @@ private def renderExternalPanelIndicator (decls : Array Data.ExternalRef)
       renderHealth
   let badgeTitle :=
     appendRenderHealthSummary presentation.title renderHealth
-  let badge : Output.Html := {{
-    <span class={{s!"bp_external_status_badge bp_external_status_badge_summary {presentation.className}"}} title={{badgeTitle}}>
-      <span class={{s!"bp_external_status_icon {presentation.className}"}}>{{.text presentation.iconText}}</span>
-      <span class="bp_external_status_badge_text">{{.text presentation.badgeText}}</span>
+  let badge : Output.Html := html%{
+    <span class={s!"bp_external_status_badge bp_external_status_badge_summary \
+        {presentation.className}"} title={badgeTitle}>
+      <span class={s!"bp_external_status_icon {presentation.className}"}>
+        {.text presentation.iconText}
+      </span>
+      <span class="bp_external_status_badge_text">{.text presentation.badgeText}</span>
     </span>
-  }}
+  }
   {
     summaryTitle
     indicator := wrapPanelIndicator label summaryTitle badge previewBody
