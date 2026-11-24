@@ -80,7 +80,7 @@ def workQueueAssetBundle : BlueprintAssetBundle :=
 
 private def nodeLink (state : TraverseState) (node : Graph.NodeData) (text : String) : Output.Html :=
   match Informal.TraversalIndex.Nodes.href? state node.label <|> node.href with
-  | some href => {{<a href={{href}}>{{.text text}}</a>}}
+  | some href => html%{<a href={href}>{.text text}</a>}
   | Option.none => .text text
 
 /-- The node's numbered title ("Lemma 4.2"), falling back to the graph's display label. -/
@@ -110,21 +110,26 @@ private def renderEntry (state : TraverseState) (entry : WorkQueueEntry)
       let links := entry.needs.map fun dep => nodeLink state dep (nodeHeading state dep)
       let separated := links.foldl (init := #[]) fun acc link =>
         if acc.isEmpty then #[link] else acc ++ #[.text ", ", link]
-      {{<div class="bp_work_queue_needs"><span class="bp_work_queue_needs_key">"needs: "</span>{{separated}}</div>}}
+      html%{
+        <div class="bp_work_queue_needs">
+          <span class="bp_work_queue_needs_key">{"needs: "}</span>
+          {separated}
+        </div>
+      }
   let stateClass := if entry.ready then "bp_work_queue_ready" else "bp_work_queue_incomplete"
-  {{
-    <li class={{s!"bp_work_queue_item {stateClass}"}} data-bp-node={{entry.node.label.toString}}
-        data-bp-stage={{entry.stage}}>
+  html%{
+    <li class={s!"bp_work_queue_item {stateClass}"} data-bp-node={entry.node.label.toString}
+        data-bp-stage={entry.stage}>
       <div class="bp_work_queue_head">
-        {{nodeLink state entry.node (nodeHeading state entry.node)}}
-        <span class="bp_work_queue_stage">{{.text (stageText entry)}}</span>
+        {nodeLink state entry.node (nodeHeading state entry.node)}
+        <span class="bp_work_queue_stage">{.text (stageText entry)}</span>
       </div>
-      {{match statement? with
-        | some statement => {{<div class="bp_work_queue_statement">{{statement}}</div>}}
-        | Option.none => .empty}}
-      {{needs}}
+      {match statement? with
+        | some statement => html%{<div class="bp_work_queue_statement">{statement}</div>}
+        | Option.none => .empty}
+      {needs}
     </li>
-  }}
+  }
 
 /-- The work queue page body: optionally a custom graph model, else the project graph. -/
 structure WorkQueueBlockData where
@@ -154,21 +159,25 @@ private def workQueueToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT Ex
     let incomplete := rendered.filter (!·.1.ready)
     let renderSection (title : String) (items : Array (WorkQueueEntry × Output.Html)) : Output.Html :=
       if items.isEmpty then .empty
-      else {{
+      else html%{
         <section class="bp_work_queue_section">
-          <h2 class="bp_work_queue_title">{{.text s!"{title} ({items.size})"}}</h2>
-          <ol class="bp_work_queue_list">{{items.map (·.2)}}</ol>
+          <h2 class="bp_work_queue_title">{.text s!"{title} ({items.size})"}</h2>
+          <ol class="bp_work_queue_list">{items.map (·.2)}</ol>
         </section>
-      }}
+      }
     if entries.isEmpty then
-      pure {{<div class="bp_work_queue"><p class="bp_work_queue_empty">"Nothing is ready to formalize."</p></div>}}
-    else
-      pure {{
+      pure html%{
         <div class="bp_work_queue">
-          {{renderSection "Ready to formalize" ready}}
-          {{renderSection "Lean code incomplete" incomplete}}
+          <p class="bp_work_queue_empty">Nothing is ready to formalize.</p>
         </div>
-      }}
+      }
+    else
+      pure html%{
+        <div class="bp_work_queue">
+          {renderSection "Ready to formalize" ready}
+          {renderSection "Lean code incomplete" incomplete}
+        </div>
+      }
 
 block_extension Block.workQueue (data : WorkQueueBlockData) where
   data := toJson data
