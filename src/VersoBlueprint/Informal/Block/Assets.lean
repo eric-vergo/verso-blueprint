@@ -90,7 +90,10 @@ span[class$="_thmlabel"]::after {
   --bp-extra-used-by-col: minmax(7.2rem, max-content);
   --bp-extra-markup-col: max-content;
   --bp-extra-code-col: max-content;
-  --bp-extra-code-placeholder-col: minmax(3.35rem, max-content);
+  /* the Lean-code entry is at least this wide, so a heading without one (a proof's) keeps its
+     columns where the statement's are, whatever mark the entry shows */
+  --bp-extra-code-width: 3.35rem;
+  --bp-extra-code-placeholder-col: minmax(var(--bp-extra-code-width), max-content);
   display: inline-grid;
   align-items: baseline;
   justify-content: end;
@@ -256,6 +259,7 @@ span[class$="_thmlabel"]::after {
 .bp_extra_slot_code {
   grid-area: code;
   justify-content: flex-end;
+  min-width: var(--bp-extra-code-width);
 }
 
 .bp_extra_slot_source {

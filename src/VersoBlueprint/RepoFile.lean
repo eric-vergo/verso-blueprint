@@ -55,7 +55,8 @@ def href? (dir : System.FilePath) (path : String) : IO (Option String) := do
   let some info ← RuntimeCache.cachedGitRepoInfo? root (Git.repositoryInfoAtRoot? root)
     | return none
   let (file, fragment) := splitFragment path
-  return some s!"{info.githubUrl}/blob/{info.commit}/{LeanSourceAnchor.percentEncode file}{fragment}"
+  let path := LeanSourceAnchor.percentEncode file
+  return some s!"{info.githubUrl}/blob/{info.commit}/{path}{fragment}"
 
 /-- Whether the Git repository at `root` tracks `path` (a file, or a folder with a tracked file). -/
 def tracked (root : System.FilePath) (path : String) : IO Bool := do

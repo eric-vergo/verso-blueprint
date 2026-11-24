@@ -230,7 +230,8 @@ def fileSectionHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (title : Str
       let rendered ← Informal.ExternalCode.renderSourceWithPageHovers code "bp_comparator_source"
       -- every token with a hover is reachable by the keyboard: the page's hovers open on focus
       let rendered := match rendered with
-        | .raw html => .raw (html.replace " data-verso-hover=\"" " tabindex=\"0\" data-verso-hover=\"")
+        | .raw html =>
+          .raw (html.replace " data-verso-hover=\"" " tabindex=\"0\" data-verso-hover=\"")
         | other => other
       pure <| .seq #[
         if full then .empty else el "p" "bp_comparator_plain_note" (txt plainHighlightText),

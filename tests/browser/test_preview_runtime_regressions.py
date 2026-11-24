@@ -19,6 +19,23 @@ def require_box(locator: Locator):
     return box
 
 
+def baseline_y(locator: Locator) -> float:
+    """The y of the text baseline of the element's first line: where a zero-size inline block
+    put at its start sits."""
+    # measured once the page's fonts are in: before, the fallback face has other metrics
+    locator.page.evaluate("document.fonts.ready.then(() => true)")
+    return locator.evaluate(
+        """(el) => {
+            const probe = document.createElement("span");
+            probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+            el.insertBefore(probe, el.firstChild);
+            const y = probe.getBoundingClientRect().y;
+            probe.remove();
+            return y;
+        }"""
+    )
+
+
 def assert_source_location_path(result: dict, needle: str):
     source_location = result["sourceLocation"]
     assert source_location["ok"] is True
@@ -279,7 +296,7 @@ class TestPreviewRuntimeRegressions:
         expect(stage.locator(".bp_external_decl_source_path").first).to_have_attribute(
             "href",
             re.compile(
-                r"https://github\.com/leanprover/verso-blueprint/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+-L\d+$"
+                r"https://github\.com/[^/]+/verso-blueprint/blob/[0-9a-f]{40}/tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/CodePanels\.lean#L\d+-L\d+$"
             ),
         )
 
@@ -2757,7 +2774,8 @@ class TestPreviewRuntimeRegressions:
         caption_box = require_box(proof.locator(".bp_caption").first)
         chip_box = require_box(chip)
         assert abs(statement_uses_box["x"] - chip_box["x"]) < 1
-        assert abs((caption_box["y"] + caption_box["height"]) - (chip_box["y"] + chip_box["height"])) < 1
+        # the chip sits on the caption's baseline
+        assert abs(baseline_y(proof.locator(".bp_caption").first) - baseline_y(chip)) < 1
         chip.hover()
 
         expect(wrap.locator(".bp_relation_panel .bp_relation_panel_title")).to_have_text(
@@ -2830,10 +2848,9 @@ class TestPreviewRuntimeRegressions:
 
         assert group_box["x"] < statement_uses_box["x"] < used_by_box["x"] < code_box["x"]
         assert abs(statement_uses_box["x"] - proof_uses_box["x"]) < 1
-        assert abs(
-            (proof_caption_box["y"] + proof_caption_box["height"])
-            - (proof_uses_box["y"] + proof_uses_box["height"])
-        ) < 1
+        # the proof's chip sits on its caption's baseline
+        assert proof_caption_box and proof_uses_box
+        assert abs(baseline_y(proof.locator(".bp_caption").first) - baseline_y(chip)) < 1
 
         assert_no_runtime_errors(errors)
 

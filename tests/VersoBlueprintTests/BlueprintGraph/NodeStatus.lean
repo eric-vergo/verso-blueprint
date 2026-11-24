@@ -333,4 +333,54 @@ def warningLeanOnlyExternalMissing : WarningFlags :=
   warningLeanOnlyExternalMissing.leanOnlyNoStatement &&
   warningLeanOnlyExternalMissing.missingExternalDecl
 
+/-! ## Dependency closures on a graph with exponentially many paths
+
+`layers` layers of two theorems each, every theorem of a layer using both of the layer below:
+`2 ^ layers` paths from the top to the bottom. Whether a node is complete with its dependencies is
+found for every node by one walk over the reversed dependencies (`Closures.of`), so building the
+graph's model takes time linear in its nodes and edges, not in its paths. -/
+
+/-- The label of theorem `i` (0 or 1) of layer `l`. -/
+def layered (l i : Nat) : Name := .mkSimple s!"layer{l}_{i}"
+
+/-- The layered graph; `bottomDone` says whether the bottom layer's Lean code is complete. -/
+def layeredState (layers : Nat) (bottomDone : Bool := true) : Environment.State :=
+  mkState <| (List.range layers).flatMap fun l => [0, 1].map fun i =>
+    (layered l i, {
+      kind := .theorem
+      statement := some (mkInformal (if l == 0 then #[] else #[layered (l - 1) 0, layered (l - 1) 1]))
+      literateCodes := #[mkTheoremCode (layered l i).appendAfter "_decl"
+        (proofSorry := l == 0 && !bottomDone)] })
+
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let layers := 48
+  let started ← IO.monoMsNow
+  let done := buildModel (layeredState layers) #[layered (layers - 1) 0]
+  let open_ := buildModel (layeredState layers (bottomDone := false)) #[layered (layers - 1) 0]
+  let top (m : GraphModel) := m.nodes.find? (·.label == layered (layers - 1) 0)
+  let ok := (top done).any (·.proofStatus == .formalizedWithAncestors) &&
+    (top open_).any (·.proofStatus == .formalized)
+  -- `2 ^ 48` paths would never be walked; one walk of 96 nodes and 188 edges takes milliseconds,
+  -- and the bound leaves room for a loaded machine
+  return ok && (← IO.monoMsNow) - started < 20000
+
+-- A cycle of nodes that are complete on their own is complete with its dependencies; one that
+-- reaches a node with a `sorry` is not.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let cycle (bad : Bool) := mkState [
+    (`a, { kind := .theorem, statement := some (mkInformal #[`b])
+           literateCodes := #[mkTheoremCode `a_decl] }),
+    (`b, { kind := .theorem, statement := some (mkInformal #[`a, `c])
+           literateCodes := #[mkTheoremCode `b_decl] }),
+    (`c, { kind := .theorem, statement := some (mkInformal #[])
+           literateCodes := #[mkTheoremCode `c_decl (proofSorry := bad)] })]
+  let status (bad : Bool) (label : Name) :=
+    ((buildModel (cycle bad) #[`a]).nodes.find? (·.label == label)).map (·.proofStatus)
+  status false `a == some .formalizedWithAncestors && status true `a == some .formalized &&
+    status true `c == some .incomplete
+
 end Verso.VersoBlueprintTests.BlueprintGraph.NodeStatus

@@ -253,7 +253,7 @@ class TestSideBySideRuntime:
         expect(legend).to_have_count(1)
         expect(legend).not_to_have_attribute("open", "")
         legend.locator("summary").click()
-        for glyph in ["✓", "◇", "⊘", "◐", "⚠", "✗", "○"]:
+        for glyph in ["✓", "◇", "⊘", "◐", "⚠", "◌", "✗", "○"]:
             expect(legend.locator("dt", has_text=glyph)).to_be_visible()
         # the mark's title says what was checked, in words
         title = page.locator(".bp_sbs .bp_status_glyph").first.get_attribute("title")
@@ -869,7 +869,8 @@ class TestReadingAids:
         node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Ffirst']")
         expect(node).to_have_count(1)
         label = node.get_attribute("aria-label") or ""
-        assert re.fullmatch(r"Theorem \d+\.1 \(aids_first\)", label), label
+        # its number and name, then its state in the words of its mark
+        assert re.fullmatch(r"Theorem \d+\.1 \(aids_first\): Lean proof .+", label), label
         assert node.get_attribute("role") == "button"
         texts = node.locator("text").all_text_contents()
         assert len(texts) == 1 and re.fullmatch(r"Theorem \d+\.1", texts[0]), texts
