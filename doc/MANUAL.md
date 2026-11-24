@@ -3512,7 +3512,12 @@ also accepts one by one:
   stay;
 - `--relative-source-paths` writes `sourceLocation.location.path` in
   `blueprint-manifest.json` relative to the project root (the generator's
-  working directory) when the file lies under it.
+  working directory) when the file lies under it. A Blueprint records its
+  source paths relative to the workspace root already when it is elaborated,
+  and a site from compiled code takes them from its data, relative to
+  `--root`, so a published site names no path of the machine it was built on
+  (no file under the project root by its absolute path, and a file outside it,
+  such as one of the toolchain's library, by its module only).
 
 Generators can also fix these options in code by passing
 `(reproducibility := Informal.PreviewManifest.ReproducibilityOptions.all)` (or

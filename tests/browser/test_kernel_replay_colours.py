@@ -353,3 +353,32 @@ def test_status_legend_sample_is_neutral_without_an_accepted_replay(
     colour = computed(page, ".bp_status_legend .bp_status_glyph_proved", "color")
     assert colour not in ACCEPTED_BORDER, colour
 
+
+
+@pytest.mark.parametrize("state, words, never", [
+    ("accepted", "checked again by con-leche and con-ron", ["not accepted", "not replayed"]),
+    ("rejected", "not accepted: ", ["complete", "both accepted it"]),
+    ("none", "as the compiled files report; not replayed by a kernel", ["complete", "accepted it"]),
+])
+def test_assistive_technology_gets_the_verdict(page: Page, replay_urls: dict[str, str], state: str,
+                                               words: str, never: list[str]):
+    # a node's accessible name and tooltip in the graph, and the Lean-code entry of its card,
+    # say its state in the words of its mark, never "without sorry" alone
+    base = replay_urls[state]
+    open_page(page, base + "/Dependency-Graph/", "light")
+    wait_for_graph(page)
+    node = '.bp_graph_canvas svg g.node[data-bp-node-name="Cmp.double_even"][aria-label]'
+    page.wait_for_selector(node, state="attached", timeout=60000)
+    # the drawing's tooltip (`desc`) and the accessible name the page gives the node
+    for text in (page.get_attribute(node, "aria-label"),
+                 page.eval_on_selector(node, "g => (g.querySelector(':scope > desc') || {}).textContent || ''")):
+        assert words in text, (state, text)
+        assert not any(w in text for w in never), (state, text)
+    open_page(page, base + "/Comparator___Double___Solution/", "light")
+    labels = page.eval_on_selector_all(
+        ".bp_code_summary_preview_wrap:has(> .bp_code_link_status), a.bp_code_link_status",
+        "els => els.map(e => e.getAttribute('aria-label') || '')")
+    assert labels, state
+    for label in labels:
+        assert words in label, (state, label)
+        assert not any(w in label for w in never), (state, label)

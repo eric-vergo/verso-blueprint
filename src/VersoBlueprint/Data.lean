@@ -67,10 +67,25 @@ structure SourceLocation where
   href : Option String := none
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson, Quote
 
+/-- `path` relative to the working directory (the workspace root while a module is elaborated)
+when it lies under it, by the directory as given or by its real path; else as it is. -/
+def relativeToWorkingDirectory {m} [Monad m] [MonadLiftT IO m] (path : String) : m String :=
+  liftM (m := IO) do
+    let cwd ← IO.currentDir
+    let real ← try IO.FS.realPath cwd catch _ => pure cwd
+    let sep := System.FilePath.pathSeparator.toString
+    for dir in [cwd.toString, real.toString] do
+      let dirPrefix := if dir.endsWith sep then dir else dir ++ sep
+      if path.startsWith dirPrefix then return (path.drop dirPrefix.length).toString
+    return path
+
 namespace SourceLocation
 
+/-- The location of `stx` in the module being elaborated, its file named relative to the
+workspace root (`relativeToWorkingDirectory`): a published site names no path of the machine it
+was built on. -/
 def ofSyntax? {m}
-    [Monad m] [MonadFileMap m] [MonadLog m]
+    [Monad m] [MonadFileMap m] [MonadLog m] [MonadLiftT IO m]
     (stx : Syntax) : m (Option SourceLocation) := do
   let some range := stx.getRange?
     | return none
@@ -79,7 +94,7 @@ def ofSyntax? {m}
     return none
   let fileMap ← getFileMap
   return some {
-    path := fileName
+    path := ← relativeToWorkingDirectory fileName
     range := fileMap.utf8RangeToLspRange range
   }
 
@@ -496,6 +511,11 @@ inductive ExternalDeclProvenance where
   | outWorkspace (moduleName : Name) (sourcePath? : Option String := none)
   | unknown
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson, Quote
+
+/-- Whether a workspace source path (relative to the workspace root) is a file of a dependency
+checked out under `.lake/packages`. -/
+def isPackageSource (path : String) : Bool :=
+  path.startsWith ".lake/" || (path.splitOn "/.lake/").length > 1
 
 def ExternalDeclProvenance.moduleName? : ExternalDeclProvenance → Option Name
   | .inWorkspace moduleName _ => some moduleName

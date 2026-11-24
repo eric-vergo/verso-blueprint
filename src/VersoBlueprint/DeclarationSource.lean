@@ -82,13 +82,13 @@ def highlightedJsonPath (root : System.FilePath) (moduleName : Name) : System.Fi
 /--
 Whether a declaration's module should get its source shown: the declaration is
 present and its module is part of the workspace (not a dependency checked out
-under `.lake/packages`).
+under `.lake/packages`; the path is relative to the workspace root).
 -/
 def wantsSource (decl : Data.ExternalRef) : Option Name := do
   guard decl.present
   match decl.provenance with
   | .inWorkspace moduleName sourcePath =>
-    if (sourcePath.splitOn "/.lake/packages/").length > 1 then none else some moduleName
+    if Data.isPackageSource sourcePath then none else some moduleName
   | _ => none
 
 private def loadModule (path : System.FilePath) : IO (Except String SubVerso.Module.Module) := do

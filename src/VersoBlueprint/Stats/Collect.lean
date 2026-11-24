@@ -445,7 +445,7 @@ def nodeSourceModules (state : Environment.State) (root : System.FilePath) :
   for (_, registered) in state.data do
     for ref in registered.toNode.associatedExternalRefs do
       let .inWorkspace module path := ref.provenance | continue
-      if (path.splitOn "/.lake/").length > 1 || out.any (·.1 == module) then continue
+      if Data.isPackageSource path || out.any (·.1 == module) then continue
       let file := (relativeTo? root path).getD path
       out := out.push (module, file)
   return out.qsort (·.1.toString < ·.1.toString)

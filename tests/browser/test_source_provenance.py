@@ -122,6 +122,27 @@ def test_replay_record_is_scratch(code_sites: dict[str, Path]):
     assert record.is_file()
 
 
+def published_files_naming(site: Path, roots: list[str]) -> list[str]:
+    """The files of the site whose text names one of `roots`."""
+    found = []
+    for f in site.rglob("*"):
+        if f.is_file():
+            text = f.read_bytes()
+            if any(root.encode() in text for root in roots):
+                found.append(str(f.relative_to(site)))
+    return found
+
+
+def test_published_files_name_no_path_of_the_build_machine(code_sites, written_sites):
+    # paths are relative to the project root, in the pages, the manifest, the cross-reference
+    # data and the search data alike
+    root = code_sites["root"]
+    roots = [str(root), str(root.resolve()), str(PACKAGE_ROOT), str(PACKAGE_ROOT.resolve())]
+    for name in ("built", "edited"):
+        assert published_files_naming(code_sites[name], roots) == [], name
+        assert published_files_naming(written_sites[name], roots) == [], name
+
+
 def test_lake_hash_is_lakes(code_sites: dict[str, Path]):
     # the helper that writes stand-in build records hashes as Lake does
     root = code_sites["root"]
