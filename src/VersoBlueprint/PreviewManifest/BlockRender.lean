@@ -153,7 +153,7 @@ private def renderCodePanel
       { source := content.codeData.nonempty? }
       (fun _ => none)
     let codeHtml := .seq content.codeBodies
-    let body := Html.tag "div" (Informal.htmlClassAttrs cfg.codeBodyClass) codeHtml
+    let body := Lean.Html.element "div" (Informal.htmlClassAttrs cfg.codeBodyClass) codeHtml
     let header := if entry.facet == .proof then Informal.proofReferencesPanelHeader else
       { caption := s!"Lean code for {title.caption}", number? := some title.label }
     Informal.mkCodePanel

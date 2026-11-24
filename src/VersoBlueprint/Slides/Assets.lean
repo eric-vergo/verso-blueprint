@@ -46,7 +46,7 @@ private def pushIfMissing [BEq α] (values : Array α) (value : α) : Array α :
 
 private def blueprintSlideRuntimeHead : Verso.Output.Html :=
   open Verso.Output.Html in
-  {{<script type="module" src={{blueprintSlideRuntimeModulePath}}></script>}}
+  html%{<script type="module" src={blueprintSlideRuntimeModulePath}></script>}
 
 private def ensureParentDir (path : System.FilePath) : IO Unit := do
   let dir := path.parent.getD "."
