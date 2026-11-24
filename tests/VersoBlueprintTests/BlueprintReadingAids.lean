@@ -96,7 +96,47 @@ private def marker : Doc.Block Manual := .other (Parts.Block.part {}) #[]
     PageText.sectionSigns "\"sectionNum\":\"4.\"" == "\"sectionNum\":\"4.\"" &&
     -- a statement's number is not a section's
     PageText.sectionSigns "<span class=\"bp_label\">4.1.1</span>" ==
-      "<span class=\"bp_label\">4.1.1</span>"
+      "<span class=\"bp_label\">4.1.1</span>" &&
+    -- a title that starts with initials is a title
+    PageText.sectionSigns "<h1 id=\"x\">U.S. Patent law" == "<h1 id=\"x\">U.S. Patent law" &&
+    PageText.sectionSigns "<h2 id=\"x\">A.B. Smith's lemma" == "<h2 id=\"x\">A.B. Smith's lemma" &&
+    PageText.sectionSigns "<h2 id=\"x\">A.2. Appendix" == "<h2 id=\"x\">§A.2 Appendix"
+
+-- Only the pages the build wrote are changed: a page left by an earlier build, or a file a
+-- person put into the folder, keeps its text.
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let dir ← IO.FS.createTempDir
+  let old := "<h1 id=\"x\">4.1. Kept</h1>"
+  IO.FS.writeFile (dir / "kept.html") old
+  IO.sleep 20
+  let marker := dir / ".started"
+  IO.FS.writeFile marker ""
+  let since := (← marker.metadata).modified
+  IO.FS.writeFile (dir / "new.html") "<h1 id=\"x\">4.1. Written</h1>"
+  let changed ← PageText.finishSite dir since
+  let kept ← IO.FS.readFile (dir / "kept.html")
+  let written ← IO.FS.readFile (dir / "new.html")
+  IO.FS.removeDirAll dir
+  return changed == 1 && kept == old && written == "<h1 id=\"x\">§4.1 Written</h1>"
+
+-- A link to a repository file: its path percent-encoded, slashes kept; only a file the
+-- repository tracks has an address at the commit.
+/-- info: (true, true, false) -/
+#guard_msgs in
+#eval show IO _ from do
+  let dir ← IO.FS.createTempDir
+  let git (args : Array String) := IO.Process.output { cmd := "git", args, cwd := dir }
+  let _ ← git #["init", "--quiet"]
+  IO.FS.writeFile (dir / "kept.md") "x"
+  IO.FS.writeFile (dir / "loose.md") "y"
+  let _ ← git #["add", "kept.md"]
+  let tracked ← Informal.RepoFile.tracked dir "kept.md"
+  let untracked ← Informal.RepoFile.tracked dir "loose.md"
+  IO.FS.removeDirAll dir
+  return (LeanSourceAnchor.percentEncode "notes/my file#1.md" == "notes/my%20file%231.md",
+    tracked, untracked)
 
 -- The viewport lets the reader zoom
 
@@ -177,6 +217,20 @@ private def graphNode (label : Name) (caption? : Option String := none) : Graph.
     hasSubstr drawing.svg "aria-label=\"b\"" &&
     hasSubstr drawing.svg ">Lemma 1.1</text>" &&
     hasSubstr drawing.svg "<title>a</title>"
+
+-- A node's accessible name says its state after its name (its tooltip), and keeps no character
+-- XML cannot carry, so the drawing stays a well-formed document.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let node := { graphNode `a (some "Lemma 1.1") with
+    tooltip? := some s!"Lean proof complete{Char.ofNat 1}: no \"sorry\" & <more>{Char.ofNat 0xFFFE}" }
+  let drawing := GraphLayout.drawing "full" { graph := #[node] } .TB false
+  GraphLayout.accessibleName (GraphLayout.webNode node) ==
+      "Lemma 1.1 (a): Lean proof complete: no \"sorry\" & <more>" &&
+    hasSubstr drawing.svg
+      "aria-label=\"Lemma 1.1 (a): Lean proof complete: no &quot;sorry&quot; &amp; &lt;more&gt;\"" &&
+    !drawing.svg.any (fun c => c.val < 0x20 && c != '\n' && c != '\t' && c != '\r')
 
 -- Links to the repository's files
 

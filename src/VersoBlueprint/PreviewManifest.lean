@@ -146,7 +146,7 @@ def pageRuntimeModuleFilename : String := "blueprint-page-runtime.mjs"
 
 private def blueprintPageRuntimeHead : Verso.Output.Html :=
   open Verso.Output.Html in
-  {{<script type="module" src={{"-verso-data/" ++ pageRuntimeModuleFilename}}></script>}}
+  html%{<script type="module" src={"-verso-data/" ++ pageRuntimeModuleFilename}></script>}
 
 def withBuildMetadataAssets (config : RenderConfig := {}) : RenderConfig :=
   let htmlConfig := config.toHtmlConfig
@@ -550,44 +550,46 @@ private def buildMetadataCodeHtml (value : String) (href? : Option String) : Out
 
 def buildMetadataHtml (metadata : BuildMetadata) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_build_metadata" aria-label="Build metadata">
-      {{if let some compiledAt := metadata.compiledAt then
-        {{<span class="bp_build_metadata_item">
-            <span class="bp_build_metadata_label">"Compiled"</span>
-            <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text compiledAt}}</span>
-          </span>}}
-        else .empty}}
-      {{if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}}
-            {{match metadata.commit with
+      {if let some compiledAt := metadata.compiledAt then
+        html%{<span class="bp_build_metadata_item">
+            <span class="bp_build_metadata_label">Compiled</span>
+            <span class="bp_build_metadata_value">{VersoBlueprint.Html.text compiledAt}</span>
+          </span>}
+        else .empty}
+      {if metadata.commit.isSome || metadata.projectRepositoryUrl.isSome then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Project" metadata.projectRepositoryUrl}
+            {match metadata.commit with
               | some commit => buildMetadataCodeHtml commit metadata.projectCommitUrl
-              | none => .empty}}
-          </span>}}
-        else .empty}}
+              | none => .empty}
+          </span>}
+        else .empty}
       <span class="bp_build_metadata_item">
-        <span class="bp_build_metadata_label">"Lean"</span>
-        <span class="bp_build_metadata_value">{{VersoBlueprint.Html.text metadata.leanToolchain}}</span>
+        <span class="bp_build_metadata_label">Lean</span>
+        <span class="bp_build_metadata_value">
+          {VersoBlueprint.Html.text metadata.leanToolchain}
+        </span>
       </span>
       <span class="bp_build_metadata_item">
-        {{buildMetadataLabelHtml "VersoBlueprint" metadata.blueprintRepositoryUrl}}
-        {{buildMetadataCodeHtml metadata.blueprintVersion metadata.blueprintCommitUrl}}
+        {buildMetadataLabelHtml "VersoBlueprint" metadata.blueprintRepositoryUrl}
+        {buildMetadataCodeHtml metadata.blueprintVersion metadata.blueprintCommitUrl}
       </span>
-      {{if let some upstream := metadata.upstreamBlueprint then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Upstream" upstream.repositoryUrl}}
-            {{buildMetadataCodeHtml upstream.commit upstream.commitUrl}}
-          </span>}}
-        else .empty}}
-      {{if let some mathlibVersion := metadata.mathlibVersion then
-        {{<span class="bp_build_metadata_item">
-            {{buildMetadataLabelHtml "Mathlib" metadata.mathlibRepositoryUrl}}
-            {{buildMetadataCodeHtml mathlibVersion metadata.mathlibCommitUrl}}
-          </span>}}
-        else .empty}}
+      {if let some upstream := metadata.upstreamBlueprint then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Upstream" upstream.repositoryUrl}
+            {buildMetadataCodeHtml upstream.commit upstream.commitUrl}
+          </span>}
+        else .empty}
+      {if let some mathlibVersion := metadata.mathlibVersion then
+        html%{<span class="bp_build_metadata_item">
+            {buildMetadataLabelHtml "Mathlib" metadata.mathlibRepositoryUrl}
+            {buildMetadataCodeHtml mathlibVersion metadata.mathlibCommitUrl}
+          </span>}
+        else .empty}
     </div>
-  }}
+  }
 
 def buildMetadataHtmlString (metadata : BuildMetadata) : String :=
   Lean.Html.render <| buildMetadataHtml metadata
@@ -2910,10 +2912,15 @@ private def emitBlueprintHtml
   if finished.clashes > 0 then
     Verso.reportError s!"Blueprint math: {finished.clashes} glyph outlines share an id"
   -- zoom left to the reader; section numbers as `§9.1`
-  let _ ← Informal.PageText.finishSite (outDirForMode prepared.config.toConfig mode)
+  let _ ← Informal.PageText.finishSite (outDirForMode prepared.config.toConfig mode) started
   for step in extraSteps do
     step prepared
-  -- every place the site's navigation links to exists
+  let removed ← Informal.OutputPrune.finish outDir started
+  unless removed.isEmpty do
+    logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
+      build that this build did not write"
+  -- every place the site's navigation links to exists, in the folder as this build leaves it (a
+  -- page of an earlier build that was just removed is not there)
   let dead ← Informal.LinkCheck.checkSite (outDirForMode prepared.config.toConfig mode)
   for link in dead.extract 0 20 do
     Verso.reportError s!"Blueprint navigation: {link.page} links to {link.href}, a place the \
@@ -2921,10 +2928,6 @@ private def emitBlueprintHtml
   if dead.size > 20 then
     Verso.reportError s!"Blueprint navigation: {dead.size - 20} more links to places the site \
       does not have"
-  let removed ← Informal.OutputPrune.finish outDir started
-  unless removed.isEmpty do
-    logBuildProgress cfg.verbose s!"removed {removed.size} files of an earlier {modeDescription} \
-      build that this build did not write"
 
 /-- Extract `--no-stats-page`: it turns the automatic Project Stats page off. -/
 def parseStatsPageFlag (statsPage? : Option Informal.Commands.StatsPageData) (args : List String) :

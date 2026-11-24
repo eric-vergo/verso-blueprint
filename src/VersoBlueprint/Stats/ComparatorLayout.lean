@@ -209,13 +209,24 @@ def folderOf (name : String) : String := s!"{folder}/{name}"
 
 /-! ## Reading Lean source without running it -/
 
-/-- The text with every comment and string literal replaced by spaces (line breaks kept), so that
-words found in it are code. Block comments nest. -/
+/-- Whether `c` can continue an identifier, so that a `'` after it is part of the name (`x'`)
+and not the start of a character literal. -/
+private def continuesIdent (c : Char) : Bool :=
+  c.isAlphanum || c == '_' || c == '\'' || c == '!' || c == '?' || c == '»' ||
+    (c.val ≥ 0x80 && !c.isWhitespace && !"()[]{}⦃⦄⟨⟩:,".contains c)
+
+/-- The text with every comment, string literal (raw ones included) and character literal
+replaced by spaces (line breaks kept), and everything after a `#exit` command, which Lean does
+not read, removed, so that words found in it are code. Block comments nest. This is a reading
+of the text, not Lean's parser: what a page reports about the compiled module comes from the
+compiled module. -/
 def codeOnly (text : String) : String := Id.run do
   let chars := text.toList.toArray
   let mut out : Array Char := Array.mkEmpty chars.size
   let mut i := 0
   let blank := fun (c : Char) => if c == '\n' then '\n' else ' '
+  -- whether the character before `j` continues an identifier
+  let afterIdent := fun (j : Nat) => j > 0 && continuesIdent chars[j - 1]!
   while i < chars.size do
     let c := chars[i]!
     let next := chars[i + 1]?
@@ -241,6 +252,36 @@ def codeOnly (text : String) : String := Id.run do
         else
           out := out.push (blank chars[i]!); i := i + 1
       if i < chars.size then out := out.push ' '; i := i + 1
+    else if c == 'r' && !afterIdent i && (next == some '"' || next == some '#') then
+      -- a raw string `r"…"`, `r#"…"#`: no escapes, closed by `"` and as many `#`
+      let mut hashes := 0
+      let mut j := i + 1
+      while chars[j]? == some '#' do hashes := hashes + 1; j := j + 1
+      if chars[j]? != some '"' then
+        out := out.push c; i := i + 1
+      else
+        let closes := fun (k : Nat) => chars[k]? == some '"' &&
+          (List.range hashes).all fun h => chars[k + 1 + h]? == some '#'
+        let mut k := j + 1
+        while k < chars.size && !closes k do k := k + 1
+        let stop := min chars.size (k + 1 + hashes)
+        for idx in [i:stop] do out := out.push (blank chars[idx]!)
+        i := stop
+    else if c == '\'' && !afterIdent i then
+      -- a character literal `'a'`, `'\n'`, `'\x41'`, `'\u{2200}'`: at most a few characters
+      let escaped := chars[i + 1]? == some '\\'
+      let close := (List.range 12).find? fun d => chars[i + d]? == some '\'' &&
+        (if escaped then d ≥ 3 else d == 2)
+      match close with
+      | some d =>
+        for idx in [i:i + d + 1] do out := out.push (blank chars[idx]!)
+        i := i + d + 1
+      | none => out := out.push c; i := i + 1
+    else if c == '#' && !afterIdent i && chars[i + 1]? == some 'e' && chars[i + 2]? == some 'x' &&
+        chars[i + 3]? == some 'i' && chars[i + 4]? == some 't' &&
+        !((chars[i + 5]?).any continuesIdent) then
+      -- Lean reads nothing after `#exit`
+      return String.ofList out.toList
     else
       out := out.push c; i := i + 1
   return String.ofList out.toList

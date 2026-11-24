@@ -78,7 +78,7 @@ block_extension Block.bibliography (biblio : BibliographyData) where
         let usageRows : Array Output.Html :=
           if usageDetails.isEmpty then
             usageHrefs.foldl (init := #[]) fun out href =>
-              out.push {{<li><a href={{href}}>s!"Citation use {out.size + 1}"</a></li>}}
+              out.push html%{<li><a href={href}>{s!"Citation use {out.size + 1}"}</a></li>}
           else
             usageDetails.map fun use =>
               let summaryText := use.summary.text st
@@ -98,15 +98,15 @@ block_extension Block.bibliography (biblio : BibliographyData) where
                   | Option.none, Option.none => Option.none
                 match detailText? with
                 | some detail =>
-                  {{<span class="bp_bibliography_use_inline_meta">
-                    {{.text s!" - {detail}"}}
-                  </span>}}
+                  html%{<span class="bp_bibliography_use_inline_meta">
+                    {.text s!" - {detail}"}
+                  </span>}
                 | Option.none => .empty
-              let lineNode : Output.Html := {{
-                <a href={{use.href}} class="bp_bibliography_use_line">
-                  {{.text summaryText}}
-                  {{inlineMeta}}
-                </a>}}
+              let lineNode : Output.Html := html%{
+                <a href={use.href} class="bp_bibliography_use_line">
+                  {.text summaryText}
+                  {inlineMeta}
+                </a>}
               let previewLine : Output.Html :=
                 match use.summary.theoremCtx with
                 | some theoremCtx =>
@@ -118,31 +118,35 @@ block_extension Block.bibliography (biblio : BibliographyData) where
                     previewId summaryText previewKey
                   Informal.HoverRender.inlinePreviewTargetNode lineNode previewTarget
                 | Option.none => lineNode
-              {{<li class="bp_bibliography_use_item">
-                {{previewLine}}
-              </li>}}
+              html%{<li class="bp_bibliography_use_item">
+                {previewLine}
+              </li>}
         let usageCount := if usageDetails.isEmpty then usageHrefs.size else usageDetails.size
-        pure {{
-          <li id={{itemId}}>
-            {{rendered}}
+        pure html%{
+          <li id={itemId}>
+            {rendered}
             <details class="bp_bibliography_uses">
-              <summary>s!"Cited from ({usageCount})"</summary>
+              <summary>{s!"Cited from ({usageCount})"}</summary>
               <ul class="bp_bibliography_uses_list">
-                {{if usageRows.isEmpty then {{<li class="bp_bibliography_empty">"No citation uses recorded."</li>}} else usageRows}}
+                {if usageRows.isEmpty then
+                  html%{<li class="bp_bibliography_empty">No citation uses recorded.</li>}
+                else usageRows}
               </ul>
             </details>
           </li>
-        }}
-      pure {{
+        }
+      pure html%{
         <div class="bp_bibliography">
           <details class="bp_bibliography_section" open>
-            <summary>s!"Bibliography ({entries.size})"</summary>
+            <summary>{s!"Bibliography ({entries.size})"}</summary>
             <ul class="bp_bibliography_list">
-              {{if rows.isEmpty then {{<li class="bp_bibliography_empty">"No bibliography entries registered."</li>}} else rows}}
+              {if rows.isEmpty then
+                html%{<li class="bp_bibliography_empty">No bibliography entries registered.</li>}
+              else rows}
             </ul>
           </details>
         </div>
-      }}
+      }
   extraCss := bibliographyAssetBundle.css
   extraJs := bibliographyAssetBundle.js
 

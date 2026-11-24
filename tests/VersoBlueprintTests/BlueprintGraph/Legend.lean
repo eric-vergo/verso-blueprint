@@ -55,7 +55,7 @@ def groupLegend : Array LegendGroup := groupGraphLegendGroups
 #eval
   let labels (legend : Array LegendGroup) : Array String := legend.flatMap (·.items.map (·.label))
   let reported := "(as the compiled files report, not replayed by a kernel)"
-  let rejected := "(this build was rejected by a kernel checker)"
+  let rejected := "(a kernel checker rejected this build)"
   let bare := #["In Lean, no sorry", "Lean code without sorry",
     "Lean code without sorry, dependencies too", "In Mathlib"]
   bare.all (fun label => (labels (graphLegendGroups true)).contains s!"{label} {reported}" &&

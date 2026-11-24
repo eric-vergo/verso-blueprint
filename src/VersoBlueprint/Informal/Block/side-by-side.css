@@ -265,6 +265,7 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
 .bp_status_glyph_partial { color: var(--bp-color-status-warning-text); }
 .bp_status_glyph_problem { color: var(--bp-color-accent-warning); }
 .bp_status_glyph_missing { color: var(--bp-color-accent-danger); }
+.bp_status_glyph_changed { color: var(--bp-color-text-subtle); }
 .bp_status_glyph_none { color: var(--bp-color-text-faint); }
 
 /* Legend of the status glyphs (a <details> placed by the page script in the

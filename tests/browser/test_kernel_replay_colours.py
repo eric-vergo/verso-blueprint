@@ -41,7 +41,7 @@ ACCEPTED_BORDER = ("rgb(22, 163, 74)", "rgb(74, 222, 128)")
 REPORTED_FILL = ("rgb(100, 116, 139)", "rgb(100, 116, 139)")
 REPORTED_BORDER = ("rgb(100, 116, 139)", "rgb(148, 163, 184)")
 REPORTED_NOTE = "as the compiled files report, not replayed by a kernel"
-REJECTED_NOTE = "this build was rejected by a kernel checker"
+REJECTED_NOTE = "a kernel checker rejected this build"
 
 PAGES = ("/", "/Project-Stats/", "/Blueprint-Summary/", "/Comparator___Double___Solution/", "/Demo___Basic/")
 
@@ -267,7 +267,7 @@ def test_without_an_accepted_replay_nothing_is_green(
     legend = page.locator(".bp_stats_legend").inner_text()
     assert f"Lean complete, dependencies too ({note})" in legend
     if state == "rejected":
-        assert "This build was rejected by a kernel checker" in counts.inner_text()
+        assert "A kernel checker rejected this build" in counts.inner_text()
         # the headline and the sentence beside the counts are in the error colour
         for selector in (".bp_stats_replay_counts", ".bp_stats_replay_summary"):
             r, g, b = [int(v) for v in computed(page, selector, "color")[4:-1].split(", ")[:3]]
@@ -313,7 +313,10 @@ def test_accepted_replay_with_an_axiom_says_so(page: Page, replay_urls: dict[str
     counts = page.locator(".bp_stats_replay_counts").inner_text()
     assert counts.startswith("The kernel replay accepted the build, and the counts are as the "
                              "compiled files report: "), counts
-    assert "rest on the axiom Demo.assumed, so it was not checked" in counts, counts
+    # the node that rests on the axiom; the axiom's own node has a mark of its own and is not
+    # counted as complete, so it is not one of them
+    assert ": 1 node without sorry rests on the axiom Demo.assumed, so it was not checked" in counts, \
+        counts
     legend = page.locator(".bp_stats_legend").inner_text()
     assert "(the kernel replay accepted the build; on this site " in legend, legend
     for text in (counts, legend):
@@ -350,3 +353,32 @@ def test_status_legend_sample_is_neutral_without_an_accepted_replay(
     colour = computed(page, ".bp_status_legend .bp_status_glyph_proved", "color")
     assert colour not in ACCEPTED_BORDER, colour
 
+
+
+@pytest.mark.parametrize("state, words, never", [
+    ("accepted", "checked again by con-leche and con-ron", ["not accepted", "not replayed"]),
+    ("rejected", "not accepted: ", ["complete", "both accepted it"]),
+    ("none", "as the compiled files report; not replayed by a kernel", ["complete", "accepted it"]),
+])
+def test_assistive_technology_gets_the_verdict(page: Page, replay_urls: dict[str, str], state: str,
+                                               words: str, never: list[str]):
+    # a node's accessible name and tooltip in the graph, and the Lean-code entry of its card,
+    # say its state in the words of its mark, never "without sorry" alone
+    base = replay_urls[state]
+    open_page(page, base + "/Dependency-Graph/", "light")
+    wait_for_graph(page)
+    node = '.bp_graph_canvas svg g.node[data-bp-node-name="Cmp.double_even"][aria-label]'
+    page.wait_for_selector(node, state="attached", timeout=60000)
+    # the drawing's tooltip (`desc`) and the accessible name the page gives the node
+    for text in (page.get_attribute(node, "aria-label"),
+                 page.eval_on_selector(node, "g => (g.querySelector(':scope > desc') || {}).textContent || ''")):
+        assert words in text, (state, text)
+        assert not any(w in text for w in never), (state, text)
+    open_page(page, base + "/Comparator___Double___Solution/", "light")
+    labels = page.eval_on_selector_all(
+        ".bp_code_summary_preview_wrap:has(> .bp_code_link_status), a.bp_code_link_status",
+        "els => els.map(e => e.getAttribute('aria-label') || '')")
+    assert labels, state
+    for label in labels:
+        assert words in label, (state, label)
+        assert not any(w in label for w in never), (state, label)

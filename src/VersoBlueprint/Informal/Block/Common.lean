@@ -65,6 +65,9 @@ structure BlockStatusMark where
   /-- A Lean declaration of the node whose module is not known (it is declared in the module
   that captured the site's data, which need not be compiled): no replay is known to cover it. -/
   unplaced : Option Lean.Name := none
+  /-- Why the source of one of the node's Lean declarations is not known to be the text that was
+  compiled (`Data.ExternalRef.sourceChange?`): nothing is shown as checked for the node. -/
+  sourceChange? : Option String := none
 deriving Repr, Inhabited
 
 def BlockStatusMark.text (s : BlockStatusMark) : String :=
@@ -74,11 +77,11 @@ def BlockStatusMark.text (s : BlockStatusMark) : String :=
 
 def BlockStatusMark.toHtml (s : BlockStatusMark) : Output.Html :=
   open Verso.Output.Html in
-  {{ <span class="bp_status_mark" title={{s.title}}>{{.text s.text}}</span> }}
+  html%{<span class="bp_status_mark" title={s.title}>{.text s.text}</span>}
 
 def codeHoverListItem (body : Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{<li>{{body}}</li>}}
+  html%{<li>{body}</li>}
 
 def codeHoverTextItem (text : String) : Output.Html :=
   open Verso.Output.Html in
@@ -87,23 +90,23 @@ def codeHoverTextItem (text : String) : Output.Html :=
 
 def codeHoverEmptyItem (text : String) : Output.Html :=
   open Verso.Output.Html in
-  {{<li class="bp_code_hover_none">{{.text text}}</li>}}
+  html%{<li class="bp_code_hover_none">{.text text}</li>}
 
 def codeHoverCodeItem (text : String) : Output.Html :=
   open Verso.Output.Html in
-  let body : Output.Html := {{<code>{{.text text}}</code>}}
+  let body : Output.Html := html%{<code>{.text text}</code>}
   codeHoverListItem body
 
 def codeHoverSection (title : String) (items : Array Output.Html) : Output.Html :=
   open Verso.Output.Html in
-  {{
+  html%{
     <div class="bp_code_hover_section">
-      <span class="bp_code_hover_label">{{.text title}}</span>
+      <span class="bp_code_hover_label">{.text title}</span>
       <ul class="bp_code_hover_list">
-        {{.seq items}}
+        {.seq items}
       </ul>
     </div>
-  }}
+  }
 
 structure CodePanelHeader where
   caption : String
@@ -148,9 +151,15 @@ register_option verso.blueprint.foldCodeBlocks : Bool := {
 def externalDeclHasGap (decl : Data.ExternalRef) : Bool :=
   decl.present && decl.provedStatus.isIncomplete
 
-def externalCodeEntryTitle (found total missing withGaps : Nat) : String :=
+/-- The title of a node's Lean-code entry: how many of its declarations are present, and how
+many have a gap (`withGaps`) or a source not known to be the text that was compiled (`changed`,
+in the words `changedWords`). -/
+def externalCodeEntryTitle (found total missing withGaps : Nat) (changed : Nat := 0)
+    (changedWords : String := "source changed since the build") : String :=
   if missing > 0 then
     s!"Lean declarations ({found}/{total} present)"
+  else if changed > 0 then
+    s!"Lean declarations (all present: {found}/{total}; {changedWords}: {changed})"
   else if withGaps > 0 then
     s!"Lean declarations (all present: {found}/{total}; incomplete: {withGaps})"
   else
@@ -165,23 +174,27 @@ def mkCodePanel
   open Verso.Output.Html in
   let attrs :=
     if folded then attrs else attrs.push ("open", "open")
-  {{
+  html%{
     <div class="bp_wrapper bp_code_panel_wrapper">
-      <details class="bp_code_block bp_code_panel" {{attrs}}>
-        <summary class="bp_heading lemma_thmheading" title={{summaryTitle}}>
+      <details class="bp_code_block bp_code_panel" {...attrs}>
+        <summary class="bp_heading lemma_thmheading" title={summaryTitle}>
           <span class="bp_heading_title_row">
-            <span class="bp_caption lemma_thmcaption bp_code_summary_text">{{.text header.caption}}</span>
-            {{if let some number := header.number? then
-                {{<span class="bp_label lemma_thmlabel bp_code_summary_label">{{.text number}}</span>}}
+            <span class="bp_caption lemma_thmcaption bp_code_summary_text">
+              {.text header.caption}
+            </span>
+            {if let some number := header.number? then
+                html%{
+                  <span class="bp_label lemma_thmlabel bp_code_summary_label">{.text number}</span>
+                }
               else
-                .empty}}
+                .empty}
           </span>
-          {{progressBar}}
-          {{headingExtra}}
+          {progressBar}
+          {headingExtra}
         </summary>
-        {{body}}
+        {body}
       </details>
     </div>
-  }}
+  }
 
 end Informal

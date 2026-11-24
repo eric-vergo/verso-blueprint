@@ -87,10 +87,12 @@ private def bumpEntryStatus (acc : EntryStatusCounts) (flags : EntryStatusFlags)
   }
 
 private def entryStatusFlags (state : Environment.State)
-    (external : Informal.Graph.ExternalCodeStatus) (node : Data.Node) : EntryStatusFlags :=
+    (external : Informal.Graph.ExternalCodeStatus) (node : Data.Node)
+    (closures : Informal.Graph.Closures := Informal.Graph.Closures.of external state) :
+    EntryStatusFlags :=
   let health := Informal.Graph.nodeCodeHealth external node
   let localFormalized := health.localFormalized node.kind
-  let ancestorsFormalized := Informal.Graph.nodeAncestorsFormalized external state node
+  let ancestorsFormalized := Informal.Graph.nodeAncestorsFormalized external state node closures
   let withIncompleteCode := health.hasAssociatedCode && health.hasAnyGaps
   let noProof := node.kind.isTheoremLike && !health.hasAssociatedCode
   {
@@ -261,9 +263,11 @@ private def metadataEntryItem (state : Environment.State) (label : Name) (node :
 
 private def mkActionableItem? (state : Environment.State) (external : Informal.Graph.ExternalCodeStatus)
     (usageMap : NameMap UsageCounts) (reverseMap : NameMap (Array Name))
-    (label : Name) (node : Data.Node) : Option PriorityItem :=
-  let statementStatus := Informal.Graph.statementStatus external state label node
-  let proofStatus := Informal.Graph.proofStatus external state label node
+    (label : Name) (node : Data.Node)
+    (closures : Informal.Graph.Closures := Informal.Graph.Closures.of external state) :
+    Option PriorityItem :=
+  let statementStatus := Informal.Graph.statementStatus external state label node closures
+  let proofStatus := Informal.Graph.proofStatus external state label node closures
   let localFormalized := Informal.Graph.nodeLocalFormalized external node
   match Informal.Graph.actionableStageForStatuses? node.kind statementStatus proofStatus with
   | Option.none => Option.none
@@ -306,6 +310,8 @@ private structure SummaryBuildContext where
   parentChildren : NameMap (Array Name)
   groupHeaders : NameMap String
   external : Informal.Graph.ExternalCodeStatus
+  /-- The dependency closures of every node, computed once. -/
+  closures : Informal.Graph.Closures
   usageMap : NameMap UsageCounts
   reverseMap : NameMap (Array Name)
 
@@ -323,6 +329,7 @@ private def mkSummaryBuildContext (state : Environment.State) : SummaryBuildCont
     parentChildren
     groupHeaders := state.groups
     external
+    closures := Informal.Graph.Closures.of external state
     usageMap
     reverseMap
   }
@@ -332,7 +339,7 @@ private def SummaryBuildContext.downstreamUses (ctx : SummaryBuildContext) (labe
 
 private def SummaryBuildContext.actionableItem? (ctx : SummaryBuildContext)
     (label : Name) (node : Data.Node) : Option PriorityItem :=
-  mkActionableItem? ctx.state ctx.external ctx.usageMap ctx.reverseMap label node
+  mkActionableItem? ctx.state ctx.external ctx.usageMap ctx.reverseMap label node ctx.closures
 
 private def SummaryBuildContext.childEntries (ctx : SummaryBuildContext) (children : Array Name) :
     Array (Name × Data.Node) :=
@@ -429,7 +436,7 @@ private def collectSummaryOverview (ctx : SummaryBuildContext) : Summary :=
     let hasStatement := node.hasStatementBody
     let hasProof := node.hasProofBody
     let hasCode := Informal.Graph.nodeHasAssociatedCode node
-    let statusFlags := entryStatusFlags ctx.state ctx.external node
+    let statusFlags := entryStatusFlags ctx.state ctx.external node ctx.closures
     let leanSummary := nodeLeanSummary label node
     let pendingInformalEntries : List PendingInformalItem :=
       if hasCode && ((node.kind.isTheoremLike && !hasProof) || !hasStatement) then
@@ -529,9 +536,10 @@ private structure GroupHealthCounts where
 
 private def GroupHealthCounts.addEntry (counts : GroupHealthCounts)
     (ctx : SummaryBuildContext) (child : Name) (node : Data.Node) : GroupHealthCounts :=
-  let statusFlags := entryStatusFlags ctx.state ctx.external node
-  let statementStatus := Informal.Graph.statementStatus ctx.external ctx.state child node
-  let proofStatus := Informal.Graph.proofStatus ctx.external ctx.state child node
+  let statusFlags := entryStatusFlags ctx.state ctx.external node ctx.closures
+  let statementStatus :=
+    Informal.Graph.statementStatus ctx.external ctx.state child node ctx.closures
+  let proofStatus := Informal.Graph.proofStatus ctx.external ctx.state child node ctx.closures
   let readyNow :=
     !Informal.Graph.nodeLocalFormalized ctx.external node &&
       (Informal.Graph.actionableStageForStatuses? node.kind statementStatus proofStatus).isSome
@@ -584,9 +592,10 @@ private def collectGroupHealth (ctx : SummaryBuildContext) : List GroupHealthIte
 
 private def collectCoverageSplit (ctx : SummaryBuildContext) : CoverageSplit :=
   ctx.entries.foldl (init := ({} : CoverageSplit)) fun acc (label, node) =>
-    let statusFlags := entryStatusFlags ctx.state ctx.external node
-    let statementStatus := Informal.Graph.statementStatus ctx.external ctx.state label node
-    let proofStatus := Informal.Graph.proofStatus ctx.external ctx.state label node
+    let statusFlags := entryStatusFlags ctx.state ctx.external node ctx.closures
+    let statementStatus :=
+      Informal.Graph.statementStatus ctx.external ctx.state label node ctx.closures
+    let proofStatus := Informal.Graph.proofStatus ctx.external ctx.state label node ctx.closures
     if statusFlags.completed then
       { acc with fullyClosed := acc.fullyClosed + 1 }
     else if statusFlags.completedDepsNo then

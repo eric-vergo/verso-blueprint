@@ -6,6 +6,7 @@ Author: Eric Vergo
 
 import Lean.Util.FoldConsts
 import VersoBlueprint.Axioms
+import VersoBlueprint.BuildRecord
 import VersoBlueprint.Stats.Collect
 import VersoBlueprint.Stats.ComparatorLayout
 
@@ -119,6 +120,24 @@ def findCompiledModule? (path : System.SearchPath) (module : Name) :
     let file := modToFilePath dir module "olean"
     if ← file.pathExists then return some file
   return none
+
+/-- The compiled files of `module` on the search path `path`, each once by its real path: more
+than one means that which of them a build means depends on the order of the path. -/
+def compiledFilesOf (path : System.SearchPath) (module : Name) : IO (Array System.FilePath) := do
+  let mut files := #[]
+  for dir in path do
+    let file := modToFilePath dir module "olean"
+    if ← file.pathExists then
+      let real ← try IO.FS.realPath file catch _ => pure file
+      unless files.contains real do files := files.push real
+  return files
+
+/-- Why a module of a comparison cannot be named by its name alone, when it has more than one
+compiled file on `path` (`compiledFilesOf`): the module and its files. -/
+def ambiguousModule? (path : System.SearchPath) (module : Name) : IO (Option String) := do
+  let files ← compiledFilesOf path module
+  if files.size ≤ 1 then return none
+  return some s!"{module}: {", ".intercalate (files.toList.map (·.toString))}"
 
 /-! ## Source text -/
 
@@ -411,81 +430,6 @@ def matchesSource (challenge : ChallengeModule) (source : String) : Bool :=
       let name := privateToUserName info.name
       !written.isEmpty && (name.toString (escape := false)).endsWith written
 
-/-! ## Where the compiled challenge comes from -/
-
-/-- Lake's content hash (`Lake.Hash`) of a value hashed with `h`, as Lake writes it: sixteen
-lower-case hexadecimal digits. -/
-def lakeHashHex (h : UInt64) : String :=
-  let v := mixHash 1723 h
-  let digits := (Nat.toDigits 16 v.toNat)
-  String.ofList (List.replicate (16 - digits.length) '0' ++ digits)
-
-/-- Lake's hash of a source file's text: line endings normalized (`Lake.Hash.ofText`). -/
-def lakeTextHash (text : String) : String := lakeHashHex (hash text.crlfToLf)
-
-/-- Lake's hash of a binary file's bytes (`Lake.Hash.ofByteArray`). -/
-def lakeBytesHash (bytes : ByteArray) : String := lakeHashHex (hash bytes)
-
-/-- Whether a compiled module was compiled from a source text, by Lake's build record of it. -/
-inductive Provenance where
-  /-- The record describes these compiled files and names this source text. -/
-  | same
-  /-- The record describes these compiled files and a different source text. -/
-  | differs
-  /-- Nothing is known: why. -/
-  | unknown (why : String)
-deriving Repr, Inhabited, DecidableEq
-
-/-- Every `[path, hash]` pair of a Lake trace's `inputs`, at any depth. -/
-private partial def tracePairs (j : Json) : Array (String × String) :=
-  match j with
-  | .arr #[.str path, .str h] => #[(path, h)]
-  | .arr items => items.flatMap tracePairs
-  | _ => #[]
-
-/-- Whether the compiled module `olean` (with its `.server` and `.private` parts) was compiled
-from the source text `text` of the file `sourceFile` (relative to the project root), by the build
-record Lake writes beside it (`<module>.trace`): the record's outputs must be these compiled
-files (by Lake's hash of their bytes), and its input of the source file must be Lake's hash of
-`text`. A source edited after the build differs; a record that is missing, unreadable, or
-describes other files says nothing. -/
-def provenanceOf (olean : System.FilePath) (sourceFile : String) (text : String) :
-    IO Provenance := do
-  let trace := olean.withExtension "trace"
-  let some json ← (try some <$> (IO.ofExcept (Json.parse (← IO.FS.readFile trace)))
-      catch _ => pure none)
-    | return .unknown s!"Lake's build record {trace.fileName.getD "?"} of the compiled \
-        challenge is missing or cannot be read"
-  -- the outputs: `HASH.olean`, `HASH.olean.server`, `HASH.olean.private`
-  let outputs : Array String := match json.getObjValD "outputs" |>.getObjValD "o" with
-    | .str s => #[s]
-    | .arr items => items.filterMap fun | .str s => some s | _ => none
-    | _ => #[]
-  if outputs.isEmpty then
-    return .unknown "Lake's build record of the compiled challenge lists no compiled file"
-  for output in outputs do
-    let (h, ext) := match output.splitOn "." with
-      | h :: rest => (h, ".".intercalate rest)
-      | [] => ("", "")
-    let file : System.FilePath := match ext with
-      | "olean" => olean
-      | "olean.server" => olean.addExtension "server"
-      | "olean.private" => olean.addExtension "private"
-      | _ => olean.withExtension ext
-    let some bytes ← (try some <$> IO.FS.readBinFile file catch _ => pure none)
-      | return .unknown s!"the compiled file {file.fileName.getD "?"} that Lake's build record \
-          lists is missing"
-    unless lakeBytesHash bytes == h do
-      return .unknown s!"Lake's build record of the compiled challenge describes other compiled \
-        files than {file.fileName.getD "?"}"
-  let suffix := "/" ++ sourceFile
-  let inputs := (tracePairs (json.getObjValD "inputs")).filter fun (path, _) =>
-    path == sourceFile || path.endsWith suffix
-  let some (_, recorded) := inputs[0]?
-    | return .unknown s!"Lake's build record of the compiled challenge does not name its source \
-        {sourceFile}"
-  return if recorded == lakeTextHash text then .same else .differs
-
 /-- The axioms among `axioms` that the comparison does not allow, `sorryAx` aside (a
 `sorry` is reported on its own): those outside `permitted` when the challenge states a list, else
 those outside Lean's standard three. -/
@@ -514,6 +458,10 @@ def Headline.compute (config : ChallengeConfig) (root : System.FilePath)
   let path := libraryPath ++ layout.libraryDirs.toList.map fun dir : String => root / dir
   let some olean ← findCompiledModule? path config.challengeModule
     | return unavailable .challengeNotBuilt (some config.challengeModule.toString)
+  -- the fixed names `Comparator.<Name>.*` are the same in a project and in one it depends on
+  for module in #[config.challengeModule, config.solutionModule] do
+    if let some why ← ambiguousModule? path module then
+      return unavailable .moduleAmbiguous (some why)
   let challenge ← match ← (ChallengeModule.read olean).toBaseIO with
     | .ok challenge => pure challenge
     | .error e => return unavailable .challengeUnreadable (some (toString e))

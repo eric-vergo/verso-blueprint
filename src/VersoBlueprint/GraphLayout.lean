@@ -73,12 +73,15 @@ def labelLines (node : GraphNode Ref) : Array String :=
   (((node.caption?.getD node.displayLabel).splitOn "\n").toArray).flatMap wrapDotted
 
 /-- The accessible name of a drawn node: the text of its label, followed by its name (the
-node's label, also its tooltip) when the label shows something else, as a numbered title does
-(`Theorem 6.5 (critical_radius)`). -/
+node's label) when the label shows something else, as a numbered title does
+(`Theorem 6.5 (critical_radius)`), then its tooltip, which says the node's state in the words of
+its mark ("Theorem 6.5 (critical_radius): Lean proof without sorry, as the compiled files
+report; …"). -/
 def accessibleName (node : PILean.Graph.WebNode) : String :=
   let shown := String.join node.lines.toList
-  if shown == node.name || node.name.isEmpty then shown
-  else s!"{" ".intercalate node.lines.toList} ({node.name})"
+  let named := if shown == node.name || node.name.isEmpty then shown
+    else s!"{" ".intercalate node.lines.toList} ({node.name})"
+  if node.tooltip.isEmpty then named else s!"{named}: {node.tooltip}"
 
 /-- The outline of a node. -/
 def webShape (node : GraphNode Ref) : PILean.Graph.WebShape :=
@@ -98,13 +101,19 @@ def nodeSize (node : GraphNode Ref) : Float × Float :=
 private def styleTokens (node : GraphNode Ref) : List String :=
   (node.style.splitOn ",").map (·.trimAscii.toString)
 
-/-- The page's side of a node: its id, status classes, name, tooltip, label and colours. -/
+/-- Whether XML can carry the character `c`: tab, line feed, carriage return, and everything
+from the space up, except `U+FFFE` and `U+FFFF` (Lean's characters are never surrogates). -/
+def xmlChar (c : Char) : Bool :=
+  c == '\t' || c == '\n' || c == '\r' || (c.val ≥ 0x20 && c.val != 0xFFFE && c.val != 0xFFFF)
+
+/-- The page's side of a node: its id, status classes, name, tooltip (without the
+characters XML cannot carry), label and colours. -/
 def webNode (node : GraphNode Ref) : PILean.Graph.WebNode :=
   let tokens := styleTokens node
   { id := graphNodeSvgId node.label
     classes := node.svgClass
     name := toString node.label
-    tooltip := node.tooltip?.getD ""
+    tooltip := String.ofList ((node.tooltip?.getD "").toList.filter xmlChar)
     lines := labelLines node
     shape := webShape node
     fill := node.fillcolor
@@ -264,8 +273,10 @@ structure Drawing where
   /-- Why the drawing's edges are not drawn as the view asked (`routingFor`), when they are not. -/
   note : Option String := none
 
-/-- Text for an attribute value: `&`, `<`, `>` and `"` escaped. -/
+/-- Text for an attribute value: `&`, `<`, `>` and `"` escaped, and the characters XML cannot
+carry (`xmlChar`) left out, since a drawing with one is not a well-formed SVG document. -/
 def escapeAttribute (text : String) : String :=
+  let text := String.ofList (text.toList.filter xmlChar)
   (((text.replace "&" "&amp;").replace "<" "&lt;").replace ">" "&gt;").replace "\"" "&quot;"
 
 /-- A drawing whose nodes are images named for a reader of the page (`role="img"` and their

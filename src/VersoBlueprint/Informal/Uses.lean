@@ -131,12 +131,12 @@ private def informalReferenceToHtml (renderPreview : PreviewResources.Render := 
       let content ← if inlines.isEmpty then pure #[.text reference.title] else inlines.mapM goI
       let labelText := label.toString (escape := false)
       let node := match reference.href with
-        | some href => {{<a href={{href}} title={{labelText}}>{{content}}</a>}}
-        | none => {{<span title={{labelText}}>{{content}}</span>}}
+        | some href => html%{<a href={href} title={labelText}>{content}</a>}
+        | none => html%{<span title={labelText}>{content}</span>}
       let content := match reference.previewKey with
         | none => node
         | some key => renderPreview key (fun _ => reference.withPreview node) (fun _ => node)
-      return {{<span>{{content}}</span>}}
+      return html%{<span>{content}</span>}
 
 inline_extension Inline.informal (data : InlineData) where
   data := toJson data

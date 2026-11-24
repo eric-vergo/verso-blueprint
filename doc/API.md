@@ -817,12 +817,12 @@ Generated `blueprint-manifest.json` includes a `graphs` array. Each entry
 contains `schemaVersion`, `nodes`, `edges`, `groups`, and `variants`, with
 status enums, dependency axes, preview keys, hrefs when traversal resolved
 them, and visual metadata for renderers that want Blueprint's default styling.
-Graph schema version 3 identifies records produced under the private-constructor
-topology contract. It retains version 2's string-or-`null` node `previewKey`
-shape, but is semantically incompatible because version 2 did not guarantee
-that edges, group children, and variants agreed with authoritative nodes.
-Regenerate generated Blueprint output when adopting this revision; there is no
-version-2 compatibility path.
+Graph schema version 4 identifies records produced under the private-constructor
+topology contract whose node `proofStatus` may be `sourceChanged`: the node's
+Lean source is not known to be the text that was compiled, so nothing is shown
+as known of its Lean code. A node's `visual.tooltip` says its state in the words
+of its status mark. Regenerate generated Blueprint output when adopting this
+revision; there is no compatibility path for earlier versions.
 
 Generated `edges` and group `children` are guaranteed projections of the
 authoritative node fields. The browser API recognizes version-3 records with

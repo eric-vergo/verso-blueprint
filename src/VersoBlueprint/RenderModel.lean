@@ -86,6 +86,34 @@ def RenderModel.replayTargets (model : RenderModel) : Array Stats.ReplayTarget :
         out := out.push { name, module? := some module }
   return out
 
+/-- The model with the modules `changes` not known to be the source their compiled modules were
+compiled from (`Stats.SourceChange`): each Lean declaration of such a module that a node refers
+to says so (`Data.ExternalRef.withSourceChange`), the graph does not draw or count its node as
+complete (`Graph.GraphModel.withSourceChanged`), the counts follow the graph, and the statistics
+list the modules. -/
+def RenderModel.withSourceChanges (model : RenderModel) (changes : Array Stats.SourceChange) :
+    RenderModel := Id.run do
+  let changes := changes.qsort (·.module.toString < ·.module.toString)
+  if changes.isEmpty then return { model with stats := { model.stats with sourceChanged := #[] } }
+  let mark (ref : Data.ExternalRef) : Data.ExternalRef :=
+    match ref.provenance.moduleName? >>= fun m => changes.find? (·.module == m) with
+    | some change => if ref.present then ref.withSourceChange change.text change.changed else ref
+    | none => ref
+  let mut changed : NameSet := {}
+  let mut nodes := #[]
+  for node in model.nodes do
+    let node' := { node with externalRefs := node.externalRefs.map mark
+                             proofExternalRefs := node.proofExternalRefs.map mark }
+    if (node'.externalRefs ++ node'.proofExternalRefs).any (·.sourceChange?.isSome) then
+      changed := changed.insert node.label
+    nodes := nodes.push node'
+  let graph := model.graph.withSourceChanged changed
+  let stats := { model.stats with
+    sourceChanged := changes
+    progress := Stats.progressOf graph
+    leanProgress := Stats.leanProgressWith model.stats.leanProgress graph }
+  return { model with nodes, graph, stats }
+
 /--
 Read the project's files again for the statistics (`Stats.ProjectStats.refreshWorkspace`): the
 model is captured when the generator is compiled, and Lake does not rebuild it when only files
@@ -98,7 +126,17 @@ what the compiled files report, and no more.
 def RenderModel.refreshStats (model : RenderModel) (kernelReplay : Bool := false) :
     IO RenderModel := do
   let stats ← model.stats.refreshWorkspace
-  let stats ← if kernelReplay then stats.withKernelReplay model.replayTargets else pure stats
+  -- a Blueprint's modules against what their build records said when it was elaborated; a site
+  -- from compiled-code data has made that comparison itself (`CodeSite.sourceChangesOf`)
+  let model ← if stats.builtSources.isEmpty then pure { model with stats } else
+    let root ← Stats.projectRoot stats.layout.projectRoot
+    let changes ← Stats.sourceChangesNow stats.builtSources root
+    -- no highlighted source of these modules is shown, and none is built: the files are not
+    -- what the Blueprint was elaborated against
+    DeclarationSource.excludeModules (changes.map (·.module))
+    pure <| { model with stats }.withSourceChanges changes
+  let stats ← if kernelReplay then model.stats.withKernelReplay model.replayTargets
+    else pure model.stats
   return { model with stats }
 
 /-- Use Verso's initialization boundary for HTML, TeX, previews, and saved traversal states. -/

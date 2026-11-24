@@ -268,9 +268,18 @@ def sourceBaseOf? (root : System.FilePath) : IO (Option String) := do
     else ""
   return some s!"{info.githubUrl}/blob/{info.commit}/{rel}"
 
-/-- The Lean declaration a node is attached to. -/
+/-- The sentence above a source excerpt that is not known to be the text that was compiled: the
+site reports on the compiled module, so nothing it says of the declaration holds of this text. -/
+def sourceChangeNote (change : Stats.SourceChange) : String :=
+  s!"This is {change.file} as it reads now: {change.text}, so it is not known to be the text \
+    that was compiled, and nothing this site reports of the declaration is said of it."
+
+/-- The Lean declaration a node is attached to. With `change?` the module's source is not known
+to be the text its compiled module was compiled from: the reference says so
+(`ExternalRef.withSourceChange`), so no mark, colour or count shows it as complete. -/
 def externalRef (m : Module) (decl : Declaration) (text? : Option String)
-    (ctx : RenderContext := {}) : Data.ExternalRef :=
+    (ctx : RenderContext := {}) (change? : Option Stats.SourceChange := none) :
+    Data.ExternalRef :=
   let kind := nodeKind decl.kind
   let line := decl.range.map (·.start.line + 1)
   let endLine := decl.range.map (·.«end».line + 1)
@@ -293,7 +302,8 @@ def externalRef (m : Module) (decl : Declaration) (text? : Option String)
   let source? := (excerpt? text? decl).map fun src =>
     let start := (decl.range.map (·.start.line)).getD 0
     Highlight.highlight src ⟨start, 0⟩ decl.occurrences ctx.hovers
-  {
+  let note? := change?.map sourceChangeNote
+  let ref : Data.ExternalRef := {
     written := decl.shownName
     canonical := decl.name
     present := true
@@ -304,13 +314,17 @@ def externalRef (m : Module) (decl : Declaration) (text? : Option String)
     selectionRange? := decl.selection.map declarationRange
     kind
     render := .ok (renderCodeDecl decl.shownName decl.kind (Highlight.highlightPlain decl.signature)
-      (decl.doc.map docHtml) source? headerSource links)
+      (decl.doc.map docHtml) source? headerSource links (sourceNote? := note?))
   }
+  match change? with
+  | some change => ref.withSourceChange change.text change.changed
+  | none => ref
 
 /-- The node of a declaration. Only uses of declarations in `known` become dependencies; a use
 that is a statement use is not repeated as a proof use. -/
 def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : NameSet)
-    (ctx : RenderContext := {}) (prelude : String := "") : Data.Node :=
+    (ctx : RenderContext := {}) (prelude : String := "")
+    (change? : Option Stats.SourceChange := none) : Data.Node :=
   let useRef (u : Use) : Data.UseRef := { label := u.name, origin := .automatic }
   let uses := decl.uses.filter fun u => known.contains u.name && u.name != decl.name
   let statementUses := uses.filter (·.kind == "statement") |>.map useRef
@@ -327,13 +341,15 @@ def nodeOf (m : Module) (decl : Declaration) (text? : Option String) (known : Na
     proof := if kind.isTheoremLike || !proofUses.isEmpty || proofText?.isSome then
         some (body proofUses (proofText?.getD #[]))
       else none
-    externalRefs := #[externalRef m decl text? ctx]
+    externalRefs := #[externalRef m decl text? ctx change?]
     parent := some (moduleGroup m.module)
   }
 
-/-- The Blueprint state of the data. `sources` gives a module's source text when it can be read. -/
-def stateOf (project : Project) (sources : Name → Option String) (ctx : RenderContext := {}) :
-    Environment.State := Id.run do
+/-- The Blueprint state of the data. `sources` gives a module's source text when it can be read,
+`changes` whether that text is not known to be the one the module was compiled from
+(`sourceChangesOf`). -/
+def stateOf (project : Project) (sources : Name → Option String) (ctx : RenderContext := {})
+    (changes : Array Stats.SourceChange := #[]) : Environment.State := Id.run do
   let known : NameSet := project.modules.foldl (init := {}) fun acc m =>
     m.declarations.foldl (fun acc d => acc.insert d.name) acc
   let mut state : Environment.State := {}
@@ -342,7 +358,9 @@ def stateOf (project : Project) (sources : Name → Option String) (ctx : Render
     state := { state with groups := state.groups.insert (moduleGroup m.module) m.module.toString }
     for decl in m.declarations do
       if state.data.contains decl.name then continue
-      let node := { nodeOf m decl (sources m.module) known ctx project.texPrelude with count }
+      let change? := changes.find? (·.module == m.module)
+      let node := { nodeOf m decl (sources m.module) known ctx project.texPrelude change? with
+        count }
       state := { state with
         data := state.data.insert decl.name { toNode := node, origin := m.module,
                                               modules := #[m.module] }
@@ -415,8 +433,10 @@ def statsOf (root : System.FilePath) (project : Project) (state : Environment.St
     claims := ← Stats.Claims.atRoot? root
   }
 
-/-- The compiled-module directories of the project at `root`: its own build, its packages'
-(`.lake/packages/*`) and those `layout` names. -/
+/-- The compiled-module directories of the project at `root`: those `layout` names, its own
+build, and its packages' (`.lake/packages/*`, and every package its manifest lists, also one from
+a path outside the project: `Stats.manifestLibraryDirs`). Not the generator's own search path,
+which can be another workspace's. -/
 def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
     IO System.SearchPath := do
   let mut path : System.SearchPath := layout.libraryDirs.toList.map fun dir : String => root / dir
@@ -427,7 +447,25 @@ def libraryPathOf (root : System.FilePath) (layout : Stats.WorkspaceLayout) :
     for entry in (← packages.readDir).qsort (·.fileName < ·.fileName) do
       let lib := entry.path / ".lake" / "build" / "lib" / "lean"
       if ← lib.isDir then path := path ++ [lib]
-  return path
+  for lib in ← Stats.manifestLibraryDirs root do
+    if ← lib.isDir then path := path ++ [lib]
+  return (← Stats.dedupDirs path.toArray).toList
+
+/-- The modules of the data whose source text the site shows (`sources`) and that is not known to
+be the text their compiled module was compiled from, by Lake's build record beside the compiled
+module (`Stats.sourceChangeOf`), found on the search path of `libraryPathOf`. The declarations of
+such a module are shown with no positive mark (`externalRef`). -/
+def sourceChangesOf (root : System.FilePath) (project : Project)
+    (sources : Name → Option String) : IO (Array Stats.SourceChange) := do
+  let path ← libraryPathOf root (← layoutOf root project)
+  let mut changes := #[]
+  for m in project.modules do
+    if m.source.isEmpty || m.declarations.isEmpty then continue
+    let some text := sources m.module | continue
+    let olean? ← Stats.findBuiltModule? path m.module
+    if let some change ← Stats.sourceChangeOf m.module m.source olean? (some text) then
+      changes := changes.push change
+  return changes
 
 /-- How the kernel replay of the project at `root` is run (`Stats.ReplayConfig.fromEnv`), with
 the search path of `libraryPathOf`: the generator is not run by the project's Lake, so the
@@ -467,6 +505,12 @@ def headlinesOf (root : System.FilePath) (project : Project) (known : NameSet)
   for config in configs do
     let some olean ← Stats.findCompiledModule? libraryPath config.challengeModule
       | early := early.push (← uncompared config .challengeNotBuilt config.challengeModule.toString)
+    -- a project that depends on another one with a challenge folder of the same name
+    let ambiguous ← [config.challengeModule, config.solutionModule].filterMapM
+      (Stats.ambiguousModule? libraryPath ·)
+    if let some why := ambiguous.head? then
+      early := early.push (← uncompared config .moduleAmbiguous why)
+      continue
     match ← (Stats.ChallengeModule.read olean).toBaseIO with
     | .ok challenge =>
       ready := ready.push config
@@ -545,8 +589,8 @@ def frontMatter (project : Project) : Array (Block Manual) := Id.run do
     else if stated == decls then
       "; every node shows its informal statement beside its Lean side."
     else
-      s!"; {stated} of them have an informal statement, shown beside the Lean side, the \
-        others show their Lean side alone."
+      s!"; {stated} of them {if stated == 1 then "has" else "have"} an informal statement, shown \
+        beside the Lean side, the others show their Lean side alone."
   let statements := if stated == 0 then statements else
     statements ++ " An informal statement is shown with its source; no tool has checked that \
       it says the same as the Lean statement."

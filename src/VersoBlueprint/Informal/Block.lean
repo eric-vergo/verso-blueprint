@@ -81,12 +81,18 @@ private def replayOf? (state : TraverseState) : Option Informal.Replay.Result :=
 
 /-- The attribute that tells the stylesheets what the kernel replay establishes for the Lean
 code of a block: the success colours inside the block are drawn only under `accepted`
-(`StatusColors.replayScopeCss`). A block without Lean code carries none. -/
+(`StatusColors.replayScopeCss`), and only for a block whose mark is the check mark (an accepted
+replay of code the compiled files report an axiom under is not). A block without Lean code
+carries none. -/
 private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array (String × String) :=
   match data.codeData with
   | some code =>
+    let replay? := replayOf? state
+    let token := (Informal.ReplayView.standingOfCode replay? code).token
+    let checked := (Informal.statusGlyph (Informal.CodeSummary.statusMark? data.kind (some code))
+      replay?).1.modifier == Informal.StatusGlyphKind.proved.modifier
     #[(Informal.StatusColors.replayScopeAttr,
-      (Informal.ReplayView.standingOfCode (replayOf? state) code).token)]
+      if token == "accepted" && !checked then "none" else token)]
   | none => #[]
 
 open Verso.Doc.Html in

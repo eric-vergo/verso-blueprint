@@ -56,7 +56,7 @@ def buildComparatorChallenges (ws : Lake.Workspace) (challenges : Array Challeng
   for config in challenges do
     let some mod := ws.findModule? config.challengeModule | continue
     try
-      let _ ← ws.runBuild mod.leanArts.fetch { outLv := .error }
+      let _ ← ws.runBuild mod.elabArts.fetch { outLv := .error }
     catch err =>
       IO.eprintln s!"vbp build: the Comparator challenge {config.challengeModule} did not build: \
         {err}"
@@ -82,8 +82,8 @@ def comparatorCheck (root : FilePath) (ws? : Option Lake.Workspace) : IO UInt32 
 inductive Change where
   /-- Create a folder. -/
   | mkdir (dir : String)
-  /-- Move a file (`git mv` in a Git checkout). -/
-  | move (src dst : String)
+  /-- Move a file: with `git mv` when Git tracks it (`tracked`), else by a rename. -/
+  | move (src dst : String) (tracked : Bool)
   /-- Write a file. -/
   | write (file text : String)
   /-- Replace every whole-word occurrence of `old` by `new` in `file` (`count` of them). -/
@@ -92,7 +92,7 @@ inductive Change where
 /-- The change as a line a reader can run or check. -/
 def Change.describe : Change → String
   | .mkdir dir => s!"mkdir -p {dir}"
-  | .move src dst => s!"git mv {src} {dst}"
+  | .move src dst tracked => if tracked then s!"git mv {src} {dst}" else s!"mv {src} {dst}"
   | .write file _ => s!"write {file}"
   | .rename file old new count => s!"in {file}: {old} -> {new} ({count}×)"
 
@@ -147,6 +147,31 @@ partial def textFiles (root : FilePath) : IO (Array String) := do
 /-- The theorems a challenge file declares, as `theorem_names` lists them. -/
 def declaredTheorems (text : String) : Array Lean.Name := theoremsOf (codeOnly text)
 
+/-- Run `git` in `root` with `args`: its exit code and output. -/
+private def runGit (root : FilePath) (args : Array String) : IO IO.Process.Output :=
+  IO.Process.output { cmd := "git", args, cwd := root }
+
+/-- Whether `root` is inside a Git work tree. -/
+def inGitWorkTree (root : FilePath) : IO Bool := do
+  let out ← try runGit root #["rev-parse", "--is-inside-work-tree"]
+    catch _ => return false
+  return out.exitCode == 0 && out.stdout.trimAscii.toString == "true"
+
+/-- Whether Git tracks `file` (relative to `root`). -/
+def gitTracks (root : FilePath) (file : String) : IO Bool := do
+  let out ← runGit root #["ls-files", "--error-unmatch", "--", file]
+  return out.exitCode == 0
+
+/-- The files among `files` (relative to `root`) that Git tracks and that have changes not
+committed, staged or not, as `git status --porcelain` lists them. -/
+def gitChanged (root : FilePath) (files : Array String) : IO (Array String) := do
+  if files.isEmpty then return #[]
+  let out ← runGit root (#["status", "--porcelain", "--untracked-files=no", "--"] ++ files)
+  unless out.exitCode == 0 do
+    throw (IO.userError s!"git status failed: {out.stderr.trimAscii}")
+  return (out.stdout.splitOn "\n").toArray.filterMap fun line =>
+    if line.length < 4 then none else some (line.drop 3).toString
+
 /-- The changes that move the single-challenge layout of the project at `root` into
 `Comparator/<name>/`: the two files moved, the root's `comparator.json` moved and given the new
 module names (or written, judging every theorem the challenge declares and permitting Lean's
@@ -168,15 +193,18 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
   let target := folderOf name
   if (← entryAt (root / target)) != .missing then
     return .error s!"{target} exists already; choose another name with --name"
+  let git ← inGitWorkTree root
+  let tracks (file : String) : IO Bool := if git then gitTracks root file else pure false
   let mut changes : Array Change := #[.mkdir target,
-    .move legacyChallenge s!"{target}/{challengeFileName}",
-    .move legacySolution s!"{target}/{solutionFileName}"]
+    .move legacyChallenge s!"{target}/{challengeFileName}" (← tracks legacyChallenge),
+    .move legacySolution s!"{target}/{solutionFileName}" (← tracks legacySolution)]
   let configPath := s!"{target}/{comparatorConfigFile}"
   let newChallenge := challengeModuleOf name
   let newSolution := solutionModuleOf name
   match ← readLimited (root / comparatorConfigFile) configLimit with
   | .ok text =>
-    changes := changes.push (.move comparatorConfigFile configPath)
+    changes := changes.push
+      (.move comparatorConfigFile configPath (← tracks comparatorConfigFile))
     let json ← match Lean.Json.parse text with
       | .ok (.obj fields) => pure (Lean.Json.obj fields)
       | _ => return .error s!"{comparatorConfigFile} is not a JSON object; correct it first"
@@ -204,41 +232,88 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
     (legacyChallenge, s!"{target}/{challengeFileName}"),
     (legacySolution, s!"{target}/{solutionFileName}")]
   for file in ← textFiles root do
-    let some text ← (try some <$> IO.FS.readFile (root / file) catch _ => pure none) | continue
+    -- a file that cannot be read could name the challenge's modules: say so rather than leave it
+    let some text ← (try some <$> IO.FS.readFile (root / file) catch _ => pure none)
+      | return .error s!"{file} cannot be read, so it is not known whether it names the \
+          challenge's modules or files; make it readable first; nothing was changed"
     for (old, new) in renames do
       let (_, count) := replaceWord text old new
       if count > 0 then changes := changes.push (.rename file old new count)
+  -- everything is checked before the first change: no file it moves or rewrites has changes Git
+  -- has not committed (an undo would have to keep them apart), and every file it rewrites can be
+  -- read and written
+  if git then
+    let touched := changes.foldl (init := #[]) fun acc change => match change with
+      | .move src _ true => if acc.contains src then acc else acc.push src
+      | .rename file .. => if acc.contains file then acc else acc.push file
+      | _ => acc
+    let dirty ← gitChanged root touched
+    unless dirty.isEmpty do
+      return .error s!"{", ".intercalate dirty.toList} {if dirty.size == 1 then "has" else "have"} \
+        changes that are not committed; commit or stash them first, so that the move can be \
+        undone exactly"
+  for change in changes do
+    if let .rename file .. := change then
+      match ← entryAt (root / file) with
+      | .file _ => pure ()
+      | _ => return .error s!"{file} is not a regular file; nothing was changed"
   return .ok changes
 
-/-- Carry out `changes` in the project at `root`; moves use `git mv` in a Git checkout (so the
-history follows the files), and a written file is added with `git add`; outside a checkout, a
-rename. A rename of text is applied to the file's
-place after the moves. -/
+/-- Carry out `changes` in the project at `root`, all or nothing: a file Git tracks is moved
+with `git mv` (so the history follows it), another one by a rename, and a written file is added
+with `git add` in a Git work tree. A rename of text is applied to the file's place after the
+moves. When a change fails, every change made before it is undone, in reverse order, and the
+error is thrown again. -/
 def applyChanges (root : FilePath) (changes : Array Change) : IO Unit := do
-  let git := (← entryAt (root / ".git")) != .missing
+  let git ← inGitWorkTree root
   let moved : Array (String × String) := changes.filterMap fun
-    | .move src dst => some (src, dst) | _ => none
+    | .move src dst _ => some (src, dst) | _ => none
   let placeOf := fun (file : String) => ((moved.find? (·.1 == file)).map (·.2)).getD file
-  for change in changes do
-    match change with
-    | .mkdir dir => IO.FS.createDirAll (root / dir)
-    | .move src dst =>
-      if git then
-        let out ← IO.Process.output { cmd := "git", args := #["mv", "--", src, dst], cwd := root }
-        unless out.exitCode == 0 do
-          throw (IO.userError s!"git mv {src} {dst} failed: {out.stderr.trimAscii}")
-      else IO.FS.rename (root / src) (root / dst)
-    | .write file text =>
-      IO.FS.writeFile (root / file) text
-      -- a new file of the challenge is added to Git with the moved ones
-      if git then
-        let out ← IO.Process.output { cmd := "git", args := #["add", "--", file], cwd := root }
-        unless out.exitCode == 0 do
-          throw (IO.userError s!"git add {file} failed: {out.stderr.trimAscii}")
-    | .rename file old new _ =>
-      let path := root / placeOf file
-      let text ← IO.FS.readFile path
-      IO.FS.writeFile path (replaceWord text old new).1
+  let gitOrThrow (args : Array String) : IO Unit := do
+    let out ← runGit root args
+    unless out.exitCode == 0 do
+      throw (IO.userError s!"git {" ".intercalate args.toList} failed: {out.stderr.trimAscii}")
+  -- a reference, so that the handler sees every change made before the failure
+  let undo ← IO.mkRef (#[] : Array (IO Unit))
+  let push (step : IO Unit) : IO Unit := undo.modify (·.push step)
+  try
+    for change in changes do
+      match change with
+      | .mkdir dir =>
+        let existed := (← entryAt (root / dir)) != .missing
+        IO.FS.createDirAll (root / dir)
+        unless existed do push (IO.FS.removeDir (root / dir))
+      | .move src dst tracked =>
+        if tracked then
+          gitOrThrow #["mv", "--", src, dst]
+          push (gitOrThrow #["mv", "--", dst, src])
+        else
+          IO.FS.rename (root / src) (root / dst)
+          push (IO.FS.rename (root / dst) (root / src))
+      | .write file text =>
+        let before ← try some <$> IO.FS.readFile (root / file) catch _ => pure none
+        IO.FS.writeFile (root / file) text
+        push (match before with
+          | some old => IO.FS.writeFile (root / file) old
+          | none => IO.FS.removeFile (root / file))
+        -- a new file of the challenge is added to Git with the moved ones
+        if git then
+          gitOrThrow #["add", "--", file]
+          if before.isNone then
+            push (gitOrThrow #["rm", "--cached", "--quiet", "--", file])
+      | .rename file old new _ =>
+        let path := root / placeOf file
+        let text ← IO.FS.readFile path
+        IO.FS.writeFile path (replaceWord text old new).1
+        push (IO.FS.writeFile path text)
+  catch e =>
+    let mut failed : Array String := #[]
+    for step in (← undo.get).reverse do
+      try step catch err => failed := failed.push (toString err)
+    if failed.isEmpty then
+      throw (IO.userError s!"{e}; every change made before it was undone")
+    throw (IO.userError s!"{e}; undoing the changes made before it failed too: \
+      {"; ".intercalate failed.toList}")
 
 /-- The options of `vbp comparator-migrate`. -/
 structure MigrateOptions where

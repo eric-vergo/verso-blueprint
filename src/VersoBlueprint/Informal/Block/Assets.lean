@@ -90,7 +90,10 @@ span[class$="_thmlabel"]::after {
   --bp-extra-used-by-col: minmax(7.2rem, max-content);
   --bp-extra-markup-col: max-content;
   --bp-extra-code-col: max-content;
-  --bp-extra-code-placeholder-col: minmax(3.35rem, max-content);
+  /* the Lean-code entry is at least this wide, so a heading without one (a proof's) keeps its
+     columns where the statement's are, whatever mark the entry shows */
+  --bp-extra-code-width: 3.35rem;
+  --bp-extra-code-placeholder-col: minmax(var(--bp-extra-code-width), max-content);
   display: inline-grid;
   align-items: baseline;
   justify-content: end;
@@ -256,6 +259,7 @@ span[class$="_thmlabel"]::after {
 .bp_extra_slot_code {
   grid-area: code;
   justify-content: flex-end;
+  min-width: var(--bp-extra-code-width);
 }
 
 .bp_extra_slot_source {
@@ -728,6 +732,10 @@ span[class$="_thmlabel"]::after {
 
 .bp_external_status_sorry {
   background: var(--bp-color-accent-warning);
+}
+
+.bp_external_status_changed {
+  background: var(--bp-color-text-faint);
 }
 
 .bp_external_status_missing {
@@ -1358,6 +1366,16 @@ html[data-lean-links] .bp_lean_jumps {
 
 .bp_external_decl_sorry {
   color: var(--bp-color-status-warning-text);
+}
+
+.bp_external_decl_changed {
+  color: var(--bp-color-text-muted);
+}
+
+.bp_plain_decl_source_note {
+  margin: 0.35rem 0;
+  color: var(--bp-color-status-warning-text);
+  font-size: 0.85rem;
 }
 
 .bp_external_decl_missing {

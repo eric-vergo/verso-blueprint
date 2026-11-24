@@ -38,6 +38,10 @@ inductive ProofStatus where
   | incomplete
   | formalized
   | formalizedWithAncestors
+  /-- The node's Lean source is not known to be the text that was compiled (its module's source
+  changed since the build, or no build record says which text it was): nothing is shown as known
+  of its Lean code, and the node is not complete. -/
+  | sourceChanged
 deriving Inhabited, Repr, DecidableEq, ToJson, FromJson, Quote
 
 /--
@@ -97,6 +101,7 @@ def proofStatusClass (kind : Data.NodeKind) : ProofStatus → String
   | .incomplete => "bp_graph_status_incomplete"
   | .formalized => "bp_graph_status_formalized"
   | .formalizedWithAncestors => "bp_graph_status_formalized_with_ancestors"
+  | .sourceChanged => "bp_graph_status_source_changed"
 
 /-- SVG class of a node's statement status, which picks its border colour token. -/
 def statementStatusClass : StatementStatus → String
@@ -365,7 +370,7 @@ structure GraphModel where
   groupMetadata : Array GroupMetadata := #[]
 deriving Inhabited, Repr, ToJson, FromJson, Quote
 
-private def graphDataSchemaVersion : Nat := 3
+private def graphDataSchemaVersion : Nat := 4
 
 /--
 Finished graph data shared by Lean, generated manifests, and browser clients.
@@ -518,6 +523,7 @@ def proofStatusReadyText : String := "ready to formalize"
 def proofStatusIncompleteText : String := "Lean code incomplete"
 def proofStatusFormalizedText : String := "locally formalized"
 def proofStatusFormalizedAncestorsText : String := "locally formalized + dependencies complete"
+def proofStatusSourceChangedText : String := "Lean source changed since the build"
 
 /-! The status texts above are also values of the query interface (`StatementStatus.toText`,
 `ProofStatus.toText`) and stay as they are. What a page shows a reader is the wording below,
@@ -591,7 +597,9 @@ def graphLegendGroups (includeMathlib : Bool := false)
           (some {
             background := StatusColors.formalizedWithAncestors.cssVarOr
             borderColor := StatusColors.mathlibBorder.cssVarOr
-          })
+          }),
+        legendItem s!"{proofStatusSourceChangedText} (or not known to match it): not shown as \
+          checked" (some { background := StatusColors.sourceChanged.cssVarOr })
       ]
     },
     {
@@ -715,54 +723,94 @@ def depsForTraversal (mode : DepTraversal) (node : Data.Node) : Array Name :=
   | .proof => proofDeps node
   | .both => allDeps node
 
-partial def depsClosureComplete (external : ExternalCodeStatus) (state : Environment.State) (mode : DepTraversal)
-    (roots : Array Name) (visited : NameSet := {}) : Bool :=
-  roots.all fun dep =>
-    if visited.contains dep then
-      true
-    else
-      match state.data.get? dep with
-      | none => false
-      | some node =>
-        if !nodeLocalFormalized external node then
-          false
-        else
-          let visited := visited.insert dep
-          depsClosureComplete external state mode (depsForTraversal mode node) visited
+/-- For the dependencies of `mode`, the nodes of `state` that do not have every node they depend
+on, directly or not, present and formalized on its own (`nodeLocalFormalized`), themselves
+included, and the labels used that have no node: found for every node at once, by one walk over
+the reversed dependencies from the nodes that are not formalized on their own and the labels
+without a node. Linear in the nodes and dependencies; a cycle of formalized nodes is complete. -/
+def unfinishedClosures (external : ExternalCodeStatus) (state : Environment.State)
+    (mode : DepTraversal) : NameSet := Id.run do
+  let mut users : Std.HashMap Name (Array Name) := {}
+  let mut todo : Array Name := #[]
+  for (label, node) in state.data do
+    for dep in depsForTraversal mode node.toNode do
+      users := users.insert dep ((users.getD dep #[]).push label)
+      if !state.data.contains dep then todo := todo.push dep
+    if !nodeLocalFormalized external node.toNode then todo := todo.push label
+  let mut unfinished : NameSet := {}
+  while !todo.isEmpty do
+    let label := todo.back!
+    todo := todo.pop
+    if unfinished.contains label then continue
+    unfinished := unfinished.insert label
+    todo := todo ++ (users.getD label #[]).filter (!unfinished.contains ·)
+  return unfinished
 
-def nodeAncestorsFormalized (external : ExternalCodeStatus) (state : Environment.State) (node : Data.Node) : Bool :=
-  depsClosureComplete external state .both (allDeps node)
+/-- `unfinishedClosures` for each kind of dependency, computed once for a whole graph. -/
+structure Closures where
+  statement : NameSet := {}
+  proof : NameSet := {}
+  both : NameSet := {}
+deriving Inhabited
+
+/-- The closures of every node of `state`. -/
+def Closures.of (external : ExternalCodeStatus) (state : Environment.State) : Closures where
+  statement := unfinishedClosures external state .statement
+  proof := unfinishedClosures external state .proof
+  both := unfinishedClosures external state .both
+
+/-- Whether every node of `roots`, and every node they depend on through the dependencies of
+`mode`, directly or not, is present and formalized on its own. -/
+def Closures.complete (closures : Closures) (mode : DepTraversal) (roots : Array Name) : Bool :=
+  let unfinished := match mode with
+    | .statement => closures.statement
+    | .proof => closures.proof
+    | .both => closures.both
+  roots.all (!unfinished.contains ·)
+
+/-- Whether every node of `roots`, and every node they depend on through the dependencies of
+`mode`, directly or not, is present and formalized on its own (`Closures.complete`). A caller
+that asks this of many nodes computes `Closures.of` once and passes it. -/
+def depsClosureComplete (external : ExternalCodeStatus) (state : Environment.State)
+    (mode : DepTraversal) (roots : Array Name)
+    (closures : Closures := Closures.of external state) : Bool :=
+  closures.complete mode roots
+
+def nodeAncestorsFormalized (external : ExternalCodeStatus) (state : Environment.State)
+    (node : Data.Node) (closures : Closures := Closures.of external state) : Bool :=
+  closures.complete .both (allDeps node)
 
 def statementStatus (external : ExternalCodeStatus) (state : Environment.State) (label : Name)
-    (node : Data.Node) : StatementStatus :=
+    (node : Data.Node) (closures : Closures := Closures.of external state) : StatementStatus :=
   if nodeInMathlib state label node then
     .mathlib
   else if nodeLocalStatementFormalized external node then
     .formalized
-  else if depsClosureComplete external state .statement (statementDeps node) then
+  else if closures.complete .statement (statementDeps node) then
     .ready
   else
     .blocked
 
 def proofStatus (external : ExternalCodeStatus) (state : Environment.State) (_label : Name)
-    (node : Data.Node) : ProofStatus :=
+    (node : Data.Node) (closures : Closures := Closures.of external state) : ProofStatus :=
   let health := nodeCodeHealth external node
-  if !node.kind.isTheoremLike then
+  if health.hasChangedSource then .sourceChanged
+  else if !node.kind.isTheoremLike then
     if health.localStatementFormalized then
-      if nodeAncestorsFormalized external state node then .formalizedWithAncestors else .formalized
+      if closures.complete .both (allDeps node) then .formalizedWithAncestors else .formalized
     else if health.incompleteAssociatedCode then
       .incomplete
-    else if depsClosureComplete external state .statement (statementDeps node) then
+    else if closures.complete .statement (statementDeps node) then
       .ready
     else
       .none
   else if health.localProofFormalized then
-    if nodeAncestorsFormalized external state node then .formalizedWithAncestors else .formalized
+    if closures.complete .both (allDeps node) then .formalizedWithAncestors else .formalized
   else if health.incompleteAssociatedCode then
     .incomplete
   else
-    let stmtDepsDone := depsClosureComplete external state .statement (statementDeps node)
-    let proofDepsDone := depsClosureComplete external state .proof (proofDeps node)
+    let stmtDepsDone := closures.complete .statement (statementDeps node)
+    let proofDepsDone := closures.complete .proof (proofDeps node)
     if stmtDepsDone && proofDepsDone then .ready else .none
 
 def nodeWarnings (external : ExternalCodeStatus) (_state : Environment.State) (_label : Name)
@@ -787,6 +835,7 @@ def proofStatusFillColor (kind : Data.NodeKind) : ProofStatus → String
   | .incomplete => proofBackgroundIncompleteColor
   | .formalized => proofBackgroundFormalizedColor
   | .formalizedWithAncestors => proofBackgroundFormalizedAncColor
+  | .sourceChanged => StatusColors.sourceChanged.light
 
 def proofStatusFontColor : ProofStatus → String
   | .formalizedWithAncestors => StatusColors.formalizedWithAncestorsText.light
@@ -800,6 +849,7 @@ private def graphFillRules : List (String × StatusColors.ColorToken × StatusCo
   (proofStatusClass .theorem .formalized, StatusColors.formalized, StatusColors.fillText),
   (proofStatusClass .theorem .formalizedWithAncestors, StatusColors.formalizedWithAncestors,
     StatusColors.formalizedWithAncestorsText),
+  (proofStatusClass .theorem .sourceChanged, StatusColors.sourceChanged, StatusColors.fillText),
   (unresolvedClass, StatusColors.unresolved, StatusColors.unresolvedText)
 ]
 
@@ -860,6 +910,7 @@ def ProofStatus.toText : ProofStatus → String
   | .incomplete => proofStatusIncompleteText
   | .formalized => proofStatusFormalizedText
   | .formalizedWithAncestors => proofStatusFormalizedAncestorsText
+  | .sourceChanged => proofStatusSourceChangedText
 
 /-- The status as a page shows it (`statementStatusFormalizedLabel`). -/
 def StatementStatus.label : StatementStatus → String
@@ -935,6 +986,44 @@ def mkStyledNode (kind : Data.NodeKind) (label : Name) (deps proofDeps : Array N
       svgClass := nodeStatusClasses kind statement proof warnings
     }
 
+/-- The node with these statuses, and the colours, classes and tooltip that go with them. -/
+def NodeData.withStatuses (node : NodeData) (statement : StatementStatus) (proof : ProofStatus) :
+    NodeData :=
+  if node.warnings.unknownRef then node else
+  let kind := node.kind.getD .theorem
+  let drawn : GraphNode String :=
+    mkStyledNode kind node.label #[] #[] node.parent statement proof node.warnings none
+  { node with statementStatus := statement, proofStatus := proof
+              visual := NodeVisual.ofGraphNode drawn }
+
+/-- The graph with the Lean code of the nodes `changed` not known to be what was compiled (its
+module's source changed since the build): such a node gets the status `sourceChanged` and is not
+complete, and a node that depends on one, directly or not, is not complete with its dependencies.
+One walk over the reversed dependencies. -/
+def GraphModel.withSourceChanged (model : GraphModel) (changed : NameSet) : GraphModel := Id.run do
+  if changed.isEmpty then return model
+  let mut users : Std.HashMap Name (Array Name) := {}
+  for n in model.nodes do
+    for dep in n.statementUses ++ n.proofUses do
+      users := users.insert dep.label ((users.getD dep.label #[]).push n.label)
+  -- every node that depends on a changed node, directly or not, and the changed nodes
+  let mut tainted : NameSet := {}
+  let mut todo : Array Name := changed.toArray
+  while !todo.isEmpty do
+    let label := todo.back!
+    todo := todo.pop
+    if tainted.contains label then continue
+    tainted := tainted.insert label
+    todo := todo ++ (users.getD label #[]).filter (!tainted.contains ·)
+  let nodes := model.nodes.map fun n =>
+    if changed.contains n.label then
+      let statement := if n.statementStatus == .formalized then .ready else n.statementStatus
+      n.withStatuses statement .sourceChanged
+    else if tainted.contains n.label && n.proofStatus == .formalizedWithAncestors then
+      n.withStatuses n.statementStatus .formalized
+    else n
+  return { model with nodes }
+
 def expandLabels (state : Environment.State) (roots : Array Name) : Array Name :=
   Id.run <| do
     let mut queue : Array Name := eraseDups roots
@@ -957,13 +1046,14 @@ def expandLabels (state : Environment.State) (roots : Array Name) : Array Name :
     return queue
 
 def mkNode (external : ExternalCodeStatus) (state : Environment.State)
-    (resolveRef? : Name → Option Ref) (label : Name) : GraphNode Ref :=
+    (resolveRef? : Name → Option Ref) (label : Name)
+    (closures : Closures := Closures.of external state) : GraphNode Ref :=
   match state.data.get? label with
   | some node =>
     let deps := statementDeps node
     let nodeProofDeps := proofDeps node
-    let statement := statementStatus external state label node
-    let proof := proofStatus external state label node
+    let statement := statementStatus external state label node closures
+    let proof := proofStatus external state label node closures
     let warnings := nodeWarnings external state label node
     let ref? := resolveRef? label
     mkStyledNode node.kind label deps nodeProofDeps node.parent statement proof warnings ref?
@@ -975,12 +1065,14 @@ def build (state : Environment.State) (roots : Array Name) (resolveRef? : Name �
     Graph Ref :=
   let labels := expandLabels state roots
   let external : ExternalCodeStatus := {}
-  labels.map (mkNode external state resolveRef?)
+  let closures := Closures.of external state
+  labels.map (mkNode external state resolveRef? · closures)
 
 def buildWithExternal (state : Environment.State) (roots : Array Name)
-    (external : ExternalCodeStatus) (resolveRef? : Name → Option Ref := fun _ => none) : Graph Ref :=
+    (external : ExternalCodeStatus) (resolveRef? : Name → Option Ref := fun _ => none)
+    (closures : Closures := Closures.of external state) : Graph Ref :=
   let labels := expandLabels state roots
-  labels.map (mkNode external state resolveRef?)
+  labels.map (mkNode external state resolveRef? · closures)
 
 private def edgeAxes (isStatement isProof : Bool) : Array EdgeAxis :=
   let axes := #[]
@@ -1151,12 +1243,13 @@ def nodeDataWithExternal
     (state : Environment.State)
     (resolveHref? : Name → Option String)
     (resolveTitle? : Name → Option String)
-    (graphNode : GraphNode String) : NodeData :=
+    (graphNode : GraphNode String) (closures : Closures := Closures.of external state) :
+    NodeData :=
   let label := graphNode.label
   match state.data.get? label with
   | some node =>
-    let statement := statementStatus external state label node
-    let proof := proofStatus external state label node
+    let statement := statementStatus external state label node closures
+    let proof := proofStatus external state label node closures
     let warnings := nodeWarnings external state label node
     {
       label
@@ -1197,9 +1290,10 @@ def buildModelWithExternal
     (resolveHref? : Name → Option String := fun _ => none)
     (resolveTitle? : Name → Option String := fun _ => none)
     (groupTitles : Array (Name × String) := #[]) : GraphModel :=
-  let graph := buildWithExternal state roots external resolveHref?
+  let closures := Closures.of external state
+  let graph := buildWithExternal state roots external resolveHref? closures
   {
-    nodes := graph.map (nodeDataWithExternal external state resolveHref? resolveTitle?)
+    nodes := graph.map (nodeDataWithExternal external state resolveHref? resolveTitle? · closures)
     groupMetadata := groupMetadataFromTitles groupTitles
   }
 

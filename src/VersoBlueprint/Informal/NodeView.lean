@@ -9,6 +9,7 @@ import VersoBlueprint.Axioms
 import VersoBlueprint.ClaimView
 import VersoBlueprint.Informal.Block.Render
 import VersoBlueprint.LeanSourceAnchor
+import VersoBlueprint.StatusColors
 
 /-!
 The node view: one Blueprint node as a unit, the informal statement beside its
@@ -113,8 +114,13 @@ private def linkHtml (l : Link) : Verso.Output.Html :=
 
 private def relationRow (caption : String) (links : Array Link) : Verso.Output.Html :=
   if links.isEmpty then .empty else
-  let items : Array Verso.Output.Html := links.map fun l => {{<li>{{linkHtml l}}</li>}}
-  {{<div class="bp_node_view_relation"><span class="bp_node_view_relation_caption">{{caption}}</span><ul>{{items}}</ul></div>}}
+  let items : Array Verso.Output.Html := links.map fun l => html%{<li>{linkHtml l}</li>}
+  html%{
+    <div class="bp_node_view_relation">
+      <span class="bp_node_view_relation_caption">{caption}</span>
+      <ul>{items}</ul>
+    </div>
+  }
 
 /-- The visible tag beside an axiom that limits trust; the standard axioms have none. -/
 private def axiomTag : Data.AxiomClass → Option String
@@ -138,7 +144,12 @@ private def axiomsRow : Option (Array Lean.Name) → Verso.Output.Html
     let items : Array Verso.Output.Html := if axioms.isEmpty then
         #[.element "li" #[("class", "bp_axiom bp_axiom_none")] (.text "none")]
       else (Data.sortAxioms axioms).map axiomItem
-    {{<div class="bp_node_view_relation bp_node_view_axioms"><span class="bp_node_view_relation_caption">"Axioms"</span><ul>{{items}}</ul></div>}}
+    html%{
+      <div class="bp_node_view_relation bp_node_view_axioms">
+        <span class="bp_node_view_relation_caption">Axioms</span>
+        <ul>{items}</ul>
+      </div>
+    }
 
 /--
 Render a node view. `isBlank` decides whether the informal statement counts as
@@ -149,8 +160,8 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
   let (glyph, statusText) := v.status
   let titleHtml : Verso.Output.Html :=
     match v.href? with
-    | some href => {{<a class="bp_node_view_title" href={{href}}>{{v.title}}</a>}}
-    | none => {{<span class="bp_node_view_title">{{v.title}}</span>}}
+    | some href => html%{<a class="bp_node_view_title" href={href}>{v.title}</a>}
+    | none => html%{<span class="bp_node_view_title">{v.title}</span>}
   let glyphHtml : Verso.Output.Html :=
     .element "span" #[("class", s!"bp_status_glyph bp_status_glyph_{glyph.modifier}"),
       ("title", statusText), ("aria-hidden", "true")] (.text glyph.glyph)
@@ -159,14 +170,15 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
       ("data-bp-ego-link", v.label),
       ("title", "Show what this node uses and what uses it in the dependency graph")]
       (.text "Neighbourhood")
-  let header := {{
+  let header := html%{
     <div class="bp_node_view_header">
-      {{titleHtml}}{{glyphHtml}}<span class="bp_node_view_status">{{statusText}}</span>{{egoHtml}}
-    </div>}}
+      {titleHtml}{glyphHtml}<span class="bp_node_view_status">{statusText}</span>{egoHtml}
+    </div>}
   let proof := v.proof?.bind fun h => if isBlank h then none else some h
   let informal := if v.hasInformal isBlank then v.informal?.map fun h =>
       match proof with
-      | some p => .seq #[h, {{<details class="bp_node_view_proof"><summary>"Proof"</summary>{{p}}</details>}}]
+      | some p =>
+        .seq #[h, html%{<details class="bp_node_view_proof"><summary>Proof</summary>{p}</details>}]
       | none => h
     else none
   let lean := if v.lean.isEmpty then none else some (Verso.Output.Html.seq v.lean)
@@ -190,8 +202,8 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     | none, some c => some c
     | h, none => h
   let columns : Array Verso.Output.Html :=
-    (informal.map fun h => {{<div class="bp_sbs_informal">{{h}}</div>}}).toArray ++
-    (lean.map fun h => {{<div class="bp_sbs_formal">{{h}}</div>}}).toArray
+    (informal.map fun h => html%{<div class="bp_sbs_informal">{h}</div>}).toArray ++
+    (lean.map fun h => html%{<div class="bp_sbs_formal">{h}</div>}).toArray
   let layout :=
     if informal.isSome && lean.isSome then "both"
     else if lean.isSome then "lean" else "informal"
@@ -204,11 +216,20 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
     #[("data-lean-decls", String.intercalate " " names.toList)]
   let footer :=
     if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone then .empty
-    else {{<div class="bp_node_view_relations">{{relationRow "Uses" v.uses}}{{
-      relationRow "Used by" v.usedBy}}{{axiomsRow v.axioms?}}</div>}}
+    else html%{
+      <div class="bp_node_view_relations">
+        {relationRow "Uses" v.uses}
+        {relationRow "Used by" v.usedBy}
+        {axiomsRow v.axioms?}
+      </div>
+    }
+  -- the success colours inside the view follow its mark: green only under the check mark, which
+  -- is drawn only where an accepted replay covers the node (`StatusColors.replayScopeCss`)
+  let scope := if glyph.modifier == StatusGlyphKind.proved.modifier then "accepted" else "none"
   .element "article" (#[("class", "bp_node_view"), ("data-bp-node-view", v.label),
-      ("data-bp-node-view-layout", layout)] ++ declAttrs)
+      ("data-bp-node-view-layout", layout), (Informal.StatusColors.replayScopeAttr, scope)] ++
+      declAttrs)
     (.seq #[header,
-      {{<div class={{bodyClass}}><div class="bp_sbs_grid">{{columns}}</div></div>}}, footer])
+      html%{<div class={bodyClass}><div class="bp_sbs_grid">{columns}</div></div>}, footer])
 
 end Informal.NodeView

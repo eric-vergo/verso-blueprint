@@ -54,73 +54,78 @@ private def withReplayNote (site : Replay.SiteState) (text : String) : String :=
 accepted replay. -/
 private def summaryReplayNote (site : Replay.SiteState) : Output.Html :=
   if site.sentence.isEmpty then .empty
-  else {{
-    <p class={{s!"bp_summary_replay_note bp_summary_replay_note_{site.token}"}}>
-      {{.text site.sentence}}
+  else html%{
+    <p class={s!"bp_summary_replay_note bp_summary_replay_note_{site.token}"}>
+      {.text site.sentence}
     </p>
-  }}
+  }
 
 private def summaryOverviewSection (data : Summary) (rows : SummaryRows)
     (site : Replay.SiteState) : Output.Html :=
   let showBlockers := !rows.blockerRows.isEmpty
   let showPendingInformal := !rows.pendingInformalRows.isEmpty
   let showQuickWins := !rows.quickWinRows.isEmpty
-  summarySection "Overview" {{
-      {{summaryReplayNote site}}
+  summarySection "Overview" html%{
+      {summaryReplayNote site}
       <div class="bp_summary_grid">
-        {{summaryCard "Total entries" (toString data.totalEntries) (Option.some (statusCountsText data.totalStatus))}}
-        {{summaryCard
+        {summaryCard "Total entries" (toString data.totalEntries)
+          (Option.some (statusCountsText data.totalStatus))}
+        {summaryCard
             "Ready now"
             (toString data.coverageSplit.readyToFormalize)
             (Option.some actionableEntryDescription)
-            (accent? := StatusColors.readyBorder)}}
-        {{summaryCard
+            (accent? := StatusColors.readyBorder)}
+        {summaryCard
             "Fully closed"
             (toString data.coverageSplit.fullyClosed)
             (Option.some (withReplayNote site
               "The node's Lean code has no sorry, and neither has any node it depends on."))
-            (accent? := StatusColors.formalizedWithAncestors)}}
-        {{summaryCard
+            (accent? := StatusColors.formalizedWithAncestors)}
+        {summaryCard
             "Actionable priorities"
             (toString data.actionablePriorities.length)
-            (Option.some "Entries ready now and already unlocking downstream work.")}}
-        {{summaryOptionalWarnCard
+            (Option.some "Entries ready now and already unlocking downstream work.")}
+        {summaryOptionalWarnCard
             showBlockers
             "Current blockers"
             (toString rows.blockerRows.size)
-            (Option.some "Missing external or incomplete Lean declarations.")}}
-        {{summaryOptionalCard
+            (Option.some "Missing external or incomplete Lean declarations.")}
+        {summaryOptionalCard
             showPendingInformal
             missingInformalTitle
             (toString data.pendingInformalEntries.length)
-            (Option.some (missingInformalText data))}}
-        {{summaryOptionalCard
+            (Option.some (missingInformalText data))}
+        {summaryOptionalCard
             showQuickWins
             "Quick wins"
             (toString data.quickWins.length)
-            (Option.some "Actionable entries with `high` priority and `small` effort.")}}
+            (Option.some "Actionable entries with `high` priority and `small` effort.")}
       </div>
-      {{if data.totalEntries == 0 then
-          {{<p class="bp_summary_empty">"No blueprint entries were registered in the current document."</p>}}
-        else .empty}}
-      {{summaryOptionalCappedDetailsList
+      {if data.totalEntries == 0 then
+          html%{
+            <p class="bp_summary_empty">
+              No blueprint entries were registered in the current document.
+            </p>
+          }
+        else .empty}
+      {summaryOptionalCappedDetailsList
           (!rows.actionablePriorityRows.isEmpty)
           s!"Actionable priorities ({data.actionablePriorities.length})"
           rows.actionablePriorityRows
           "priorities"
           "bp_summary_subsection"
-          true}}
-      {{summaryOptionalDetailsList
+          true}
+      {summaryOptionalDetailsList
           showBlockers
           s!"Current blockers ({rows.blockerRows.size})"
           rows.blockerRows
           "bp_summary_subsection bp_summary_subsection_warn"
-          true}}
-      {{summaryOptionalDetailsList
+          true}
+      {summaryOptionalDetailsList
           showPendingInformal
           s!"{missingInformalTitle} ({data.pendingInformalEntries.length})"
-          rows.pendingInformalRows}}
-    }} true
+          rows.pendingInformalRows}
+    } true
 
 private def summaryEntryIndexSection (data : Summary) (rows : SummaryRows) : Output.Html :=
   let showDefinitionCard := data.definitions > 0
@@ -138,93 +143,100 @@ private def summaryEntryIndexSection (data : Summary) (rows : SummaryRows) : Out
   if !(showDefinitionIndex || showTheoremLikeIndex || showAxiomIndex) then
     .empty
   else
-    summarySection s!"Entry index ({data.totalEntries})" {{
+    summarySection s!"Entry index ({data.totalEntries})" html%{
         <div class="bp_summary_grid">
-          {{summaryOptionalCard
+          {summaryOptionalCard
               showDefinitionCard
               "Definitions"
               (toString data.definitions)
-              (Option.some (statusCountsText data.definitionStatus))}}
-          {{summaryOptionalCard
+              (Option.some (statusCountsText data.definitionStatus))}
+          {summaryOptionalCard
               showPropositionCard
               "Propositions"
               (toString data.propositions)
-              (Option.some (statusCountsText data.propositionStatus))}}
-          {{summaryOptionalCard showLemmaCard "Lemmas" (toString data.lemmas) (Option.some (statusCountsText data.lemmaStatus))}}
-          {{summaryOptionalCard showTheoremCard "Theorems" (toString data.theorems) (Option.some (statusCountsText data.theoremStatus))}}
-          {{summaryOptionalCard
+              (Option.some (statusCountsText data.propositionStatus))}
+          {summaryOptionalCard showLemmaCard "Lemmas" (toString data.lemmas)
+            (Option.some (statusCountsText data.lemmaStatus))}
+          {summaryOptionalCard showTheoremCard "Theorems" (toString data.theorems)
+            (Option.some (statusCountsText data.theoremStatus))}
+          {summaryOptionalCard
               showCorollaryCard
               "Corollaries"
               (toString data.corollaries)
-              (Option.some (statusCountsText data.corollaryStatus))}}
-          {{summaryOptionalWarnCard
+              (Option.some (statusCountsText data.corollaryStatus))}
+          {summaryOptionalWarnCard
               showAxiomCard
               "Axiom-like entries"
               (toString data.axioms)
-              (Option.some (statusCountsText data.axiomStatus))}}
-          {{summaryOptionalCard showLeanOnlyCard "Lean-only entries" (toString data.leanOnlyEntries)}}
-          {{summaryOptionalCard showInformalOnlyCard "Informal-only entries" (toString data.informalOnlyEntries)}}
+              (Option.some (statusCountsText data.axiomStatus))}
+          {summaryOptionalCard showLeanOnlyCard "Lean-only entries" (toString data.leanOnlyEntries)}
+          {summaryOptionalCard showInformalOnlyCard "Informal-only entries"
+            (toString data.informalOnlyEntries)}
         </div>
-        {{summaryOptionalDetailsList showDefinitionIndex s!"Definition Index ({data.definitionIndex.length})" rows.definitionRows}}
-        {{if showTheoremLikeIndex then
-            {{<details class="bp_summary_subsection">
-              <summary>s!"Theorem / Proposition / Lemma / Corollary Index ({data.theoremLikeIndex.length})"</summary>
+        {summaryOptionalDetailsList showDefinitionIndex
+          s!"Definition Index ({data.definitionIndex.length})" rows.definitionRows}
+        {if showTheoremLikeIndex then
+            html%{<details class="bp_summary_subsection">
+              <summary>
+                {s!"Theorem / Proposition / Lemma / Corollary Index \
+                  ({data.theoremLikeIndex.length})"}
+              </summary>
               <ul class="bp_summary_list">
-                {{rows.theoremLikeRows}}
+                {rows.theoremLikeRows}
               </ul>
-              {{if showTheoremLikeByParent then
-                  {{<details class="bp_summary_nested">
-                    <summary>s!"By parent groups ({data.theoremLikeByParent.length})"</summary>
-                    {{rows.theoremLikeByParentRows}}
-                  </details>}}
-                else .empty}}
-            </details>}}
-        else .empty}}
-        {{summaryOptionalDetailsList
+              {if showTheoremLikeByParent then
+                  html%{<details class="bp_summary_nested">
+                    <summary>{s!"By parent groups ({data.theoremLikeByParent.length})"}</summary>
+                    {rows.theoremLikeByParentRows}
+                  </details>}
+                else .empty}
+            </details>}
+        else .empty}
+        {summaryOptionalDetailsList
             showAxiomIndex
             s!"Axiom-like Index ({data.axiomIndex.length})"
             rows.axiomRows
-            "bp_summary_subsection bp_summary_subsection_warn"}}
-      }}
+            "bp_summary_subsection bp_summary_subsection_warn"}
+      }
 
 private def summaryDependencyInsightsSection (rows : SummaryRows) : Output.Html :=
   if rows.statementUsedRows.isEmpty && rows.proofUsedRows.isEmpty && rows.groupHealthRows.isEmpty then
     .empty
   else
-    summarySection "Dependency insights" {{
+    summarySection "Dependency insights" html%{
         <div class="bp_summary_grid">
-          {{summaryOptionalCard
+          {summaryOptionalCard
               (!rows.statementUsedRows.isEmpty)
               "Statement-used entries"
               (toString rows.statementUsedItems.size)
-              (Option.some "Entries reused in statement dependencies.")}}
-          {{summaryOptionalCard
+              (Option.some "Entries reused in statement dependencies.")}
+          {summaryOptionalCard
               (!rows.proofUsedRows.isEmpty)
               "Proof-used entries"
               (toString rows.proofUsedItems.size)
-              (Option.some "Entries reused in proof-only dependencies.")}}
-          {{summaryOptionalCard
+              (Option.some "Entries reused in proof-only dependencies.")}
+          {summaryOptionalCard
               (!rows.groupHealthRows.isEmpty)
               "Tracked parent groups"
               (toString rows.groupHealthRows.size)
-              (Option.some "Grouped health rollups for parents with more than one child entry.")}}
+              (Option.some "Grouped health rollups for parents with more than one child entry.")}
         </div>
-        {{summaryOptionalCappedDetailsList
+        {summaryOptionalCappedDetailsList
             (!rows.statementUsedRows.isEmpty)
             s!"Most used in statements ({rows.statementUsedItems.size})"
             rows.statementUsedRows
-            "statement-used entries"}}
-        {{summaryOptionalCappedDetailsList
+            "statement-used entries"}
+        {summaryOptionalCappedDetailsList
             (!rows.proofUsedRows.isEmpty)
             s!"Most used in proofs ({rows.proofUsedItems.size})"
             rows.proofUsedRows
-            "proof-used entries"}}
-        {{summaryOptionalCappedDetailsList
+            "proof-used entries"}
+        {summaryOptionalCappedDetailsList
             (!rows.groupHealthRows.isEmpty)
             s!"Group health ({rows.groupHealthRows.size})"
             rows.groupHealthRows
-            "groups"}}
-      }}
+            "groups"}
+      }
 
 private def summaryMetadataSection (data : Summary) (rows : SummaryRows) : Output.Html :=
   let showQuickWins := !rows.quickWinRows.isEmpty
@@ -237,107 +249,107 @@ private def summaryMetadataSection (data : Summary) (rows : SummaryRows) : Outpu
   if !(showMetadataCards || showMetadataAudit) then
     .empty
   else
-    summarySection "Metadata" {{
-        {{if showMetadataCards then
-            {{<div class="bp_summary_grid">
-              {{summaryOptionalCard
+    summarySection "Metadata" html%{
+        {if showMetadataCards then
+            html%{<div class="bp_summary_grid">
+              {summaryOptionalCard
                   showQuickWins
                   "Quick wins"
                   (toString data.quickWins.length)
-                  (Option.some "Actionable entries with `high` priority and `small` effort.")}}
-              {{summaryOptionalCard
+                  (Option.some "Actionable entries with `high` priority and `small` effort.")}
+              {summaryOptionalCard
                   showOwnerRollups
                   "Owners in use"
                   (toString data.ownerRollups.length)
-                  (Option.some "Distinct owners referenced by the current blueprint entries.")}}
-              {{summaryOptionalCard
+                  (Option.some "Distinct owners referenced by the current blueprint entries.")}
+              {summaryOptionalCard
                   showTagRollups
                   "Tags in use"
                   (toString data.tagRollups.length)
-                  (Option.some "Distinct tags currently attached to blueprint entries.")}}
-              {{summaryOptionalCard
+                  (Option.some "Distinct tags currently attached to blueprint entries.")}
+              {summaryOptionalCard
                   showLinkedPrs
                   "Linked PRs"
                   (toString data.linkedPrs.length)
-                  (Option.some "Entries already linked to a review URL.")}}
-            </div>}}
-          else .empty}}
-        {{summaryOptionalCappedDetailsList
+                  (Option.some "Entries already linked to a review URL.")}
+            </div>}
+          else .empty}
+        {summaryOptionalCappedDetailsList
             showQuickWins
             s!"Quick wins ({data.quickWins.length})"
             rows.quickWinRows
-            "quick wins"}}
-        {{summaryOptionalCappedDetailsList
+            "quick wins"}
+        {summaryOptionalCappedDetailsList
             showOwnerRollups
             s!"Owner rollups ({data.ownerRollups.length})"
             rows.ownerRollupRows
-            "owners"}}
-        {{summaryOptionalCappedDetailsList
+            "owners"}
+        {summaryOptionalCappedDetailsList
             showTagRollups
             s!"Tag rollups ({data.tagRollups.length})"
             rows.tagRollupRows
-            "tags"}}
-        {{summaryOptionalCappedDetailsList
+            "tags"}
+        {summaryOptionalCappedDetailsList
             showLinkedPrs
             s!"Linked PRs ({data.linkedPrs.length})"
             rows.linkedPrRows
-            "linked PR entries"}}
-        {{if showMetadataAudit then
-            {{<details class="bp_summary_subsection bp_summary_subsection_warn">
-              <summary>"Metadata audit"</summary>
+            "linked PR entries"}
+        {if showMetadataAudit then
+            html%{<details class="bp_summary_subsection bp_summary_subsection_warn">
+              <summary>Metadata audit</summary>
               <div class="bp_summary_grid">
-                {{summaryOptionalWarnCard
+                {summaryOptionalWarnCard
                     (!rows.missingOwnerRows.isEmpty)
                     "Missing owner"
-                    (toString data.missingOwners.length)}}
-                {{summaryOptionalWarnCard
+                    (toString data.missingOwners.length)}
+                {summaryOptionalWarnCard
                     (!rows.missingEffortRows.isEmpty)
                     "Missing effort"
-                    (toString data.missingEffort.length)}}
-                {{summaryOptionalWarnCard
+                    (toString data.missingEffort.length)}
+                {summaryOptionalWarnCard
                     (!rows.untaggedRows.isEmpty)
                     "Untagged"
-                    (toString data.untaggedEntries.length)}}
+                    (toString data.untaggedEntries.length)}
               </div>
-              {{summaryOptionalCappedDetailsList
+              {summaryOptionalCappedDetailsList
                   (!rows.missingOwnerRows.isEmpty)
                   s!"Missing owner ({data.missingOwners.length})"
                   rows.missingOwnerRows
                   "entries missing owner"
-                  "bp_summary_nested"}}
-              {{summaryOptionalCappedDetailsList
+                  "bp_summary_nested"}
+              {summaryOptionalCappedDetailsList
                   (!rows.missingEffortRows.isEmpty)
                   s!"Missing effort ({data.missingEffort.length})"
                   rows.missingEffortRows
                   "entries missing effort"
-                  "bp_summary_nested"}}
-              {{summaryOptionalCappedDetailsList
+                  "bp_summary_nested"}
+              {summaryOptionalCappedDetailsList
                   (!rows.untaggedRows.isEmpty)
                   s!"Untagged ({data.untaggedEntries.length})"
                   rows.untaggedRows
                   "untagged entries"
-                  "bp_summary_nested"}}
-            </details>}}
-          else .empty}}
-      }}
+                  "bp_summary_nested"}
+            </details>}
+          else .empty}
+      }
 
 private def summaryDiagnosticsSection (data : Summary) (rows : SummaryRows) : Output.Html :=
   if !(data.showDebugDiagnostics && !rows.renderFailureRows.isEmpty) then
     .empty
   else
-    summarySection "Maintainer diagnostics" {{
+    summarySection "Maintainer diagnostics" html%{
         <div class="bp_summary_grid">
-          {{summaryWarnCard
+          {summaryWarnCard
               "Render failures"
               (toString data.renderFailures.length)
-              (Option.some "External declarations that checked in Lean but failed HTML rendering.")}}
+              (Option.some "External declarations that checked in Lean but failed HTML rendering.")}
         </div>
-        {{summaryCappedDetailsList
+        {summaryCappedDetailsList
             s!"Render failures ({data.renderFailures.length})"
             rows.renderFailureRows
             "render-failure entries"
-            "bp_summary_subsection bp_summary_subsection_warn"}}
-      }}
+            "bp_summary_subsection bp_summary_subsection_warn"}
+      }
 
 private def summaryStructureSection (data : Summary) (rows : SummaryRows)
     (site : Replay.SiteState) : Output.Html :=
@@ -355,62 +367,62 @@ private def summaryStructureSection (data : Summary) (rows : SummaryRows)
       showNoDependents || showProofDebtHotspots) then
     .empty
   else
-    summarySection "Structure and coverage" {{
+    summarySection "Structure and coverage" html%{
         <div class="bp_summary_grid">
-          {{summaryOptionalCard
+          {summaryOptionalCard
               (data.informalOnlyEntries > 0)
               "Informal-only"
               (toString data.informalOnlyEntries)
-              (Option.some "Statements with no associated Lean code yet.")}}
-          {{summaryOptionalCard
+              (Option.some "Statements with no associated Lean code yet.")}
+          {summaryOptionalCard
               (data.coverageSplit.readyToFormalize > 0)
               "Ready to formalize"
               (toString data.coverageSplit.readyToFormalize)
               (Option.some actionableEntryDescription)
-              (accent? := StatusColors.readyBorder)}}
-          {{summaryOptionalCard
+              (accent? := StatusColors.readyBorder)}
+          {summaryOptionalCard
               (data.coverageSplit.formalizedWithoutAncestors > 0)
               "Lean complete, dependencies open"
               (toString data.coverageSplit.formalizedWithoutAncestors)
               (Option.some (withReplayNote site
                 "The node's Lean code has no sorry; a node it depends on is not complete."))
-              (accent? := StatusColors.formalizedBorder)}}
-          {{summaryOptionalCard
+              (accent? := StatusColors.formalizedBorder)}
+          {summaryOptionalCard
               (data.coverageSplit.fullyClosed > 0)
               "Fully closed"
               (toString data.coverageSplit.fullyClosed)
               (Option.some (withReplayNote site
                 "The node's Lean code has no sorry, and neither has any node it depends on."))
-              (accent? := StatusColors.formalizedWithAncestors)}}
-          {{summaryOptionalWarnCard
+              (accent? := StatusColors.formalizedWithAncestors)}
+          {summaryOptionalWarnCard
               (data.coverageSplit.blockedOrIncomplete > 0)
               "Blocked or incomplete"
               (toString data.coverageSplit.blockedOrIncomplete)
               (Option.some "Entries not covered by the highlighted readiness buckets above.")
-              (accent? := StatusColors.blockedBorder)}}
+              (accent? := StatusColors.blockedBorder)}
         </div>
-        {{summaryOptionalCappedDetailsList
+        {summaryOptionalCappedDetailsList
             showHeaviestPrerequisites
             s!"Heaviest prerequisites ({data.heaviestPrerequisites.length})"
             rows.heaviestPrerequisiteRows
-            "heaviest-prerequisite entries"}}
-        {{summaryOptionalCappedDetailsList
+            "heaviest-prerequisite entries"}
+        {summaryOptionalCappedDetailsList
             showNoPrerequisites
             s!"No prerequisites ({data.noPrerequisites.length})"
             rows.noPrerequisiteRows
-            "entries without prerequisites"}}
-        {{summaryOptionalCappedDetailsList
+            "entries without prerequisites"}
+        {summaryOptionalCappedDetailsList
             showNoDependents
             s!"No dependents ({data.noDependents.length})"
             rows.noDependentRows
-            "entries without dependents"}}
-        {{summaryOptionalCappedDetailsList
+            "entries without dependents"}
+        {summaryOptionalCappedDetailsList
             showProofDebtHotspots
             s!"Proof debt hotspots ({data.proofDebtHotspots.length})"
             rows.proofDebtHotspotRows
             "proof-debt hotspots"
-            "bp_summary_subsection bp_summary_subsection_warn"}}
-      }}
+            "bp_summary_subsection bp_summary_subsection_warn"}
+      }
 
 /-- A summary occurrence selects either project data or an explicitly supplied model. -/
 structure SummaryBlockData where
@@ -464,17 +476,17 @@ private def summaryBlockToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT
           ".bp_summary_preview_panel_close"
           (allowHtmlCache := true)
     let rows ← SummaryRows.render ctx data
-    pure {{
-      <div {{summaryAttrs}}>
-        {{previewPanel}}
-        {{summaryOverviewSection data rows site}}
-        {{summaryEntryIndexSection data rows}}
-        {{summaryDependencyInsightsSection rows}}
-        {{summaryMetadataSection data rows}}
-        {{summaryDiagnosticsSection data rows}}
-        {{summaryStructureSection data rows site}}
+    pure html%{
+      <div {...summaryAttrs}>
+        {previewPanel}
+        {summaryOverviewSection data rows site}
+        {summaryEntryIndexSection data rows}
+        {summaryDependencyInsightsSection rows}
+        {summaryMetadataSection data rows}
+        {summaryDiagnosticsSection data rows}
+        {summaryStructureSection data rows site}
       </div>
-    }}
+    }
 
 open Verso Doc Elab Genre Manual in
 block_extension Block.summary (summary : SummaryBlockData) where

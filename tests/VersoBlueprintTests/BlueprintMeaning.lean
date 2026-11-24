@@ -250,7 +250,7 @@ private def challenge (theorems : Array HeadlineTheorem) : Headline :=
   let notBuilt := page (stats (some { (challenge #[]) with
     unavailable := some .challengeNotBuilt, unavailableDetail := some "Challenge" }))
   let noChallenge := page (stats Option.none)
-  hasSubstr notBuilt "Not compared: The challenge module has not been built. (Challenge)" &&
+  hasSubstr notBuilt "Not compared: the challenge module has not been built (Challenge)." &&
     !hasSubstr notBuilt ">Lean statement proved</span>" &&
     -- nothing was compared, so the page does not say how, nor what the challenge states
     !hasSubstr notBuilt "Compared by this site's generator" &&
@@ -488,6 +488,8 @@ private def nodeView : NodeView.NodeView := {
   try
     IO.FS.writeFile (root / "Demo" / "Basic.lean") BlueprintCodeSite.basicSource
     IO.FS.writeFile (root / "Demo" / "Hard.lean") "theorem hard : False := sorry\n"
+    BlueprintCodeSite.recordBuild root `Demo.Basic "Demo/Basic.lean"
+    BlueprintCodeSite.recordBuild root `Demo.Hard "Demo/Hard.lean"
     IO.FS.writeFile (root / "code.json") (toJson statedFixture).compress
     IO.FS.writeFile (root / "README.md") "# Readme\n\nA small project.\n"
     IO.FS.writeFile (root / "lake-manifest.json") "{\"name\": \"demo\", \"packages\": []}"

@@ -228,6 +228,11 @@ def fileSectionHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (title : Str
     | Option.none, some (mod, supplied) => do
       let (code, full) ← (fileCode file mod supplied : IO _)
       let rendered ← Informal.ExternalCode.renderSourceWithPageHovers code "bp_comparator_source"
+      -- every token with a hover is reachable by the keyboard: the page's hovers open on focus
+      let rendered := match rendered with
+        | .raw html =>
+          .raw (html.replace " data-verso-hover=\"" " tabindex=\"0\" data-verso-hover=\"")
+        | other => other
       pure <| .seq #[
         if full then .empty else el "p" "bp_comparator_plain_note" (txt plainHighlightText),
         el "div" "bp_comparator_code" rendered]
@@ -294,8 +299,7 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
       | Option.none => txt h.name
     let verdicts : Output.Html := match h.unavailable with
       | some u =>
-        let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
-        el "p" "bp_stats_headline_unavailable" (txt s!"Not compared: {unavailableText u}{detail}")
+        el "p" "bp_stats_headline_unavailable" (txt (notComparedText u h.unavailableDetail))
       | Option.none =>
         el "ul" "bp_comparator_verdicts" (.seq (h.theorems.map fun t =>
           let standing := headlineStanding view.stats.replay h t

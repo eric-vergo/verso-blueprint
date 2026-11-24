@@ -27,6 +27,13 @@ structure CodeHealth where
   statementBlocked : Bool := true
   anyGapCount : Nat := 0
   hasAxiomLike : Bool := false
+  /-- Present declarations whose module's source is not known to be the text that was compiled
+  (`Data.ProvedStatus.sourceChange?`): nothing is known of their code, so they are counted here
+  and not as gaps. -/
+  changedDecls : Nat := 0
+  /-- Of `changedDecls`, those whose source is not known to match the build, rather than known to
+  differ from it. -/
+  unknownSourceDecls : Nat := 0
 deriving Inhabited, Repr
 
 def CodeHealth.hasAssociatedCode (health : CodeHealth) : Bool :=
@@ -48,7 +55,11 @@ def CodeHealth.ofDeclarations (kind : Data.NodeKind)
       provedStatus := health.provedStatus.mergeConservative status
       missingDecls := health.missingDecls + if status.isMissing then 1 else 0
       statementBlocked := health.statementBlocked || status.blocksStatementCompletion kind
-      anyGapCount := health.anyGapCount + if !status.isMissing && status.isIncomplete then 1 else 0
+      anyGapCount := health.anyGapCount +
+        if !status.isMissing && status.isIncomplete && status.sourceChange?.isNone then 1 else 0
+      changedDecls := health.changedDecls + if status.sourceChange?.isSome then 1 else 0
+      unknownSourceDecls := health.unknownSourceDecls +
+        if status.sourceChange? == some false then 1 else 0
       hasAxiomLike := health.hasAxiomLike || status.isAxiomLike
     }
 
@@ -83,6 +94,15 @@ def nodeCodeHealth (external : ExternalCodeStatus) (node : Data.Node) : CodeHeal
   codeHealthOfBlockSource node.kind external <| some {
     externalDecls := node.externalAssociationSnapshots
     literateDeclarations := Informal.LiterateDeclarations.ofCodes node.literateCodes }
+
+/-- Whether the source of a declaration is not known to be the text that was compiled. -/
+def CodeHealth.hasChangedSource (health : CodeHealth) : Bool :=
+  health.changedDecls > 0
+
+/-- The words for the declarations of `hasChangedSource` (`Data.sourceChangeWords`). -/
+def CodeHealth.sourceChangeWords (health : CodeHealth) : String :=
+  Data.sourceChangeWords (health.changedDecls - health.unknownSourceDecls)
+    health.unknownSourceDecls
 
 def CodeHealth.hasMissingExternalDecls (health : CodeHealth) : Bool :=
   health.missingDecls > 0

@@ -4,6 +4,7 @@ Released under Apache 2.0 license as described in the file LICENSE.
 Author: Eric Vergo
 -/
 
+import VersoBlueprint.BuildRecord
 import VersoBlueprint.Graph
 import VersoBlueprint.Replay
 import VersoBlueprint.Stats.Repo
@@ -24,7 +25,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 8
+def projectStatsSchemaVersion : Nat := 9
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -97,11 +98,14 @@ structure ProgressCounts where
   formalized : Nat := 0
   /-- Formalized together with everything it depends on. -/
   formalizedWithAncestors : Nat := 0
+  /-- The node's Lean source is not known to be the text that was compiled
+  (`Graph.ProofStatus.sourceChanged`): not complete, and not counted as having a gap. -/
+  sourceChanged : Nat := 0
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- Every node counted. -/
 def ProgressCounts.total (c : ProgressCounts) : Nat :=
-  c.notReady + c.ready + c.incomplete + c.formalized + c.formalizedWithAncestors
+  c.notReady + c.ready + c.incomplete + c.formalized + c.formalizedWithAncestors + c.sourceChanged
 
 /-- Add one node with the given status. -/
 def ProgressCounts.add (c : ProgressCounts) : Graph.ProofStatus → ProgressCounts
@@ -110,6 +114,7 @@ def ProgressCounts.add (c : ProgressCounts) : Graph.ProofStatus → ProgressCoun
   | .incomplete => { c with incomplete := c.incomplete + 1 }
   | .formalized => { c with formalized := c.formalized + 1 }
   | .formalizedWithAncestors => { c with formalizedWithAncestors := c.formalizedWithAncestors + 1 }
+  | .sourceChanged => { c with sourceChanged := c.sourceChanged + 1 }
 
 /-- Blueprint nodes of one kind group (theorem-like nodes, or definitions) by what is known of
 their Lean code and of their informal statement. Each count is of nodes, not declarations. -/
@@ -271,6 +276,10 @@ inductive Unavailable where
   build record of it is missing, cannot be read, does not name the source, or describes other
   compiled files. -/
   | solutionProvenanceUnknown
+  /-- The challenge or the solution module has a compiled file in more than one directory of the
+  search path (a project that depends on another one with a challenge folder of the same name,
+  say), so which file a build means depends on the order of the path. -/
+  | moduleAmbiguous
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
 
 /-- A theorem a Comparator challenge states, and what the solution does with it. -/
@@ -419,6 +428,15 @@ structure ProjectStats where
   reports on and everything they depend on; none when the generator ran none. Without an
   accepted replay no page says "proved". -/
   replay : Option Replay.Result := none
+  /-- What the build record of each project module a node's Lean declaration is in said of its
+  source when the Blueprint was elaborated (`BuiltSource.read`); the generator compares it with the
+  source as it reads when the site is generated. Empty for a site generated from compiled-code
+  data, which compares the source with the build record directly. -/
+  builtSources : Array BuiltSource := #[]
+  /-- The modules whose source text, as the site shows it, is not known to be the text their
+  compiled module was compiled from, sorted by name: no positive mark, colour or count is shown
+  for their declarations. -/
+  sourceChanged : Array SourceChange := #[]
 deriving Inhabited, ToJson, FromJson
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give

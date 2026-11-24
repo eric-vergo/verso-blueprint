@@ -221,6 +221,10 @@ private def isPathInWorkspace (workspaceRoot sourcePath : System.FilePath) : Boo
   let src := sourcePath.toString
   src == root || src.startsWith rootPrefix
 
+/-- Where a declaration comes from, with its source file relative to the workspace root: a
+published site names no path of the machine it was built on, so a file outside the workspace (in
+the toolchain's own library, say) is named by its module, as a path relative to its package's
+source folder (`Init/Prelude.lean`). -/
 private def mkProvenance (workspaceRoot : System.FilePath)
     (moduleName? : Option Lean.Name) (sourcePath? : Option System.FilePath) : Data.ExternalDeclProvenance :=
   match moduleName? with
@@ -229,9 +233,11 @@ private def mkProvenance (workspaceRoot : System.FilePath)
     match sourcePath? with
     | some sourcePath =>
       if isPathInWorkspace workspaceRoot sourcePath then
-        .inWorkspace moduleName sourcePath.toString
+        .inWorkspace moduleName
+          ((workspaceRelativeSourcePath? workspaceRoot sourcePath).getD sourcePath.toString)
       else
-        .outWorkspace moduleName (some sourcePath.toString)
+        let components := moduleName.components.map (·.toString (escape := false))
+        .outWorkspace moduleName (some ("/".intercalate components ++ ".lean"))
     | none =>
       .outWorkspace moduleName none
 

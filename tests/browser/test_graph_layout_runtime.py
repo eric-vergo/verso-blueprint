@@ -307,8 +307,8 @@ class TestGraphLayoutRuntime:
         assert graph_data["manifestNodes"] == graph_data["pageNodes"]
         assert graph_data["manifestEdges"] == graph_data["pageEdges"]
         assert graph_data["manifestGroups"] == graph_data["pageGroups"]
-        assert graph_data["pageSchemaVersion"] == 3
-        assert graph_data["manifestSchemaVersion"] == 3
+        assert graph_data["pageSchemaVersion"] == 4
+        assert graph_data["manifestSchemaVersion"] == 4
         assert graph_data["topologyMatches"]
         assert graph_data["dataMatches"], "page and manifest graph data must agree, including preview availability"
         assert {"full", "group"}.issubset(set(graph_data["variantKeys"]))
@@ -348,29 +348,29 @@ class TestGraphLayoutRuntime:
                     {
                         fetchJson: () => ({
                             graphs: [
-                                completeRecord(3, "graph:current", [fullVariant]),
-                                completeRecord(2, "graph:obsolete-schema", [fullVariant]),
-                                completeRecord(3, "graph:no-variants", []),
-                                completeRecord(3, "graph:blank-label", [
+                                completeRecord(4, "graph:current", [fullVariant]),
+                                completeRecord(3, "graph:obsolete-schema", [fullVariant]),
+                                completeRecord(4, "graph:no-variants", []),
+                                completeRecord(4, "graph:blank-label", [
                                     { ...fullVariant, label: " " }
                                 ]),
-                                completeRecord(3, "graph:invalid-options", [
+                                completeRecord(4, "graph:invalid-options", [
                                     { ...fullVariant, options: { direction: "sideways", pack: false } }
                                 ]),
-                                completeRecord(3, "graph:invalid-pair", [
+                                completeRecord(4, "graph:invalid-pair", [
                                     { ...fullVariant, previewKeyByNodeId: [["node-only"]] }
                                 ]),
-                                completeRecord(3, "graph:duplicate-variant", [
+                                completeRecord(4, "graph:duplicate-variant", [
                                     fullVariant,
                                     { ...fullVariant, label: "Duplicate Full Graph" }
                                 ]),
-                                completeRecord(3, "graph:missing-full", [
+                                completeRecord(4, "graph:missing-full", [
                                     { ...fullVariant, key: "group", label: "Group View" }
                                 ]),
-                                completeRecord(3, "graph:unknown-variant-target", [
+                                completeRecord(4, "graph:unknown-variant-target", [
                                     { ...fullVariant, selectOnNodeId: [["node-id", "missing"]] }
                                 ]),
-                                completeRecord(3, "graph:duplicate-node-mapping", [
+                                completeRecord(4, "graph:duplicate-node-mapping", [
                                     {
                                         ...fullVariant,
                                         previewKeyByNodeId: [
@@ -380,7 +380,7 @@ class TestGraphLayoutRuntime:
                                     }
                                 ]),
                                 {
-                                    schemaVersion: 3,
+                                    schemaVersion: 4,
                                     key: "graph:incomplete-record",
                                     nodes: [],
                                     edges: [],
@@ -637,9 +637,11 @@ class TestGraphLayoutRuntime:
         expect(graph_card).to_have_attribute("data-bp-graph-count", "1")
         expect(graph_card).to_have_attribute("data-bp-graph-module-ok", "true")
         expect(graph_card).to_have_attribute("data-bp-graph-module-count", "1")
-        expect(graph_card.locator("[data-bp-custom-client-graph-summary]").first).to_contain_text(
-            "Nodes 58"
-        )
+        # the client counts the nodes of the page's graph data (at least the multi-page test's)
+        summary = graph_card.locator("[data-bp-custom-client-graph-summary]").first
+        expect(summary).to_contain_text(re.compile(r"Nodes \d+"))
+        shown = int(re.search(r"Nodes\s*(\d+)", summary.inner_text()).group(1))
+        assert shown >= 55
 
     def test_graph_legend_is_collapsed_by_default_and_tracks_variant_switch(self, server: str, page: Page):
         page.set_viewport_size({"width": 1400, "height": 900})

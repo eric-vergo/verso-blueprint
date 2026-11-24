@@ -120,6 +120,9 @@ structure StatsPageView where
   /-- The nodes whose Lean code an accepted replay covers, under which it found an axiom outside
   Lean's standard three, sorted (`ReplayView.Index.resting`). -/
   resting : Array Name := #[]
+  /-- The nodes whose Lean source is not known to be the text that was compiled, sorted
+  (`ReplayView.Index.sourceChanged`). -/
+  sourceChanged : Array Name := #[]
   /-- The address of each challenge's page, by the challenge's name. -/
   challengeHrefs : Array (String × String) := #[]
 deriving Inhabited
@@ -188,7 +191,13 @@ deriving Inhabited, Repr
 It is said of theorems and definitions alike, and says nothing about an informal statement. -/
 def leanCompleteLabel : String := "Lean complete"
 
-/-- The progress counts as buckets, most complete first. The tokens are the status tokens of
+/-- The words of the bucket of nodes whose Lean source is not known to be the text that was
+compiled: nothing is shown as known of their code. -/
+def sourceChangedBucketLabel : String :=
+  "Lean source changed since the build or not known to match it, not shown as checked"
+
+/-- The progress counts as buckets, most complete first, then the nodes whose Lean source is not
+known to be the text that was compiled, when there are any. The tokens are the status tokens of
 the stylesheet; the labels say what was looked at: the node's Lean code and the nodes it depends
 on. The two buckets of `sorry`-free code are drawn in a success colour only under an accepted
 kernel replay; in any other `site` state their labels say what the count rests on. -/
@@ -203,7 +212,8 @@ def progressBuckets (c : ProgressCounts)
   { token := "incomplete", label := "Lean code incomplete", count := c.incomplete },
   { token := "ready", label := "ready to formalize", count := c.ready },
   { token := "not-ready", label := "not ready", count := c.notReady }
-]
+] ++ (if c.sourceChanged == 0 then #[] else #[
+  { token := "source-changed", label := sourceChangedBucketLabel, count := c.sourceChanged }])
 
 /-! ## HTML helpers -/
 
@@ -340,6 +350,8 @@ def headlineVerdict (t : HeadlineTheorem)
     | .notReplayed _ => ("not-replayed", conditionsMetText)
     | .noVerdict _ => ("not-replayed", conditionsMetNoVerdictText)
     | .notChecked axioms => ("axioms", conditionsMetNotCheckedText axioms)
+    | .sourceChanged why =>
+      ("not-replayed", s!"Same Lean statement as the challenge; not shown as checked: {why}")
   else match t.solution with
     | .same =>
       if t.sorryFree == some false then
@@ -371,23 +383,36 @@ def definitionVerdict : Correspondence → String
   | .notCompared => "not compared"
   | .notTheorem => "not a theorem"
 
-/-- Why the challenge could not be compared, in a sentence. -/
-def unavailableText : Unavailable → String
-  | .configInvalid => "comparator.json could not be read or lacks the fields lake comparator needs."
-  | .challengeNotBuilt => "The challenge module has not been built."
+/-- Why a challenge was not compared, as a clause, and what to do about it, when there is
+something to do. -/
+def unavailableReason : Unavailable → String × String
+  | .configInvalid => ("comparator.json could not be read or lacks the fields lake comparator \
+      needs", "")
+  | .challengeNotBuilt => ("the challenge module has not been built", "")
   | .challengeOutOfDate =>
-    "The compiled challenge module does not match its source: build it again after an edit."
-  | .challengeProvenanceUnknown =>
-    "It is not known that the compiled challenge module was compiled from its source as shown."
-  | .challengeUnreadable => "The compiled challenge module could not be read."
-  | .solutionNotImported => "The Blueprint does not import the solution module."
-  | .importsNotAvailable => "The challenge imports a module the Blueprint does not import."
-  | .modulesNotLoaded => "The compiled modules were not loaded for the comparison."
-  | .solutionOutOfDate =>
-    "The solution's source differs from the one its compiled module was compiled from: build it \
-      again after an edit."
-  | .solutionProvenanceUnknown =>
-    "It is not known that the compiled solution module was compiled from its source as shown."
+    ("the compiled challenge module does not match its source", "build it again after an edit")
+  | .challengeProvenanceUnknown => ("it is not known that the compiled challenge module was \
+      compiled from its source as shown", "")
+  | .challengeUnreadable => ("the compiled challenge module could not be read", "")
+  | .solutionNotImported => ("the Blueprint does not import the solution module", "")
+  | .importsNotAvailable => ("the challenge imports a module the Blueprint does not import", "")
+  | .modulesNotLoaded => ("the compiled modules were not loaded for the comparison", "")
+  | .solutionOutOfDate => ("the solution's source differs from the one its compiled module was \
+      compiled from", "build it again after an edit")
+  | .solutionProvenanceUnknown => ("it is not known that the compiled solution module was \
+      compiled from its source as shown", "")
+  | .moduleAmbiguous => ("a module of the comparison has a compiled file in more than one \
+      directory of the search path, so which of them a build means depends on the order of the \
+      path", "give the challenges of each project folder names of their own")
+
+/-- The one sentence for a challenge that was not compared, with what lies behind the reason
+(`detail?`, a module, a file or a message) in parentheses: "Not compared: the challenge module
+has not been built (Comparator.Demo.Challenge)." -/
+def notComparedText (u : Unavailable) (detail? : Option String := none) : String :=
+  let (reason, advice) := unavailableReason u
+  let detail := (detail?.map (s!" ({·})")).getD ""
+  let advice := if advice.isEmpty then "" else s!"; {advice}"
+  s!"Not compared: {reason}{detail}{advice}."
 
 private def axiomChip (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
@@ -467,6 +492,7 @@ def replayNoteText (replay? : Option Replay.Result) (standing : Replay.Standing)
   | .notReplayed why => s!"No kernel replay: {why}."
   | .noVerdict why => s!"No verdict of a kernel replay: {why}."
   | .notChecked axioms => s!"Kernel replay: not checked: {Replay.notCheckedClause axioms}."
+  | .sourceChanged why => s!"Not shown as checked: {why}."
 
 /-- What the replay establishes for a judged theorem of a headline: whether both checkers
 checked the theorem with everything it depends on. A theorem that rests on an axiom outside
@@ -486,8 +512,11 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
     if !t.conditionsMet then .empty
     else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
       (txt (replayNoteText replay? standing)) #[("data-bp-replay", token)]
-  -- the card's success colours follow the replay behind this verdict
-  el "div" s!"bp_stats_theorem {standing.scopeClass}" (.seq #[
+  -- the card's success colours follow the replay behind this verdict, and only a verdict that
+  -- the theorem is proved is in the accepted scope
+  let scope := if standing.isAccepted && token != "proved" then StatusColors.replayNoneClass
+    else standing.scopeClass
+  el "div" s!"bp_stats_theorem {scope}" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
       el "code" "bp_stats_theorem_name" (txt t.name.toString),
       el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
@@ -542,8 +571,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
       | Option.none => .empty
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
-        let detail := h.unavailableDetail.map (s!" ({·})") |>.getD ""
-        el "p" "bp_stats_headline_unavailable" (txt s!"Not compared: {unavailableText u}{detail}")
+        el "p" "bp_stats_headline_unavailable" (txt (notComparedText u h.unavailableDetail))
       | Option.none => .empty
     let definitions : Output.Html :=
       if h.definitions.isEmpty then .empty
@@ -617,6 +645,30 @@ def noReplaySummary : String :=
   s!"Not replayed by a kernel: {Replay.noReplayText}. The marks on this site say what the \
     compiled files report."
 
+/-- The sentence above the modules whose source is not known to be the text that was compiled. -/
+def sourceChangedLeadText (modules : Nat) : String :=
+  let these := if modules == 1 then "this module" else "these modules"
+  s!"Not known to be what was built: the source of {these} changed since the build, or no \
+    build record says which source was compiled. This site shows nothing as checked for their \
+    declarations: what the compiled files report, and what a kernel replay checked, is about \
+    the compiled modules, not the text shown."
+
+/-- The modules of the site whose source is not known to be the text that was compiled, each
+with why, and the nodes that concern; nothing when there are none. -/
+private def sourceChangedHtml (view : StatsPageView) : Output.Html :=
+  let changes := view.stats.sourceChanged
+  if changes.isEmpty && view.sourceChanged.isEmpty then .empty else
+  el "div" "bp_stats_replay_source_changed" (.seq #[
+    el "p" "bp_stats_replay_source_changed_lead" (txt (sourceChangedLeadText changes.size)),
+    el "ul" "bp_stats_files" (.seq (changes.map fun c =>
+      .element "li" #[("data-bp-module", c.module.toString)] (txt c.text))),
+    if view.sourceChanged.isEmpty then .empty
+    else el "details" "bp_stats_more bp_stats_replay_source_changed_nodes" (.seq #[
+      .element "summary" #[] (txt s!"Nodes shown with no verdict \
+        ({formatCount view.sourceChanged.size})"),
+      el "ul" "bp_stats_files" (.seq (view.sourceChanged.map fun label =>
+        .element "li" #[] (nodeLink view label)))])])
+
 /-- The band on the kernel replay: its result, the checker with its version, the checker's
 message when it rejected the build or could not run, the declarations checked and those left
 out, the axioms found, and what a replay leaves trusted. -/
@@ -674,6 +726,7 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
       #[("data-bp-replay", token)],
+    sourceChangedHtml view,
     message,
     modules,
     uncovered,
@@ -849,6 +902,14 @@ private def sorryDeclarations (t : TrustLedger) : Nat :=
   (t.sorryDirect.map (·.declaration)).foldl (init := (#[] : Array Name))
     (fun acc n => if acc.contains n then acc else acc.push n) |>.size
 
+/-- The sentence after a statement about the compiled modules when the source of some nodes is
+not known to be what was compiled: the statement is not said of the text shown. -/
+private def compiledOnlyNote (view : StatsPageView) : String :=
+  let n := view.sourceChanged.size
+  if n == 0 then "" else
+    s!" This is said of the compiled modules: the Lean source of {countOf n "node"} changed \
+      since the build or is not known to match it (see the kernel replay band)."
+
 private def buildHtml (view : StatsPageView) : Output.Html :=
   let s := view.stats
   let files := s.sources.files
@@ -864,6 +925,7 @@ private def buildHtml (view : StatsPageView) : Output.Html :=
     if sorries == 0 then "No Lean declaration of a node has a sorry of its own."
     else s!"{countOf sorries "Lean declaration"} of nodes with a sorry of \
       {if sorries == 1 then "its" else "their"} own."
+  let sorryLine := sorryLine ++ compiledOnlyNote view
   let notBuiltPart : Output.Html :=
     if notBuilt.isEmpty then el "p" "bp_stats_build_line" (txt "Every Lean file on disk is in a build.")
       #[("data-bp-build", "not-built")]
@@ -903,6 +965,7 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
       "the result of compiled code, as Lean reports the axioms of this build."
     else "Nodes whose Lean declarations rest on more than Lean's standard three axioms, as " ++
       "Lean reports the axioms of this build."
+  let lead := lead ++ compiledOnlyNote view
   band "bp_stats_trust" "What the Lean code rests on" #[
     el "p" "bp_stats_lead" (txt lead),
     el "table" "bp_stats_ledger" (.seq #[
@@ -1046,6 +1109,7 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
     site := replays.siteState
     notReplayed := replays.uncovered
     resting := replays.resting
+    sourceChanged := replays.sourceChanged
     workQueueSize := (workQueue graph).size
     summaryHref := (pageSection? sections summaryPageTitle).map (·.link.relativeLink)
     workQueueHref := (pageSection? sections workQueuePageTitle).map (·.link.relativeLink)
