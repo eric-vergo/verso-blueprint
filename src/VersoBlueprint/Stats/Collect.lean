@@ -455,8 +455,9 @@ elaborated against these compiled modules: by Lake's build record of an imported
 (`BuiltSource.read`), and for the module being elaborated, its own text. A module whose record
 Lake wrote when it took the compiled files from its artifact cache names no source
 (`syntheticRecord`); Lake checked that module against its source in the build that is elaborating
-the Blueprint, so the file's text as it reads now is the one compiled, up to an edit made during
-the build. -/
+the Blueprint, so the file's text as it reads now is the one compiled, unless the file was
+modified after the record was written (an edit after that build, the Blueprint then elaborated
+without Lake): such a module is not known to match. -/
 def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
     CoreM (Array BuiltSource) := do
   let sp ← searchPathRef.get
@@ -469,6 +470,14 @@ def builtSourcesOf (state : Environment.State) (root : System.FilePath) :
     if built.hash.isSome then return built
     let some olean := olean? | return built
     unless ← liftM (m := IO) (syntheticRecord olean) do return built
+    -- a file modified after Lake wrote the record was edited after that build: not known
+    let newer : IO Bool := do
+      let source ← (root / file).metadata
+      let record ← (olean.withExtension "trace").metadata
+      return source.modified > record.modified
+    if ← liftM (m := IO) (try newer catch _ => pure true) then
+      return { built with why := s!"{file} was modified after Lake's build record of {module}, \
+        which names no source" }
     let some text ← liftM (m := IO) (try some <$> IO.FS.readFile (root / file) catch _ => pure none)
       | return built
     return { module, file, hash := some (lakeTextHash text) }

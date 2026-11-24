@@ -622,6 +622,7 @@ def shownWithoutVerdict (pages : SitePages) (words : String) : Bool :=
   hasSubstr pages.graph "Demo.double_eq: Lean proof: the source of Demo.Basic" &&
   hasSubstr pages.stats "data-bp-module=\"Demo.Basic\"" &&
   hasSubstr pages.stats "data-bp-status=\"source-changed\"" &&
+  hasSubstr pages.stats "This is said of the compiled modules: the Lean source of " &&
   hasSubstr pages.views "so nothing is shown as checked"
 
 -- The module's source edited after the build: its declarations are shown with no verdict, as

@@ -512,8 +512,11 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
     if !t.conditionsMet then .empty
     else el "p" s!"bp_stats_replay_note bp_stats_replay_note_{token}"
       (txt (replayNoteText replay? standing)) #[("data-bp-replay", token)]
-  -- the card's success colours follow the replay behind this verdict
-  el "div" s!"bp_stats_theorem {standing.scopeClass}" (.seq #[
+  -- the card's success colours follow the replay behind this verdict, and only a verdict that
+  -- the theorem is proved is in the accepted scope
+  let scope := if standing.isAccepted && token != "proved" then StatusColors.replayNoneClass
+    else standing.scopeClass
+  el "div" s!"bp_stats_theorem {scope}" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
       el "code" "bp_stats_theorem_name" (txt t.name.toString),
       el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
@@ -899,6 +902,14 @@ private def sorryDeclarations (t : TrustLedger) : Nat :=
   (t.sorryDirect.map (·.declaration)).foldl (init := (#[] : Array Name))
     (fun acc n => if acc.contains n then acc else acc.push n) |>.size
 
+/-- The sentence after a statement about the compiled modules when the source of some nodes is
+not known to be what was compiled: the statement is not said of the text shown. -/
+private def compiledOnlyNote (view : StatsPageView) : String :=
+  let n := view.sourceChanged.size
+  if n == 0 then "" else
+    s!" This is said of the compiled modules: the Lean source of {countOf n "node"} changed \
+      since the build or is not known to match it (see the kernel replay band)."
+
 private def buildHtml (view : StatsPageView) : Output.Html :=
   let s := view.stats
   let files := s.sources.files
@@ -914,6 +925,7 @@ private def buildHtml (view : StatsPageView) : Output.Html :=
     if sorries == 0 then "No Lean declaration of a node has a sorry of its own."
     else s!"{countOf sorries "Lean declaration"} of nodes with a sorry of \
       {if sorries == 1 then "its" else "their"} own."
+  let sorryLine := sorryLine ++ compiledOnlyNote view
   let notBuiltPart : Output.Html :=
     if notBuilt.isEmpty then el "p" "bp_stats_build_line" (txt "Every Lean file on disk is in a build.")
       #[("data-bp-build", "not-built")]
@@ -953,6 +965,7 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
       "the result of compiled code, as Lean reports the axioms of this build."
     else "Nodes whose Lean declarations rest on more than Lean's standard three axioms, as " ++
       "Lean reports the axioms of this build."
+  let lead := lead ++ compiledOnlyNote view
   band "bp_stats_trust" "What the Lean code rests on" #[
     el "p" "bp_stats_lead" (txt lead),
     el "table" "bp_stats_ledger" (.seq #[

@@ -2579,7 +2579,9 @@ nothing:
 - the module names `Comparator.Challenge` and `Comparator.Solution` and the paths
   `Comparator/Challenge.lean` and `Comparator/Solution.lean` are replaced in the
   project's Lean files (a `lakefile.lean` among them), `lakefile.toml` and
-  Markdown files (whole words only).
+  Markdown files (whole words only; one that cannot be read stops the command
+  before any change, and a symbolic link is not followed, so the file it leads
+  to is left as it is).
 
 Everything is checked before the first change, in both modes: the project has
 the single-challenge layout, the folder does not exist yet, every file to be
@@ -2967,7 +2969,8 @@ complete.
   the generator compares it with the file when it runs. (A module whose
   compiled files Lake took from its artifact cache has a record that names no
   source; Lake checked it against its source in the build that elaborates the
-  Blueprint, so its text then is taken as the one compiled. A site from
+  Blueprint, so its text then is taken as the one compiled, unless the file
+  was modified after the record was written. A site from
   compiled code, generated later, has no such build behind it: there such a
   module is not known to match.) A generator that is
   run again without a build after a file was edited therefore shows that

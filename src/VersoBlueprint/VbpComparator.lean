@@ -232,7 +232,10 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
     (legacyChallenge, s!"{target}/{challengeFileName}"),
     (legacySolution, s!"{target}/{solutionFileName}")]
   for file in ← textFiles root do
-    let some text ← (try some <$> IO.FS.readFile (root / file) catch _ => pure none) | continue
+    -- a file that cannot be read could name the challenge's modules: say so rather than leave it
+    let some text ← (try some <$> IO.FS.readFile (root / file) catch _ => pure none)
+      | return .error s!"{file} cannot be read, so it is not known whether it names the \
+          challenge's modules or files; make it readable first; nothing was changed"
     for (old, new) in renames do
       let (_, count) := replaceWord text old new
       if count > 0 then changes := changes.push (.rename file old new count)

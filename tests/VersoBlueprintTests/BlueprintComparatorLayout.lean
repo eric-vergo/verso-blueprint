@@ -299,6 +299,20 @@ info: ["refused: lakefile.lean has changes that are not committed; commit or sta
     "lean_lib Comparator where\n  roots := #[`Comparator.Solution]\n-- local\n"
   afterwards root (migrateHere root)
 
+-- A Markdown file that cannot be read could name the modules: refused before any change.
+/--
+info: ["refused: notes.md cannot be read, so it is not known whether it names the challenge's modules or files; make it readable first; nothing was changed"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← gitProject ["Comparator/Challenge.lean", "Comparator/Solution.lean", "lakefile.lean"]
+  IO.FS.writeFile (root / "notes.md") "see Comparator.Solution\n"
+  let _ ← IO.Process.output { cmd := "chmod", args := #["000", "notes.md"], cwd := root }
+  let result ← migrateHere root
+  let _ ← IO.Process.output { cmd := "chmod", args := #["644", "notes.md"], cwd := root }
+  IO.FS.removeDirAll root
+  return [result]
+
 -- A change that fails part way (the last rewrite, of a file that cannot be written) leaves the
 -- project as it was: every change before it is undone. (The system's words for the error are not
 -- pinned.)
