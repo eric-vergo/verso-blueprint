@@ -9,6 +9,7 @@ import VersoBlueprint.OutputPrune
 import VersoBlueprint.Parts
 import VersoBlueprint.PageText
 import VersoBlueprint.LinkCheck
+import VersoBlueprint.LeanCodeLinks
 import Lean
 import Lean.Elab.Command
 import Std.Data.HashMap
@@ -678,6 +679,10 @@ private def patchHighlightedStartupJs (js : JS) : JS :=
           "tactic hover content without a tactic state"
           [highlightedTacticContentCloneRead]
           highlightedTacticContentGuardedCloneRead
+  -- Verso's own reader of the hover table, when the script uses it: also from a file
+  let patched :=
+    (replaceFirstHighlightedJs? [Verso.Code.fetchDocsJson] Informal.LeanCodeLinks.loadDocsJs
+      patched).getD patched
   { js with js := patched }
 
 private def patchBlueprintHtmlAssets (assets : HtmlAssets) : HtmlAssets :=
@@ -2852,6 +2857,7 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
   | .multi => emitHtmlMulti prepared.config prepared.text prepared.state
 
 private def emitBlueprintHtml
+    (sources : Informal.LeanCodeLinks.SourceIndex)
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
     (sideBySide : Bool)
@@ -2875,6 +2881,8 @@ private def emitBlueprintHtml
       document.save path
     return
   let prepared := PreparedRendererState.prepare document
+  -- names in Lean code link to the site's Lean rows and to the repository's sources too
+  let prepared := { prepared with config := Informal.LeanCodeLinks.withLinks prepared.config sources }
   -- what this build writes into the folder; what an earlier build wrote and this one does not is
   -- removed at the end (`Informal.OutputPrune`)
   let outDir := outDirForMode prepared.config.toConfig prepared.mode
@@ -2907,6 +2915,8 @@ private def emitBlueprintHtml
     Informal.DeclarationSource.setEnabled false
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
+  -- the hover table once more, as a script a page opened from a file can load
+  Informal.LeanCodeLinks.writeDocsScript outDir
   -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
   let finished ← Informal.StaticMath.finishSite (outDirForMode prepared.config.toConfig mode)
   if finished.clashes > 0 then
@@ -2987,10 +2997,11 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
-        htmlText
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
-        htmlText
+      let sources ← Informal.LeanCodeLinks.SourceIndex.load (← IO.currentDir)
+      emitBlueprintHtml sources extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle
+        .single cfg htmlText
+      emitBlueprintHtml sources extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti
+        .multi cfg htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
