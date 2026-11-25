@@ -267,8 +267,9 @@ deriving Inhabited
 
 /-- The symbol of the Lean link in a block's header. Code without `sorry` gets the check mark
 only when the kernel replay `replay?` accepted its declarations with everything they depend on
-and found no axiom outside Lean's standard three under them; otherwise the diamond (what the
-compiled files report), the warning mark, or the mark of a rejected replay. -/
+and neither the replay nor the compiled files found an axiom outside Lean's standard three under
+them; otherwise the diamond (what the compiled files report), the warning mark (such an axiom),
+or the mark of a rejected replay. -/
 private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     (replay? : Option Replay.Result := none) : CodeEntryVisual :=
   if !hasSource then
@@ -280,11 +281,16 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
       if !statusMark.status.isProved then (view.codeEntryClassSuffix, view.codeEntrySymbol)
       else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
           statusMark.sourceChange? with
-        | .accepted => (view.codeEntryClassSuffix, view.codeEntrySymbol)
         | .rejected => ("rejected", "⊘")
-        | .notReplayed _ | .noVerdict _ => ("reported", "◇")
-        | .notChecked _ => ("warning", "⚠")
         | .sourceChanged _ => ("changed", "◌")
+        | .notChecked _ => ("warning", "⚠")
+        -- an axiom outside Lean's standard three that the compiled files report: the heading's
+        -- warning mark (`statusGlyph`), whatever the replay
+        | _ => if !statusMark.extraAxioms.isEmpty then ("warning", "⚠") else
+          match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
+              statusMark.sourceChange? with
+          | .accepted => (view.codeEntryClassSuffix, view.codeEntrySymbol)
+          | _ => ("reported", "◇")
     { classSuffix, symbol }
 
 private structure ExternalRenderHealth where
