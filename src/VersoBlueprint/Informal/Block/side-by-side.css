@@ -37,15 +37,15 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   max-width: var(--bp-sbs-measure, 48rem);
 }
 
-/* Definition lists, block quotes and section headings keep to the same measure,
-   so that a long heading wraps within the reading column. A short code block in
-   the prose starts at the column's edge and grows about the page's axis as its
-   lines get longer, up to the content area. */
-html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class])) > :is(dl, blockquote, h2, h3, h4, h5, h6) {
+/* Definition lists, block quotes, section headings and the text of the front
+   page keep to the same measure, so that a long heading wraps within the reading
+   column. A short code block in the prose starts at the column's edge and grows
+   about the page's axis as its lines get longer, up to the content area. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(:where(main section:not([class])) > :is(dl, blockquote, h2, h3, h4, h5, h6), :where(main .titlepage) > :is(p, ul, ol, dl, blockquote)) {
   max-width: var(--bp-sbs-measure, 48rem);
 }
 
-html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class])) > pre {
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class]), main .titlepage) > pre {
   width: fit-content;
   min-width: min(100%, var(--bp-sbs-measure, 48rem));
   max-width: 100%;
@@ -56,22 +56,23 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
    figures) is centred in the content area, with its text aligned to its start.
    Content wider than the column (side-by-side nodes, tables, wide code, the
    dependency graph, the cards of generated pages) spans the content area, so it
-   shares the axis. Only the sections of the document are matched: the bands and
-   cards of generated pages are `section` elements with a class, and keep their
-   own layout. `:where` keeps these rules as easy to override as element rules. */
+   shares the axis. Only the sections of the document and the front page's
+   title block are matched: the bands and cards of generated pages are `section`
+   elements with a class, and keep their own layout. `:where` keeps these rules
+   as easy to override as element rules. */
 :where(main section:not([class])) > :is(h1, h2, h3, h4, h5, h6) {
   box-sizing: border-box;
   margin-inline: auto;
   text-align: center;
 }
 
-:where(main section:not([class])) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
+:where(main section:not([class]), main .titlepage) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
   box-sizing: border-box;
   margin-inline: auto;
 }
 
 /* A block quote is indented from both edges of the column. */
-:where(main section:not([class])) > blockquote {
+:where(main section:not([class]), main .titlepage) > blockquote {
   padding-inline: 2.5rem;
 }
 

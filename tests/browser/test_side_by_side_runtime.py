@@ -1016,6 +1016,25 @@ class TestReadingAxis:
                 assert box["align"] in ("start", "left"), box
                 assert box["width"] <= measure + 0.5, (box, measure)
 
+    def test_front_page_text_reads_in_the_same_column(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/")
+        facts = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                return [...document.querySelectorAll('main .titlepage > p')].map((p) => {
+                    const b = p.getBoundingClientRect();
+                    return { centre: (b.left + b.right) / 2, width: b.width, axis: (area.left + area.right) / 2,
+                             area: area.width, align: getComputedStyle(p).textAlign };
+                });
+            }"""
+        )
+        assert facts, "the front page has no text"
+        for item in facts:
+            assert abs(item["centre"] - item["axis"]) <= 1, item
+            assert item["width"] < item["area"] - 100, item
+            assert item["align"] in ("start", "left"), item
+
     def test_side_by_side_runs_keep_the_full_width(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(side_by_side_server + "/Side-by-Side-Runs/")

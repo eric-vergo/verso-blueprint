@@ -1634,15 +1634,17 @@ Every page of a Blueprint site reads about one vertical axis, the centre of the
 content area. The page title and the section headings are centred on it (a
 heading's permalink marker takes no room in the line, so the text itself is
 centred; the marker shows while the pointer is over the heading or the marker
-has the keyboard focus). Paragraphs, lists, definition lists, block quotes and
-figures form a column centred on the same axis, with their text aligned to its
-start; on a site in the `sbs` style the column has the readable measure above,
-elsewhere it is as wide as the content area. Wider content (side-by-side nodes,
-tables, code, the dependency graph, the bands of the Project Stats page) spans
-the content area and so shares the axis, and the Comparator and work-queue pages
-centre their content on it. The bands and cards of generated pages keep their
-own left-aligned layout inside. The rules are written to be overridden as easily
-as plain element rules, so a project stylesheet can restyle any of them.
+has the keyboard focus, and on a narrow screen the heading keeps room for it on
+both sides). Paragraphs, lists, definition lists, block quotes and figures, the
+front page's text among them, form a column centred on the same axis, with their
+text aligned to its start; on a site in the `sbs` style the column has the
+readable measure above, elsewhere it is as wide as the content area. Wider
+content (side-by-side nodes, tables, code, the dependency graph, the bands of
+the Project Stats page) spans the content area and so shares the axis, and the
+Comparator and work-queue pages centre their content on it. The bands and cards
+of generated pages keep their own left-aligned layout inside. The rules are
+written to be overridden as easily as plain element rules, so a project
+stylesheet can restyle any of them.
 
 ### Dark theme
 
