@@ -120,8 +120,9 @@ def ProgressCounts.add (c : ProgressCounts) : Graph.ProofStatus → ProgressCoun
 their Lean code and of their informal statement. Each count is of nodes, not declarations. -/
 structure KindProgress where
   total : Nat := 0
-  /-- Nodes whose Lean declarations, with everything those declarations use, contain no `sorry`
-  (`Graph.ProofStatus.formalized` or `formalizedWithAncestors`). Nothing is said about axioms. -/
+  /-- Nodes that have a Lean statement and whose Lean declarations, with everything those
+  declarations use, contain no `sorry` (`Graph.ProofStatus.formalized` or
+  `formalizedWithAncestors`). Nothing is said about axioms. -/
   leanComplete : Nat := 0
   /-- Of `leanComplete`, the nodes for which every node they depend on is also Lean complete
   (`Graph.ProofStatus.formalizedWithAncestors`). -/
