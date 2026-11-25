@@ -519,11 +519,12 @@ class TestNeighbourhoods:
         assert top_down["Demo.a"]["y"] < top_down["Demo.c"]["y"]
         assert bottom_up["Demo.a"]["y"] > bottom_up["Demo.c"]["y"]
         assert abs(top_down["Demo.a"]["x"] - bottom_up["Demo.a"]["x"]) < 2
-        upright = page.evaluate(
-            """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node")).map((n) => {
+        # the labels shown, the Lean names first and then the numbers
+        shown_labels = """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node")).map((n) => {
                 const outline = n.querySelector(":scope > path, :scope > ellipse")
                     .getBoundingClientRect();
-                return Array.from(n.querySelectorAll(":scope > text")).map((t) => {
+                return Array.from(n.querySelectorAll(":scope > text"))
+                  .filter((t) => getComputedStyle(t).display !== "none").map((t) => {
                     const r = t.getBoundingClientRect();
                     const m = t.getScreenCTM();
                     return { inside: r.left >= outline.left - 1 && r.right <= outline.right + 1 &&
@@ -531,13 +532,20 @@ class TestNeighbourhoods:
                              upright: m.a > 0 && m.d > 0 };
                 });
             }).flat()"""
-        )
-        assert upright and all(t["inside"] and t["upright"] for t in upright), upright
+        for node_text in ("name", "number"):
+            page.evaluate(
+                "(t) => document.querySelector('.bp_graph_fullwidth').__bpGraphController.setNodeText(t)",
+                node_text)
+            upright = page.evaluate(shown_labels)
+            assert len(upright) == 4 and all(t["inside"] and t["upright"] for t in upright), (node_text, upright)
+        page.evaluate(
+            "() => document.querySelector('.bp_graph_fullwidth').__bpGraphController.setNodeText('name')")
         set_direction(page, "RL")
         right_to_left = node_name_of_each(page)
         assert right_to_left["Demo.a"]["x"] > right_to_left["Demo.c"]["x"]
         assert page.evaluate(
             """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node > text"))
+                .filter((t) => getComputedStyle(t).display !== "none")
                 .every((t) => t.getScreenCTM().a > 0 && t.getScreenCTM().d > 0)"""
         )
 

@@ -28,10 +28,19 @@ def wait_for_interactive_graph(page: Page) -> None:
 
 
 def drawn_labels(page: Page) -> list[str]:
+    """The labels the nodes show: the short Lean names of their declarations, or their names
+    when the reader asks for numbers (a site generated from code numbers nothing)."""
     return page.evaluate(
-        """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node text"))
+        """() => Array.from(document.querySelectorAll(".bp_graph_canvas > svg g.node > text"))
+            .filter((t) => getComputedStyle(t).display !== "none")
             .map((t) => t.textContent.trim()).sort()"""
     )
+
+
+def set_node_text(page: Page, node_text: str) -> None:
+    page.evaluate(
+        "(t) => document.querySelector('.bp_graph_fullwidth').__bpGraphController.setNodeText(t)",
+        node_text)
 
 
 def test_first_view_is_drawn_in_the_page_source(page: Page, code_site_dir: Path, code_site_url: str):
@@ -56,7 +65,10 @@ def test_first_view_is_drawn_in_the_page_source(page: Page, code_site_dir: Path,
     assert canvas.get_attribute("data-bp-active-view") == "full"
     assert canvas.get_attribute("data-bp-active-direction") == "TB"
     assert page.locator(".bp_graph_first_drawing").count() == 0
+    assert drawn_labels(page) == ["a", "b", "c", "d"]
+    set_node_text(page, "number")
     assert drawn_labels(page) == ["Demo.b", "Demo.c", "Demo.d", "a"]
+    set_node_text(page, "name")
 
 
 def test_first_view_is_visible_before_any_script_runs(page: Page, code_site_url: str):
@@ -74,9 +86,10 @@ def test_first_view_is_visible_before_any_script_runs(page: Page, code_site_url:
             box = nodes.nth(i).bounding_box()
             assert box is not None and box["width"] > 20 and box["height"] > 10
             assert box["x"] >= canvas["x"] - 1 and box["x"] + box["width"] <= canvas["x"] + canvas["width"] + 1
-        labels = bare.locator(".bp_graph_first_drawing svg g.node text").evaluate_all(
-            "(texts) => texts.map((t) => t.textContent.trim())")
-        assert sorted(labels) == ["Demo.b", "Demo.c", "Demo.d", "a"]
+        labels = bare.locator(".bp_graph_first_drawing svg g.node > text").evaluate_all(
+            "(texts) => texts.filter((t) => getComputedStyle(t).display !== 'none')"
+            ".map((t) => t.textContent.trim())")
+        assert sorted(labels) == ["a", "b", "c", "d"]
     finally:
         context.close()
 
@@ -85,7 +98,7 @@ def test_ego_view_and_hops(page: Page, code_site_url: str):
     page.goto(code_site_url + "/Dependency-Graph/#ego=Demo.b&k=1", wait_until="domcontentloaded")
     wait_for_interactive_graph(page)
     assert page.locator(".bp_graph_view_select").input_value() == "ego"
-    assert drawn_labels(page) == ["Demo.b", "Demo.c", "a"]
+    assert drawn_labels(page) == ["a", "b", "c"]
     assert page.locator(".bp_graph_canvas > svg g.node.bp_graph_ego_center").count() == 1
     hops = page.locator(".bp_graph_ego_hops")
     assert hops.is_visible()
@@ -105,7 +118,7 @@ def test_node_view_links_to_its_neighbourhood(page: Page, code_site_url: str):
     link.click()
     page.wait_for_function("document.querySelector('.bp_graph_view_select').value === 'ego'")
     wait_for_interactive_graph(page)
-    assert drawn_labels(page) == ["Demo.b", "Demo.c", "Demo.d", "a"]
+    assert drawn_labels(page) == ["a", "b", "c", "d"]
 
 
 def test_node_view_stays_open_when_the_canvas_narrows(page: Page, code_site_url: str):

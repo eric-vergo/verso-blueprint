@@ -307,8 +307,8 @@ class TestGraphLayoutRuntime:
         assert graph_data["manifestNodes"] == graph_data["pageNodes"]
         assert graph_data["manifestEdges"] == graph_data["pageEdges"]
         assert graph_data["manifestGroups"] == graph_data["pageGroups"]
-        assert graph_data["pageSchemaVersion"] == 4
-        assert graph_data["manifestSchemaVersion"] == 4
+        assert graph_data["pageSchemaVersion"] == 5
+        assert graph_data["manifestSchemaVersion"] == 5
         assert graph_data["topologyMatches"]
         assert graph_data["dataMatches"], "page and manifest graph data must agree, including preview availability"
         assert {"full", "group"}.issubset(set(graph_data["variantKeys"]))
