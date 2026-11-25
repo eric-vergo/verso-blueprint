@@ -1104,8 +1104,8 @@ def leanCompleteText (p : LeanProgress) : String :=
     (if p.definitions.total == 0 then [] else
       [ofKind p.definitions.leanComplete p.definitions "definition"])
   if parts.isEmpty then "No nodes."
-  else s!"{leanCompleteLabel} (no sorry in a node's Lean code or in what that code uses): \
-    {", ".intercalate parts}."
+  else s!"{leanCompleteLabel} (a Lean statement, and no sorry in a node's Lean code or in what \
+    that code uses): {", ".intercalate parts}."
 
 /-- The sentence that counts informal statements. It never calls one checked. -/
 def informalText (p : LeanProgress) : String :=

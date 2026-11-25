@@ -273,8 +273,8 @@ private def progress (theorems definitions : Nat × Nat × Nat) : LeanProgress :
 #eval
   let p := progress (32, 32, 0) (19, 19, 0)
   let html := page (stats Option.none p)
-  leanCompleteText p == "Lean complete (no sorry in a node's Lean code or in what that code \
-      uses): 32 of 32 theorems, 19 of 19 definitions." &&
+  leanCompleteText p == "Lean complete (a Lean statement, and no sorry in a node's Lean code or \
+      in what that code uses): 32 of 32 theorems, 19 of 19 definitions." &&
     informalText p == "Informal statements: none. Every node shows its Lean code alone." &&
     hasSubstr html "51 nodes: 32 theorems, 19 definitions</p>" &&
     hasSubstr html "32 of 32 theorems, 19 of 19 definitions." &&
@@ -290,10 +290,10 @@ private def progress (theorems definitions : Nat × Nat × Nat) : LeanProgress :
       them against the Lean statements." &&
     informalText (progress (1, 1, 1) (0, 0, 0)) == "Informal statements: 1 of 1 node has one. \
       No tool has checked any of them against the Lean statements." &&
-    leanCompleteText p == "Lean complete (no sorry in a node's Lean code or in what that code \
-      uses): 38 of 40 theorems, 10 of 10 definitions." &&
-    leanCompleteText (progress (0, 0, 0) (3, 2, 0)) == "Lean complete (no sorry in a node's Lean \
-      code or in what that code uses): 2 of 3 definitions."
+    leanCompleteText p == "Lean complete (a Lean statement, and no sorry in a node's Lean code \
+      or in what that code uses): 38 of 40 theorems, 10 of 10 definitions." &&
+    leanCompleteText (progress (0, 0, 0) (3, 2, 0)) == "Lean complete (a Lean statement, and no \
+      sorry in a node's Lean code or in what that code uses): 2 of 3 definitions."
 
 -- A Blueprint whose theorems have no statement yet (one made from code): its theorems count as
 -- Lean complete and as having no informal statement, which is what is true of them.
