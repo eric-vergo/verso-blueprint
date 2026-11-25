@@ -1025,8 +1025,16 @@ attached to its proof can only lower it:
   Summary and the Project Stats counts ("Lean complete", "Lean complete with
   dependencies") leave it out, the work queue lists it, and a node that depends on
   it is not "complete with its dependencies". `vbp query status` reports
-  `statementComplete: false` for it; `complete` and `proofComplete` describe its
-  declarations, as they do for every node.
+  `complete: false` and `statementComplete: false` for it, and the verdict
+  `no-lean-statement` where its declarations would otherwise be complete;
+  `proofComplete` keeps describing the declarations attached to its proof.
+- A Lean statement is at least one declaration: a Lean declaration attached to
+  the statement (present or missing) or a named definition or theorem of a code
+  block. A code block that defines no named declaration (only `example`s or
+  commands) is no Lean statement.
+- A missing declaration, on the statement or the proof, was not checked by a
+  kernel replay: a node with one is never covered by an accepted replay and keeps
+  the site's replay state from "accepted".
 - The same mark appears everywhere a node's state is shown: the heading's glyph
   and Lean chip, the chip of a `{blueprint_node}` placement, the graph's node
   view, tooltip and accessible name, the success colours of the node's blocks and
@@ -2079,7 +2087,8 @@ Read the proof fill states as:
 
 - `Not ready`: the proof still depends on unfinished prerequisites
 - `Ready to formalize`: prerequisites are done, but there is no associated Lean
-  proof code yet
+  proof code yet, or there are only declarations attached to the proof of a node
+  without a Lean statement
 - `Lean code incomplete`: associated Lean code exists, but still has gaps such
   as `sorry`
 - `Locally formalized`: the node's own Lean code is complete, but some
@@ -2289,8 +2298,9 @@ form is described in `doc/schemas/project-stats.schema.json`.
 - **Progress**: nodes by the dependency graph's fill status, for the whole
   project and per chapter (the first directory of the nodes' page addresses);
   and by kind group (`leanProgress`): for theorem-like nodes and for
-  definitions, how many there are, how many are *Lean complete* (the node's
-  Lean declarations, with everything they use, contain no `sorry`), how many of
+  definitions, how many there are, how many are *Lean complete* (the node has a
+  Lean statement, and its Lean declarations, with everything they use, contain no
+  `sorry`), how many of
   those have only Lean-complete dependencies, and how many have an informal
   statement (a statement with a body).
 - **Trust**: declarations with a `sorry` of their own or through a dependency,

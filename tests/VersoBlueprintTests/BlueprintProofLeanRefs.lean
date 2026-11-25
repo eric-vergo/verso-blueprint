@@ -303,10 +303,12 @@ run_meta do
     let .ok (some statusQuery) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
       | throw <| IO.userError "Status query failed to parse"
     let status := statusQuery.run files.manifest
-    unless (status.getObjValAs? Bool "complete").toOption == some complete &&
-        -- neither node has a Lean statement: its declarations' completeness is no statement's
+    -- neither node has a Lean statement: neither is complete, and the evidence of the declarations
+    -- attached to its proof is `proofComplete`, with a verdict naming the missing statement
+    unless (status.getObjValAs? Bool "complete").toOption == some false &&
         (status.getObjValAs? Bool "statementComplete").toOption == some false &&
-        (status.getObjValAs? Bool "proofComplete").toOption == some complete do
+        (status.getObjValAs? Bool "proofComplete").toOption == some complete &&
+        ((status.getObjValAs? String "verdict").toOption == some "no-lean-statement") == complete do
       throw <| IO.userError "Status query ignored the proof association"
     let .ok declarations := status.getObjValAs? (Array Json) "declarations"
       | throw <| IO.userError "Status query omitted declarations"
@@ -350,7 +352,8 @@ run_meta do
   for (label, complete) in #[("proof.attachments.only", true), ("proof.attachments.admitted", false)] do
     let .ok (some statusQuery) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
       | throw <| IO.userError "Status query failed to parse"
-    unless ((statusQuery.run files.manifest).getObjValAs? Bool "complete").toOption == some complete do
+    unless ((statusQuery.run files.manifest).getObjValAs? Bool "proofComplete").toOption ==
+        some complete do
       throw <| IO.userError "A side-by-side status ignored the proof association"
 
 #docs (Manual) proofPlacementsDoc "Proof placements" :=

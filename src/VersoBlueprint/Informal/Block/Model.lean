@@ -231,6 +231,23 @@ def BlockCodeData.append (left right : BlockCodeData) : BlockCodeData := {
 def BlockCodeData.nonempty? (code : BlockCodeData) : Option BlockCodeData :=
   if code.isEmpty then none else some code
 
+/-- Whether `code`, the Lean code of a node's statement, is a Lean statement: it has at least one
+declaration, a Lean declaration attached to the statement (present or missing) or a named
+definition or theorem of a code block of the Blueprint. A code block that defines no named
+declaration (only `example`s or commands) is none. Declarations attached to the proof are never
+a Lean statement; nothing counts a node without one as formalized, and its mark says so. -/
+def BlockCodeData.isLeanStatement (code : BlockCodeData) : Bool :=
+  !code.isEmpty
+
+/-- The Lean code of a node's statement: the declarations attached to it and those of the node's
+code blocks. -/
+def _root_.Informal.Data.Node.statementCode (node : Data.Node) : BlockCodeData :=
+  { externalDecls := node.externalRefs, literateDeclarations := .ofCodes node.literateCodes }
+
+/-- Whether the node has a Lean statement (`BlockCodeData.isLeanStatement`). -/
+def _root_.Informal.Data.Node.hasLeanStatement (node : Data.Node) : Bool :=
+  node.statementCode.isLeanStatement
+
 /-- Prefer the inline display source when an external association names the same constant. -/
 def BlockCodeData.summaryExternalDecls (code : BlockCodeData) : Array Data.ExternalRef :=
   let names := code.literateDeclarations.declarations.foldl

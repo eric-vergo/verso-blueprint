@@ -107,9 +107,10 @@ and `axiom-like` also block completion. Known holes and verification gaps may
 coexist. `unassociated` means no declarations, with completion false.
 `statementComplete` can be true for a theorem with a verified clean statement
 and unverified proof; whole-declaration and proof completion remain false.
-`statementComplete` is false for a node without a Lean statement (all its
-declarations attached to its proof), whatever `complete` and `proofComplete`
-say of those declarations.
+A node without a Lean statement (all its declarations attached to its proof)
+has `complete: false` and `statementComplete: false`, and the verdict
+`no-lean-statement` where those declarations would otherwise be complete;
+`proofComplete` remains their declaration evidence.
 
 Known-sorry entries record `location` (`statement`, `proof`, `unknown`),
 `origin` (`direct`, `dependency`, `unknown`), and optional `refs` source counts.

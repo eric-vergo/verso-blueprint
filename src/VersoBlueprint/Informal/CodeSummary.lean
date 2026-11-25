@@ -244,7 +244,8 @@ private def renderSummaryPreview (cdata : ComputedData)
   let sections : Array SummaryTooltipSection := #[{
     title := sectionTitle
     items
-    emptyText := "No associated Lean code or declarations."
+    emptyText := if proofDecls.isEmpty then "No associated Lean code or declarations."
+      else s!"{noLeanStatementText}."
   }]
   -- what the mark also counts, with the statuses that lower it
   let sections := if proofDecls.isEmpty then sections else sections.push {
@@ -680,16 +681,21 @@ private def withMeaningLink (body : Output.Html) (meaningHref? : Option String) 
   | none => body
 
 /-- The mark of Lean code `source` of a node of kind `kind`, whatever it is. Without a Lean
-statement (`hasStatement` false: `source` is the code attached to the proof) its title says so
-in place of the state of a Lean statement. -/
+statement (`hasStatement` false: `source` is the code attached to the proof) the mark says so
+(`BlockStatusMark.hasStatement`, whose words start "No Lean statement"), and its title drops the
+state of a Lean statement. -/
 private def markOfSource (kind : Data.NodeKind) (source : BlockCodeData)
     (hasStatement : Bool := true) : BlockStatusMark :=
   let mark := statusMarkFromHealth kind (extraAxiomsOf source)
     (Informal.Graph.codeHealthOfBlockSource kind {} (some source)) (declarationsOf source)
     (unplacedOf source) source.sourceChange?
   if hasStatement then mark else
-    let rest := "; ".intercalate ((mark.title.splitOn "; ").drop 1)
-    { mark with title := if rest.isEmpty then "no Lean statement" else s!"no Lean statement; {rest}" }
+    -- the second axis is about the code attached to the proof, not a proof of a Lean statement
+    let axes := (mark.title.splitOn "; ").drop 1 |>.map fun axis =>
+      if axis.startsWith "Lean proof: " || axis.startsWith "Lean body: " then
+        s!"{proofCodeNoun}: {(axis.splitOn ": ").drop 1 |> ": ".intercalate}"
+      else axis
+    { mark with title := "; ".intercalate axes, hasStatement }
 
 /--
 The Lean code a node's mark is about, from the Lean code of its statement (`statement?`) and the
@@ -706,7 +712,7 @@ problems, and then it is their code.
 -/
 def markSource? (kind : Data.NodeKind) (statement? : Option BlockCodeData)
     (proof : Array Data.ExternalRef) : Option BlockCodeData :=
-  let statement? := statement?.bind (·.nonempty?)
+  let statement? := statement?.filter (·.isLeanStatement)
   if proof.isEmpty then statement? else
   -- each declaration once, its statuses merged conservatively and every axiom any observation
   -- of it reports kept
@@ -732,7 +738,7 @@ declaration". -/
 def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData)
     (proof : Array Data.ExternalRef := #[]) : Option BlockStatusMark :=
   (markSource? kind source? proof).map
-    (markOfSource kind · (hasStatement := (source?.bind (·.nonempty?)).isSome))
+    (markOfSource kind · (hasStatement := source?.any (·.isLeanStatement)))
 
 /-- Heading status and tooltip: the mark is about `markSource?` of the statement's code (`cdata`)
 and the declarations attached to the proof (`proofDecls`); the summary lists the statement's
@@ -749,8 +755,11 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} source?
   let renderHealth := externalRenderHealth (cdata.source.getD {}).externalDecls
   let statusMark := markOfSource data.kind source
-    (hasStatement := (cdata.source.bind (·.nonempty?)).isSome)
-  let title := if source.isEmpty then "No associated Lean declarations" else
+    (hasStatement := cdata.source.any (·.isLeanStatement))
+  let title := if source.isEmpty then
+      -- the proof's declarations are listed in the summary: what is absent is the statement
+      if proofDecls.isEmpty then "No associated Lean declarations" else noLeanStatementText
+    else
     -- the state first, in the words of the heading's mark, so that what a reader hears or sees
     -- on the link is the verdict, then what the declarations are
     s!"{(statusGlyph (some statusMark) replay?).2}. " ++ appendRenderHealthSummary

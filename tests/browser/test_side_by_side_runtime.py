@@ -918,6 +918,50 @@ class TestReadingAids:
         expect(view.locator(".bp_node_view_proof_decls")).to_contain_text("Attached to the proof")
         expect(view.locator(".bp_node_view_proof_decl", has_text="aidOpen")).to_have_count(1)
 
+    def test_a_statement_without_lean_code_is_not_complete(self, side_by_side_server: str, page: Page):
+        """`aids_proof_only`: its statement has no Lean declaration and its proof's declaration is
+        complete. Its heading shows no Lean declaration, its chip says there is no Lean statement
+        and lists the proof's declaration, the graph draws it as not formalized and says so, and
+        the summary's link to the declaration leads to the node."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        node = page.locator(".bp_sbs[data-bp-node='aids_proof_only']").first
+        expect(node.locator(".bp_status_glyph").first).to_have_class(
+            re.compile(r"\bbp_status_glyph_none\b"))
+        chip = node.locator(".bp_code_link_status").first
+        expect(chip).to_have_attribute("title", "No Lean statement")
+        node.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel).to_contain_text("No Lean statement.")
+        expect(panel).to_contain_text("Attached to the proof")
+        expect(panel.locator(".bp_code_decl_item", has_text="aidProofOnly")).to_have_count(1)
+        # the graph: neither its statement nor its proof is drawn as formalized
+        page.goto(side_by_side_server + "/Dependency-Graph/", wait_until="domcontentloaded")
+        graph_node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Fproof-005Fonly']")
+        expect(graph_node).to_have_count(1)
+        classes = graph_node.get_attribute("class") or ""
+        assert "formalized" not in classes, classes
+        assert (graph_node.get_attribute("aria-label") or "").endswith("No Lean declaration")
+        # the summary links the declaration to the node
+        page.goto(side_by_side_server + "/Blueprint-Summary/")
+        hrefs = page.locator("a").evaluate_all(
+            """anchors => [...new Set(anchors
+                .filter((a) => a.textContent.includes('aidProofOnly') && a.href.includes('#'))
+                .map((a) => a.href))]"""
+        )
+        assert hrefs, "the summary links the proof's declaration"
+        for href in hrefs:
+            page.goto(href)
+            target = page.evaluate(
+                """() => {
+                    const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+                    const node = el && (el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]'));
+                    return node ? node.getAttribute('data-bp-node') : null;
+                }"""
+            )
+            assert target == "aids_proof_only", (href, target)
+
     def test_summary_leads_a_proof_declaration_to_its_node(self, side_by_side_server: str, page: Page):
         """The summary's link to a declaration attached to a proof, which has no row of its own in
         this layout, lands on an element of the page it names: the node."""

@@ -771,12 +771,6 @@ def Node.leanDecls (node : Node) : Array Name :=
   node.literateCodes.foldl (init := external) fun acc code =>
     code.definedDeclNames.foldl pushNameUnique acc
 
-/-- Whether the node has a Lean statement: Lean declarations attached to its statement, or code
-blocks of the Blueprint. Declarations attached to its proof alone are no Lean statement, and
-nothing counts a node without one as formalized. -/
-def Node.hasLeanStatement (node : Node) : Bool :=
-  !node.externalRefs.isEmpty || !node.literateCodes.isEmpty
-
 def Node.hasAssociatedCode (node : Node) : Bool :=
   !node.externalRefs.isEmpty || !node.proofExternalRefs.isEmpty || !node.literateCodes.isEmpty
 
