@@ -881,18 +881,22 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
 #eval
   let standings : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
     (`covered, .accepted), (`script, .notReplayed "not part of the replay")]
-  let accepted : ReplayView.Index := { replay? := some (result .accepted), standings }
-  let rejected : ReplayView.Index := { replay? := some (result .rejected), standings }
+  -- `covered` is the node whose mark is the check mark
+  let checked : NameHashSet := (∅ : NameHashSet).insert `covered
+  let accepted : ReplayView.Index := { replay? := some (result .accepted), standings, checked }
+  let rejected : ReplayView.Index := { replay? := some (result .rejected), standings, checked }
   let withAxioms : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
     (`covered, .accepted), (`assumed, .notChecked #[`P.ax]),
     (`unfinished, .notChecked #[``sorryAx])]
   -- the compiled files report `assumed` without `sorry`; `unfinished` has one
   let resting : ReplayView.Index := { replay? := some (result .accepted), standings := withAxioms
-                                      reportedProved := (∅ : NameHashSet).insert `assumed }
+                                      reportedProved := (∅ : NameHashSet).insert `assumed
+                                      checked }
   accepted.uncovered == #[`script] && accepted.siteState.token == "none" &&
     rejected.uncovered == #[] && rejected.siteState == .rejected &&
     resting.uncovered == #[] && resting.resting == #[`assumed] &&
     resting.siteState.token == "none" && !resting.accepted `assumed &&
+    accepted.accepted `covered &&
     ({ replay? := some (result .accepted) } : ReplayView.Index).siteState == .accepted
 
 -- A node whose data says its code has no `sorry`, while the replay found `sorryAx` under it, is
@@ -904,7 +908,8 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
   let standings : Std.HashMap Name Replay.Standing := Std.HashMap.ofList [
     (`covered, .accepted), (`claimed, .notChecked #[``sorryAx]), (`honest, .notChecked #[``sorryAx])]
   let index : ReplayView.Index := { replay? := some (result .accepted), standings
-                                    reportedProved := ({} : NameHashSet).insert `claimed }
+                                    reportedProved := ({} : NameHashSet).insert `claimed
+                                    checked := ({} : NameHashSet).insert `covered }
   index.resting == #[`claimed] && index.siteState.token == "none" &&
     index.restingAxioms == #[``sorryAx]
 
