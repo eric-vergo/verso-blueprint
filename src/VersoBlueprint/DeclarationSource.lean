@@ -256,6 +256,39 @@ def splitStatement? (ls : Array Highlighted) : Option (Array Highlighted × Arra
         return some (ls.extract 0 cut, rest)
   return none
 
+/--
+The part of highlighted code whose text is exactly `text`: the first run of leaves, starting at a
+leaf, that reads as `text`, with the white space at its end cut to fit. `none` when no such run
+exists, or when `text` would end inside a token. Tokens keep their hovers.
+-/
+def sliceByText? (code : Highlighted) (text : String) : Option Highlighted := Id.run do
+  if text.isEmpty then return none
+  let ls := leaves code
+  let textOf : Highlighted → String
+    | .token tok => tok.content
+    | .text s => s
+    | other => other.toString
+  for i in [0:ls.size] do
+    let mut acc := ""
+    let mut out : Array Highlighted := #[]
+    let mut j := i
+    while j < ls.size && acc.length < text.length && text.startsWith acc do
+      let leaf := ls[j]!
+      let s := textOf leaf
+      if acc.length + s.length ≤ text.length then
+        acc := acc ++ s
+        out := out.push leaf
+      else
+        match leaf with
+        | .text s =>
+          let part := (s.take (text.length - acc.length)).toString
+          acc := acc ++ part
+          out := out.push (.text part)
+        | _ => break
+      j := j + 1
+    if acc == text then return some (.seq out)
+  return none
+
 /-- The indentation of a source line: its number of leading spaces. -/
 def lineIndent (line : Array Highlighted) : Nat :=
   ((Highlighted.seq line).toString.toList.takeWhile (· == ' ')).length
