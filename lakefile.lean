@@ -170,6 +170,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintNodeView,
     `VersoBlueprintTests.BlueprintSideBySide,
     `VersoBlueprintTests.BlueprintSidebar,
+    `VersoBlueprintTests.BlueprintMotion,
     `VersoBlueprintTests.BlueprintStats,
     `VersoBlueprintTests.BlueprintStatsPage,
     `VersoBlueprintTests.BlueprintMeaning,

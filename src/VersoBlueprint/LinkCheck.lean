@@ -16,7 +16,8 @@ sidebar) and the Blueprint's own links (an `a` element with a `bp_` class). Link
 document's text are the author's and are not checked here.
 
 Pages are read as Verso writes them: their links resolve against the page's `<base href>`. A
-fragment with `=` (`#node=…`) is state that a page's script reads, not a place, and is not checked.
+fragment with `=` (`#node=…`) is state that a page's script reads, not a place, and is not checked;
+nor is a link to a place that a page's script creates on the page itself (`scriptPlaces`).
 -/
 
 namespace Informal.LinkCheck
@@ -103,6 +104,11 @@ def isExternal (href : String) : Bool :=
      | some lead => lead.length < href.length && !lead.contains '/' && !lead.contains '#' && !lead.contains '?'
      | none => false)
 
+/-- Places that a page's script creates, so that they are not in the page as written: the
+animations switch (`Informal.Motion`), which a link written as `#bp-motion` leads to on its own
+page. -/
+def scriptPlaces : List String := ["bp-motion"]
+
 /--
 The page and place a link of the page at `pagePath` (its folders, from the site's folder) names:
 the target's folders and the fragment. `none` for a link without a fragment or one that leaves the
@@ -116,6 +122,7 @@ def resolve (pagePath : List String) (base? : Option String) (href : String) :
     | _ => none
   -- `#node=…` and `#ego=…` are state a page's script reads, not places
   if fragment.isEmpty || fragment.contains '=' then none
+  if pathPart.isEmpty && scriptPlaces.contains fragment then none
   let pathPart := ((pathPart.splitOn "?").head?.getD "")
   let baseDir := match base? with
     | some base => normalize (pagePath ++ base.splitOn "/")

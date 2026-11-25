@@ -240,6 +240,38 @@ class TestSidebarRuntime:
         assert not failing, failing
 
     @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_animations_switch_sits_under_the_theme_control(self, sidebar_server: str, page: Page, scheme: str):
+        errors = record_runtime_errors(page)
+        page.emulate_media(color_scheme=scheme, reduced_motion="no-preference")
+        page.goto(sidebar_server + "/Animated-Figures/")
+        motion = page.locator("#toc .bp_motion")
+        expect(motion).to_be_visible()
+        assert motion.evaluate("e => e.previousElementSibling.hasAttribute('data-verso-theme-toggle')")
+        theme = page.locator("[data-verso-theme-toggle]").bounding_box()
+        box = motion.bounding_box()
+        assert theme and box and box["y"] >= theme["y"] + theme["height"] and abs(box["x"] - theme["x"]) < 1
+        ratios = page.evaluate(
+            """() => {
+              const parse = (c) => { const p = c.match(/[\\d.]+/g).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+              const over = (t, u) => ({ r: t.r * t.a + u.r * (1 - t.a), g: t.g * t.a + u.g * (1 - t.a), b: t.b * t.a + u.b * (1 - t.a), a: 1 });
+              const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+              const toc = parse(getComputedStyle(document.getElementById('toc')).backgroundColor);
+              return [...document.querySelectorAll('.bp_motion_label, .bp_motion_toggle button')].map((el) => {
+                const bg = over(parse(getComputedStyle(el).backgroundColor), toc);
+                const fg = over(parse(getComputedStyle(el).color), bg);
+                const [x, y] = [lum(fg), lum(bg)].sort((p, q) => q - p);
+                return [el.textContent, (x + 0.05) / (y + 0.05)];
+              });
+            }"""
+        )
+        failing = [r for r in ratios if r[1] < 4.5]
+        assert len(ratios) == 3 and not failing, ratios
+        page.goto(sidebar_server + "/Code-Panels/")
+        expect(page.locator(".bp_sidebar_foot")).to_be_visible()
+        expect(page.locator(".bp_motion")).to_have_count(0)
+        assert_no_runtime_errors(errors)
+
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
     def test_adopted_folded_control_keeps_contrast(self, sidebar_server: str, page: Page, scheme: str):
         # A page control adopted into the foot (like the status legend) whose own CSS gives its
         # summary the faint text colour of a light page must still read on the sidebar.

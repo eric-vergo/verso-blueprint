@@ -276,11 +276,16 @@ class _PlacesAndLinks(HTMLParser):
             self.hrefs.append(values["href"])
 
 
+# Places that a page's script creates on the page itself (`Informal.LinkCheck.scriptPlaces`).
+SCRIPT_PLACES = {"bp-motion"}
+
+
 def dead_place_links(site_dir: Path) -> list[tuple[str, str]]:
     """The links of the site's pages that name a place (`page/#id`) on a page of the site that has
     no element with that `id`: each as the page with the link, relative to `site_dir`, and the link
     as written. Links resolve against the page's `<base href>`; a fragment with `=` (`#node=...`) is
-    state that a page's script reads, not a place."""
+    state that a page's script reads, not a place, and a bare `#id` naming one of `SCRIPT_PLACES` is
+    created by the page's script."""
     pages: dict[Path, _PlacesAndLinks] = {}
     for path in site_dir.rglob("*.html"):
         parsed = _PlacesAndLinks()
@@ -293,6 +298,8 @@ def dead_place_links(site_dir: Path) -> list[tuple[str, str]]:
         if parsed.base is not None:
             base = urljoin(base, parsed.base)
         for href in parsed.hrefs:
+            if href.startswith("#") and href[1:] in SCRIPT_PLACES:
+                continue
             url = urlsplit(urljoin(base, href))
             if url.netloc != "site" or not url.fragment or "=" in url.fragment:
                 continue
