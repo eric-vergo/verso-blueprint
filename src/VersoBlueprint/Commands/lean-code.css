@@ -1,0 +1,55 @@
+/* Highlighted Lean code everywhere on a Blueprint site: the Lean column, the code panels, the
+   Lean code of the running text (blocks and inline code) and the hovers. Each colour is a
+   variable, so that a theme (the dark theme, for example) can replace the palette. */
+.hl.lean .keyword.token,
+.hl.lean .built-in.delim.token {
+  color: var(--bp-code-keyword, #0b52b5);
+}
+
+.hl.lean .const.token {
+  color: var(--bp-code-const, #8a5a00);
+}
+
+.hl.lean .var.token,
+.hl.lean .wildcard.token {
+  color: var(--bp-code-var, #1a5fa8);
+  font-style: normal;
+}
+
+.hl.lean .sort.token {
+  color: var(--bp-code-sort, #0f7a6c);
+}
+
+.hl.lean .literal.token {
+  color: var(--bp-code-literal, #0f7a3d);
+}
+
+.hl.lean .doc-comment.token,
+.hl.lean .comment.token {
+  color: var(--bp-code-comment, #5f6b78);
+  font-style: italic;
+}
+
+.hl.lean .punctuation.token,
+.hl.lean .unknown.token {
+  color: var(--bp-code-punctuation, var(--bp-color-text));
+}
+
+/* A Lean block of the running text (Verso's `lean` code block): a framed panel that scrolls
+   sideways when a line is longer than the column, rather than running past the page. The code of
+   a Blueprint's own components (code blocks, the Lean column, panels, previews, hovers) is laid
+   out by their own rules. */
+:where(code.hl.lean.block):not(:where(.bp_code_block, .bp_sbs_formal, .bp_decl_source,
+    .bp_code_panel, .bp_external_decl_rendered, .bp_preview_panel, .bp_inline_preview_panel,
+    .bp_node_view, .bp_comparator_code, .bp_slide_code_body, .tippy-box) *) {
+  box-sizing: border-box;
+  max-width: 100%;
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.85rem;
+  overflow-x: auto;
+  border: 1px solid var(--bp-color-border-soft, #e2e8f0);
+  border-radius: var(--bp-radius-md, 0.45rem);
+  background: var(--bp-color-surface-subtle, #f9fafb);
+  line-height: 1.5;
+}
+
