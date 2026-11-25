@@ -91,7 +91,8 @@ private def entryStatusFlags (state : Environment.State)
     (closures : Informal.Graph.Closures := Informal.Graph.Closures.of external state) :
     EntryStatusFlags :=
   let health := Informal.Graph.nodeCodeHealth external node
-  let localFormalized := health.localFormalized node.kind
+  -- a node without a Lean statement is not formalized, whatever its proof's declarations
+  let localFormalized := node.hasLeanStatement && health.localFormalized node.kind
   let ancestorsFormalized := Informal.Graph.nodeAncestorsFormalized external state node closures
   let withIncompleteCode := health.hasAssociatedCode && health.hasAnyGaps
   let noProof := node.kind.isTheoremLike && !health.hasAssociatedCode

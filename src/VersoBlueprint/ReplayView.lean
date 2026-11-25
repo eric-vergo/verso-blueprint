@@ -52,6 +52,12 @@ to its proof (`CodeSummary.markSource?`); `none` when the mark is "no Lean decla
 def _root_.Informal.RenderNode.markCode? (node : RenderNode) : Option BlockCodeData :=
   CodeSummary.markSource? node.kind node.statementCode? node.proofExternalRefs
 
+/-- The mark of a node (`CodeSummary.statusMark?`), from its statement's Lean code and the
+declarations attached to its proof. -/
+def _root_.Informal.RenderNode.mark? (node : RenderNode) (kind : Data.NodeKind := node.kind) :
+    Option BlockStatusMark :=
+  CodeSummary.statusMark? kind node.statementCode? node.proofExternalRefs
+
 /-- `RenderNode.markCode?` of node `label` of `state`. -/
 def markCode? (state : TraverseState) (label : Name) : Option BlockCodeData :=
   (TraversalIndex.Nodes.node? state label).bind (·.markCode?)
@@ -92,10 +98,9 @@ def Index.buildWith (state : TraverseState) (replay? : Option Replay.Result) : I
     let label : Name := node.label
     if let some standing := standingOfNode replay? node then
       index := { index with standings := index.standings.insert label standing }
-    if (node.markCode?.bind fun code => CodeSummary.statusMark? .theorem (some code)).any
-        (·.status.isProved) then
+    if (node.mark? .theorem).any (·.status.isProved) then
       index := { index with reportedProved := index.reportedProved.insert label }
-    let mark? := node.markCode?.bind fun code => CodeSummary.statusMark? node.kind (some code)
+    let mark? := node.mark?
     if (statusGlyph mark? replay?).1.modifier == StatusGlyphKind.proved.modifier then
       index := { index with checked := index.checked.insert label }
     let uses := (node.statementUses ++ node.proofUses).map fun use => (use.label : Name)

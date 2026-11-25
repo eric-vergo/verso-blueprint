@@ -679,11 +679,17 @@ private def withMeaningLink (body : Output.Html) (meaningHref? : Option String) 
         (.text Informal.Meaning.linkText))]
   | none => body
 
-/-- The mark of Lean code `source` of a node of kind `kind`, whatever it is. -/
-private def markOfSource (kind : Data.NodeKind) (source : BlockCodeData) : BlockStatusMark :=
-  statusMarkFromHealth kind (extraAxiomsOf source)
+/-- The mark of Lean code `source` of a node of kind `kind`, whatever it is. Without a Lean
+statement (`hasStatement` false: `source` is the code attached to the proof) its title says so
+in place of the state of a Lean statement. -/
+private def markOfSource (kind : Data.NodeKind) (source : BlockCodeData)
+    (hasStatement : Bool := true) : BlockStatusMark :=
+  let mark := statusMarkFromHealth kind (extraAxiomsOf source)
     (Informal.Graph.codeHealthOfBlockSource kind {} (some source)) (declarationsOf source)
     (unplacedOf source) source.sourceChange?
+  if hasStatement then mark else
+    let rest := "; ".intercalate ((mark.title.splitOn "; ").drop 1)
+    { mark with title := if rest.isEmpty then "no Lean statement" else s!"no Lean statement; {rest}" }
 
 /--
 The Lean code a node's mark is about, from the Lean code of its statement (`statement?`) and the
@@ -725,7 +731,8 @@ proof has the declarations `proof` (`markSource?`); `none` when the mark is "no 
 declaration". -/
 def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData)
     (proof : Array Data.ExternalRef := #[]) : Option BlockStatusMark :=
-  (markSource? kind source? proof).map (markOfSource kind)
+  (markSource? kind source? proof).map
+    (markOfSource kind · (hasStatement := (source?.bind (·.nonempty?)).isSome))
 
 /-- Heading status and tooltip: the mark is about `markSource?` of the statement's code (`cdata`)
 and the declarations attached to the proof (`proofDecls`); the summary lists the statement's
@@ -742,6 +749,7 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
   let health := Informal.Graph.codeHealthOfBlockSource data.kind {} source?
   let renderHealth := externalRenderHealth (cdata.source.getD {}).externalDecls
   let statusMark := markOfSource data.kind source
+    (hasStatement := (cdata.source.bind (·.nonempty?)).isSome)
   let title := if source.isEmpty then "No associated Lean declarations" else
     -- the state first, in the words of the heading's mark, so that what a reader hears or sees
     -- on the link is the verdict, then what the declarations are

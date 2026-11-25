@@ -1849,6 +1849,10 @@ associations, including external and inline declarations. It returns that
 per-declaration evidence with facet provenance, aggregate `verdict` and
 `complete`, and separate `statementComplete` and `proofComplete` booleans.
 No declarations yields `unassociated` with all completion booleans false.
+`complete` and `proofComplete` describe the declarations; `statementComplete` is
+true only for a node with a Lean statement (declarations attached to its
+statement, or Blueprint code blocks), so a node whose declarations are all
+attached to its proof has `statementComplete: false` however complete they are.
 `asOf: "generated-snapshot"` means the answer describes the last generation;
 query does not recheck sources. Build current sources before treating the result
 as current truth. `vbp check` validates persisted artifact consistency and does

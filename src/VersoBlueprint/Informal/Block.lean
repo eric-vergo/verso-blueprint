@@ -89,11 +89,14 @@ private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array 
   match data.codeData with
   | some code =>
     let replay? := replayOf? state
-    let mark? := if data.isProof then ReplayView.markCode? state data.label else
+    let node? := TraversalIndex.Nodes.node? state data.label
+    let markCode? := if data.isProof then node?.bind (·.markCode?) else
       CodeSummary.markSource? data.kind (some code) (ReplayView.proofDecls state data.label)
-    let token := (Informal.ReplayView.standingOfCode replay? (mark?.getD code)).token
-    let checked := (Informal.statusGlyph (mark?.bind (CodeSummary.statusMark? data.kind <| some ·))
-      replay?).1.modifier == Informal.StatusGlyphKind.proved.modifier
+    let mark? := if data.isProof then node?.bind (·.mark? data.kind) else
+      CodeSummary.statusMark? data.kind (some code) (ReplayView.proofDecls state data.label)
+    let token := (Informal.ReplayView.standingOfCode replay? (markCode?.getD code)).token
+    let checked := (Informal.statusGlyph mark? replay?).1.modifier ==
+      Informal.StatusGlyphKind.proved.modifier
     #[(Informal.StatusColors.replayScopeAttr,
       if token == "accepted" && !checked then "none" else token)]
   | none => #[]

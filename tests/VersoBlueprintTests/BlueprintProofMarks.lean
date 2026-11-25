@@ -6,6 +6,7 @@ Author: Eric Vergo
 
 import VersoBlueprint
 import VersoBlueprintTests.Blueprint.Support
+import VersoBlueprint.Vbp
 
 /-!
 A node's mark counts the Lean declarations attached to its proof as well as its statement's, and
@@ -142,6 +143,14 @@ private def strength (kind : StatusGlyphKind) : Nat :=
       replay?).1
     strength heading ≤ strength alone && (!statement.isEmpty || strength heading == 0)
 
+-- Without a Lean statement the mark's words do not describe one.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let text := (statusGlyph (CodeSummary.statusMark? .theorem none
+    #[ref `P.sorry directSorry #[``sorryAx]])).2
+  hasSubstr text "no Lean statement" && !hasSubstr text "Lean statement: no sorry"
+
 -- The chip's summary names what the mark also counts: the proof's declarations, with their
 -- statuses, under their own heading.
 /-- info: true -/
@@ -161,6 +170,8 @@ theorem pmStmtA : True := trivial
 theorem pmStmtB : True := trivial
 theorem pmStmtC : True := trivial
 theorem pmStmtF : True := trivial
+theorem pmStmtG : True := trivial
+theorem pmStmtH : True := trivial
 theorem pmDone : True := trivial
 theorem pmOpen : True := by sorry
 axiom pmAx : True
@@ -199,6 +210,12 @@ Statement.
 Proof.
 :::
 :::theorem "pm.base" (lean := "pmStmtF")
+Statement.
+:::
+:::theorem "pm.uses.none" (lean := "pmStmtG") (uses := "pm.none.done")
+Statement.
+:::
+:::theorem "pm.uses.base" (lean := "pmStmtH") (uses := "pm.base")
 Statement.
 :::
 
@@ -280,5 +297,55 @@ side by side | pm.base | reported | reported | none | -
     hasSubstr (view "pm.sorry") Meaning.proofDeclsTitle && hasSubstr (view "pm.sorry") "pmOpen" &&
     -- the axioms line counts the proof's declarations
     hasSubstr (view "pm.axiom") "pmAx" && hasSubstr (view "pm.none.open") Meaning.proofDeclsTitle
+
+/-! ## Counts, the graph and queries -/
+
+-- A node whose statement has no Lean declaration is not counted as formalized however complete
+-- the declarations attached to its proof are: the graph's border and fill, the summary's and
+-- the statistics' counts (which read the graph's statuses), the work queue, and the closures
+-- that make a dependent "complete with its dependencies". Every other node keeps its status.
+/--
+info: pm.sorry | formalized | Lean code incomplete | local false
+pm.axiom | formalized | locally formalized + dependencies complete | local true
+pm.missing | ready to formalize | ready to formalize | local false
+pm.none.done | ready to formalize | ready to formalize | local false
+pm.none.open | ready to formalize | Lean code incomplete | local false
+pm.base | formalized | locally formalized + dependencies complete | local true
+pm.uses.none | formalized | locally formalized | local true
+pm.uses.base | formalized | locally formalized + dependencies complete | local true
+-/
+#guard_msgs in
+#eval show CoreM Unit from do
+  let state := Environment.informalExt.getState (← getEnv)
+  let mut rows := #[]
+  for name in ["pm.sorry", "pm.axiom", "pm.missing", "pm.none.done", "pm.none.open", "pm.base",
+      "pm.uses.none", "pm.uses.base"] do
+    let label := Name.mkSimple name
+    let some node := state.data.get? label | throwError "missing {name}"
+    let node := node.toNode
+    rows := rows.push s!"{name} | {(Graph.statementStatus {} state label node).toText} | \
+      {(Graph.proofStatus {} state label node).toText} | local {Graph.nodeLocalFormalized {} node}"
+  IO.println ("\n".intercalate rows.toList)
+
+-- `vbp query status`: `complete` and `proofComplete` say what the declarations are; only a
+-- node with a Lean statement has a complete one.
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let (_, state) ← renderManualDocHtmlStringAndState extension_impls% proofMarksDoc
+  let files ← PreviewManifest.buildPreviewDataFiles extension_impls%
+    (fun message => throw <| IO.userError message)
+    (PreviewManifest.PreparedPreviewState.prepare state)
+    ({ mode := .none } : ExternalMarkupRender.Config)
+  let status (label : String) : IO (Option Bool × Option Bool × Option Bool) := do
+    let .ok (some query) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
+      | throw <| IO.userError "status query failed to parse"
+    let json := query.run files.manifest
+    return ((json.getObjValAs? Bool "complete").toOption,
+      (json.getObjValAs? Bool "statementComplete").toOption,
+      (json.getObjValAs? Bool "proofComplete").toOption)
+  return (← status "pm.none.done") == (some true, some false, some true) &&
+    (← status "pm.base") == (some true, some true, some true) &&
+    (← status "pm.sorry") == (some false, some true, some false)
 
 end Verso.VersoBlueprintTests.BlueprintProofMarks

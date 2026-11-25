@@ -159,6 +159,15 @@ This imported statement association also has a proof-facet occurrence.
       proofOnly.proof.any (·.dependencyLabels == #[Name.mkSimple "proof.inferred.dep"]) &&
       proofOnly.statement.any (·.dependencyLabels.isEmpty) do
     throwError "Proof association did not contribute membership, status, or inferred proof dependencies"
+  -- its declarations are complete, but the node has no Lean statement: nothing counts it as
+  -- formalized, not its statement nor its proof nor its dependents' closures
+  let onlyLabel := Name.mkSimple "proof.attachments.only"
+  unless !proofOnly.hasLeanStatement && !Graph.nodeLocalFormalized {} proofOnly &&
+      !Graph.nodeLocalStatementFormalized {} proofOnly &&
+      Graph.statementStatus {} state onlyLabel proofOnly != .formalized &&
+      Graph.proofStatus {} state onlyLabel proofOnly != .formalized &&
+      Graph.proofStatus {} state onlyLabel proofOnly != .formalizedWithAncestors do
+    throwError "A node without a Lean statement was counted as formalized"
   let some admitted := state.data.get? (Name.mkSimple "proof.attachments.admitted")
     | throwError "Missing admitted proof association"
   unless Graph.proofStatus {} state (Name.mkSimple "proof.attachments.admitted") admitted == .incomplete do
@@ -294,7 +303,10 @@ run_meta do
     let .ok (some statusQuery) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
       | throw <| IO.userError "Status query failed to parse"
     let status := statusQuery.run files.manifest
-    unless (status.getObjValAs? Bool "complete").toOption == some complete do
+    unless (status.getObjValAs? Bool "complete").toOption == some complete &&
+        -- neither node has a Lean statement: its declarations' completeness is no statement's
+        (status.getObjValAs? Bool "statementComplete").toOption == some false &&
+        (status.getObjValAs? Bool "proofComplete").toOption == some complete do
       throw <| IO.userError "Status query ignored the proof association"
     let .ok declarations := status.getObjValAs? (Array Json) "declarations"
       | throw <| IO.userError "Status query omitted declarations"

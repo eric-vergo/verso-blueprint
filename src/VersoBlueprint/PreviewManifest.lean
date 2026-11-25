@@ -2553,7 +2553,7 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         title := node.title
         href? := node.href
         status := Informal.statusGlyph
-          (markCode?.bind fun code => Informal.CodeSummary.statusMark? kind (some code)) replay?
+          (Informal.CodeSummary.statusMark? kind entry.codeData proofDecls) replay?
         informal?
         proof?
         lean := sourceParts ++ inlineParts

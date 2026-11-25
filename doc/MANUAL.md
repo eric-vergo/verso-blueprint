@@ -1017,7 +1017,16 @@ attached to its proof can only lower it:
   declaration" (○) however complete its proof's declarations are: the mark speaks
   about the Lean statement, and there is none. Only a problem in the proof's
   declarations (a `sorry`, a missing declaration, such an axiom, a changed
-  source) gives it a mark, the mark of that problem.
+  source) gives it a mark, the mark of that problem, and its title says "no Lean
+  statement".
+- Nothing counts such a node as formalized: the graph draws its statement and its
+  proof as not formalized (the border "ready to formalize" or "blocked", the fill
+  "ready to formalize", "not ready" or "Lean code incomplete"), the Blueprint
+  Summary and the Project Stats counts ("Lean complete", "Lean complete with
+  dependencies") leave it out, the work queue lists it, and a node that depends on
+  it is not "complete with its dependencies". `vbp query status` reports
+  `statementComplete: false` for it; `complete` and `proofComplete` describe its
+  declarations, as they do for every node.
 - The same mark appears everywhere a node's state is shown: the heading's glyph
   and Lean chip, the chip of a `{blueprint_node}` placement, the graph's node
   view, tooltip and accessible name, the success colours of the node's blocks and

@@ -696,14 +696,21 @@ def nodeHasProofBlockers (external : ExternalCodeStatus) (node : Data.Node) : Bo
 def nodeHasIncompleteCode (external : ExternalCodeStatus) (node : Data.Node) : Bool :=
   (nodeCodeHealth external node).hasAnyGaps
 
+/-- Whether the node's Lean statement is formalized: it has one (`Data.Node.hasLeanStatement`)
+and its Lean code, with the declarations attached to its proof, has no gap in a statement. -/
 def nodeLocalStatementFormalized (external : ExternalCodeStatus) (node : Data.Node) : Bool :=
-  (nodeCodeHealth external node).localStatementFormalized
+  node.hasLeanStatement && (nodeCodeHealth external node).localStatementFormalized
 
+/-- Whether the node's Lean statement is proved: it has one and its Lean code, with the
+declarations attached to its proof, has no `sorry`. -/
 def nodeLocalProofFormalized (external : ExternalCodeStatus) (node : Data.Node) : Bool :=
-  (nodeCodeHealth external node).localProofFormalized
+  node.hasLeanStatement && (nodeCodeHealth external node).localProofFormalized
 
+/-- Whether the node is formalized on its own (proved, for a theorem-like node; formalized, for a
+definition). A node without a Lean statement is not, however complete the declarations attached
+to its proof are. -/
 def nodeLocalFormalized (external : ExternalCodeStatus) (node : Data.Node) : Bool :=
-  (nodeCodeHealth external node).localFormalized node.kind
+  node.hasLeanStatement && (nodeCodeHealth external node).localFormalized node.kind
 
 def eraseDups (xs : Array Name) : Array Name :=
   xs.foldl (init := #[]) fun acc x => if acc.contains x then acc else acc.push x
@@ -795,9 +802,11 @@ def statementStatus (external : ExternalCodeStatus) (state : Environment.State) 
 def proofStatus (external : ExternalCodeStatus) (state : Environment.State) (_label : Name)
     (node : Data.Node) (closures : Closures := Closures.of external state) : ProofStatus :=
   let health := nodeCodeHealth external node
+  -- a node without a Lean statement is not formalized, whatever its proof's declarations
+  let statement := node.hasLeanStatement
   if health.hasChangedSource then .sourceChanged
   else if !node.kind.isTheoremLike then
-    if health.localStatementFormalized then
+    if statement && health.localStatementFormalized then
       if closures.complete .both (allDeps node) then .formalizedWithAncestors else .formalized
     else if health.incompleteAssociatedCode then
       .incomplete
@@ -805,7 +814,7 @@ def proofStatus (external : ExternalCodeStatus) (state : Environment.State) (_la
       .ready
     else
       .none
-  else if health.localProofFormalized then
+  else if statement && health.localProofFormalized then
     if closures.complete .both (allDeps node) then .formalizedWithAncestors else .formalized
   else if health.incompleteAssociatedCode then
     .incomplete
