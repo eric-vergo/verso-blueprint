@@ -4,6 +4,14 @@
 
 .bp_project_stats {
   --bp-stats-pattern-ink: color-mix(in srgb, var(--bp-color-status-fill-text) 38%, transparent);
+  /* One face for structure (titles, captions, labels, chips, pills, notes and controls), the
+     site's text face for sentences, and one reading measure for every sentence, in the em of the
+     sentence's own size; one colour for links and one focus ring. */
+  --bp-stats-ui-font: var(--verso-structure-font-family, system-ui, sans-serif);
+  --bp-stats-text-font: var(--verso-text-font-family, serif);
+  --bp-stats-measure: 40em;
+  --bp-stats-link: var(--bp-color-link, #1d4ed8);
+  --bp-stats-focus: var(--bp-color-link, #1d4ed8);
   margin-top: 0.6rem;
   color: var(--bp-color-text);
   max-width: 100%;
@@ -16,26 +24,77 @@
   margin-bottom: 0.8rem;
   background: var(--bp-color-surface);
   min-width: 0;
+  font-family: var(--bp-stats-ui-font);
 }
 
-.bp_stats_band_title {
-  margin: 0 0 0.5rem;
-  font-size: 0.78rem;
+/* A band's content sits in a body of its own, out of reach of the rules a site sets for the
+   paragraphs and lists of its sections; these rules set what the band needs instead. */
+.bp_project_stats .bp_stats_band p,
+.bp_stats_meaning_list dd,
+.bp_stats_replay_checkers > li {
+  font-family: var(--bp-stats-text-font);
+  max-width: var(--bp-stats-measure);
+  line-height: 1.5;
+}
+
+.bp_project_stats .bp_stats_band li {
+  margin: 0;
+}
+
+.bp_project_stats .bp_stats_band :is(ul, ol, dl) {
+  max-width: none;
+}
+
+/* One label style for the bands' titles and the identity's labels. The id in `:is()` matches
+   nothing; it lifts the rule above the side-by-side style's rule for headings. */
+.bp_project_stats :is(.bp_stats_band_title, .bp_stats_fact_label, #bp-stats-label) {
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
+  line-height: 1.35;
   text-transform: uppercase;
   color: var(--bp-color-text-subtle);
 }
 
+.bp_stats_band_title {
+  margin: 0 0 0.55rem;
+}
+
+/* A band's first sentence: the text face at reading size, set apart by colour, not by weight. */
 .bp_stats_lead {
-  margin: 0 0 0.45rem;
-  font-weight: 600;
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.45;
   color: var(--bp-color-text-strong);
 }
 
-.bp_stats_caption {
-  font-size: 0.82rem;
+/* Links inside the bands: one quiet treatment, with a thin underline as the cue at rest. */
+.bp_project_stats a:not(.bp_stats_chip, .bp_stats_axiom, .bp_stats_verdict_link, .bp_stats_links a) {
+  color: var(--bp-stats-link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.bp_project_stats a:not(.bp_stats_chip, .bp_stats_axiom, .bp_stats_verdict_link, .bp_stats_links a):hover {
+  text-decoration-color: currentColor;
+}
+
+.bp_project_stats a:focus-visible {
+  outline: 2px solid var(--bp-stats-focus);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
+}
+
+.bp_stats_caption,
+.bp_project_stats .bp_stats_band .bp_stats_caption {
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--bp-color-text-subtle);
 }
 
@@ -59,33 +118,59 @@
   color: var(--bp-color-text-muted);
 }
 
+/* The identity's facts: a label and its values, each value a chip. */
+.bp_stats_facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.4rem 1rem;
+  margin: 0.55rem 0 0.15rem;
+}
+
+.bp_stats_fact {
+  display: contents;
+}
+
+.bp_stats_fact_value {
+  margin: 0;
+  min-width: 0;
+}
+
 .bp_stats_chips,
-.bp_stats_links,
 .bp_stats_axiom_list,
 .bp_stats_legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 0.45rem;
+  gap: 0.35rem 0.4rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.bp_stats_chips {
-  align-items: center;
+/* Each chip is the only box of its list item, so a row of chips shares one top and bottom. */
+.bp_stats_chips > li,
+.bp_stats_axiom_list > li {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.bp_stats_chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  line-height: 1.4;
+.bp_stats_chip,
+.bp_stats_links a,
+.bp_stats_axiom {
+  display: block;
+  box-sizing: border-box;
+  max-width: 100%;
   border: 1px solid var(--bp-color-border);
   border-radius: var(--bp-radius-pill);
-  padding: 0.1rem 0.6rem;
-  font-size: 0.82rem;
+  padding: 0.15rem 0.65rem;
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.35;
   background: var(--bp-color-surface-muted);
   color: var(--bp-color-text);
+  text-decoration: none;
   overflow-wrap: anywhere;
 }
 
@@ -96,20 +181,63 @@
 }
 
 .bp_stats_chip_name {
-  font-weight: 600;
+  font-weight: 650;
+}
+
+.bp_stats_chip_version,
+.bp_stats_axiom code {
+  font-family: var(--verso-code-font-family, monospace);
+  font-size: 0.94em;
 }
 
 .bp_stats_chip_version {
-  font-family: var(--verso-code-font-family, monospace);
-  color: var(--bp-color-text-subtle);
+  margin-left: 0.15rem;
+  color: var(--bp-color-text-muted);
 }
 
-.bp_stats_links {
-  margin-top: 0.55rem;
+.bp_stats_axiom code {
+  background: none;
+  padding: 0;
+  color: inherit;
 }
 
-.bp_stats_links a::after {
-  content: " \2197";
+/* A chip that is a link shows it on hover and focus, and so does the mark of a link that leaves
+   the site, set in the chip's corner so that nothing moves; its title names the site. */
+a.bp_stats_chip,
+.bp_stats_links a,
+a.bp_stats_axiom {
+  position: relative;
+}
+
+a.bp_stats_chip:hover,
+.bp_stats_links a:hover,
+a.bp_stats_axiom:hover,
+a.bp_stats_chip:focus-visible,
+.bp_stats_links a:focus-visible,
+a.bp_stats_axiom:focus-visible {
+  border-color: var(--bp-stats-link);
+  background: var(--bp-color-surface-subtle);
+}
+
+.bp_stats_external::after,
+.bp_stats_links a[href^="http"]::after {
+  content: "\2197";
+  position: absolute;
+  top: -0.55rem;
+  right: -0.35rem;
+  padding: 0 0.15rem;
+  border-radius: var(--bp-radius-pill);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  background: var(--bp-color-surface);
+  color: var(--bp-stats-link);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bp_stats_external:is(:hover, :focus-visible)::after,
+.bp_stats_links a[href^="http"]:is(:hover, :focus-visible)::after {
+  opacity: 1;
 }
 
 /* Headline */
@@ -146,28 +274,59 @@
   border-left-color: var(--bp-color-status-unresolved-border);
 }
 
+/* The card's head: the theorem's name and its verdict beside it, the verdict on a line of its own
+   when they do not fit side by side; then, quieter, the theorem's node on this site. A name breaks
+   only after a dot (`<wbr>`), and only when it cannot fit. */
 .bp_stats_theorem_head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.3rem 0.6rem;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+}
+
+.bp_stats_theorem_head > * {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .bp_stats_theorem_node {
-  font-weight: 600;
+  flex-basis: 100%;
+  font-size: 0.8rem;
 }
 
 .bp_stats_theorem_name {
-  font-weight: 600;
-  overflow-wrap: anywhere;
+  font-weight: 700;
+  font-size: 0.95rem;
+  overflow-wrap: break-word;
+}
+
+.bp_project_stats .bp_stats_theorem_name_link code {
+  color: inherit;
+}
+
+/* A verdict is a link to its explanation: a pill with a chevron, and a ring on hover. */
+.bp_stats_verdict_link {
+  border-radius: var(--bp-radius-pill);
+  text-decoration: none;
+}
+
+.bp_stats_verdict_link .bp_stats_verdict::after {
+  content: "\00a0\203A";
+  font-weight: 700;
+}
+
+.bp_stats_verdict_link:hover .bp_stats_verdict {
+  box-shadow: 0 0 0 2px var(--bp-stats-link);
 }
 
 .bp_stats_verdict {
-  margin-left: auto;
+  display: inline-block;
   border-radius: var(--bp-radius-pill);
-  padding: 0.05rem 0.6rem;
+  padding: 0.15rem 0.65rem;
+  font-family: var(--bp-stats-ui-font);
   font-size: 0.8rem;
   font-weight: 700;
+  line-height: 1.35;
   border: 1px solid var(--bp-color-border);
   background: var(--bp-color-surface-muted);
   color: var(--bp-color-text);
@@ -203,15 +362,38 @@
 }
 
 .bp_stats_statement {
-  margin: 0.4rem 0 0;
-  padding: 0.35rem 0.55rem;
+  margin: 0.25rem 0 0;
+  padding: 0.35rem 0.6rem;
   border-radius: var(--bp-radius-md);
   background: var(--bp-color-surface-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 0.88rem;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
+/* A highlighted statement: one block per source line, wrapped lines with a hanging indent. */
+.bp_stats_statement_code code.hl.lean.block {
+  display: block;
+  margin: 0;
+  padding: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--verso-code-font-family, monospace);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  background: transparent;
+}
+
+.bp_stats_statement_code .bp_code_line {
+  display: block;
+  padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
+  text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
+}
+
+/* A row of the card: its caption above, as for the statement and the docstring, then the chips
+   with the note beside them. */
 .bp_stats_axioms {
   display: flex;
   flex-wrap: wrap;
@@ -220,11 +402,8 @@
   margin-top: 0.45rem;
 }
 
-.bp_stats_axiom {
-  border: 1px solid var(--bp-color-border);
-  border-radius: var(--bp-radius-pill);
-  padding: 0 0.5rem;
-  font-size: 0.8rem;
+.bp_stats_axioms > .bp_stats_caption {
+  flex-basis: 100%;
 }
 
 .bp_stats_axiom_sorry,
@@ -235,7 +414,8 @@
 }
 
 .bp_stats_axioms_note {
-  font-size: 0.82rem;
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.8rem;
   color: var(--bp-color-text-subtle);
 }
 
@@ -349,9 +529,44 @@ html[data-lean-links] .bp_stats_meaning_more {
 .bp_stats_headline_source,
 .bp_stats_headline_definitions,
 .bp_stats_headline_unavailable {
-  margin: 0.4rem 0 0;
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  color: var(--bp-color-text-muted);
+}
+
+/* The definitions line is a row like the card's axioms: a caption, then names and what the
+   solution does with each. */
+.bp_project_stats .bp_stats_band p.bp_stats_headline_definitions {
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.82rem;
+}
+
+.bp_stats_headline_definitions .bp_stats_caption {
+  margin-right: 0.35rem;
+}
+
+/* The way to the challenge's page, set apart from the sentences above it. */
+.bp_project_stats .bp_stats_band p.bp_stats_challenge_page {
+  margin: 0.65rem 0 0;
+  font-family: var(--bp-stats-ui-font);
   font-size: 0.85rem;
-  color: var(--bp-color-text-subtle);
+  font-weight: 600;
+}
+
+.bp_stats_challenge_link::after {
+  content: "\00a0\2192";
+}
+
+/* The entry a link lands on: its term and its explanation as one marked row. */
+.bp_stats_meaning_list dt {
+  scroll-margin-top: 1.5rem;
+}
+
+.bp_stats_meaning_list dt:target,
+.bp_stats_meaning_list dt:target + dd {
+  background: var(--bp-color-selection-surface-soft);
+  box-shadow: -0.45rem 0 0 0 var(--bp-color-selection-surface-soft),
+    0.45rem 0 0 0 var(--bp-color-selection-surface-soft);
 }
 
 .bp_stats_headline_unavailable {
@@ -535,6 +750,16 @@ html[data-lean-links] .bp_stats_meaning_more {
   margin: 0 0 0.3rem;
 }
 
+.bp_stats_replay_checkers {
+  margin: 0.4rem 0;
+  font-size: 0.88rem;
+}
+
+.bp_stats_replay_checkers > li + li,
+.bp_stats_files > li + li {
+  margin-top: 0.15rem;
+}
+
 .bp_stats_files {
   margin: 0.2rem 0 0.2rem;
   padding-left: 1.2rem;
@@ -575,9 +800,14 @@ html[data-lean-links] .bp_stats_meaning_more {
     padding: 0.6rem 0.65rem;
   }
 
-  .bp_stats_verdict {
-    margin-left: 0;
+  .bp_stats_facts {
+    grid-template-columns: minmax(0, 1fr);
   }
+
+  .bp_stats_fact_label {
+    margin-top: 0.2rem;
+  }
+
 
   .bp_stats_chapter_bar {
     width: 25%;
@@ -605,8 +835,6 @@ html[data-lean-links] .bp_stats_meaning_more {
 }
 
 .bp_stats_verdict_not-replayed {
-  margin-left: 0;
-  flex-basis: 100%;
   border-radius: var(--bp-radius-md);
   font-weight: 600;
 }
@@ -616,7 +844,7 @@ html[data-lean-links] .bp_stats_meaning_more {
 }
 
 .bp_stats_replay_note {
-  margin: 0.3rem 0 0;
+  margin: 0.35rem 0 0;
   font-size: 0.85rem;
   color: var(--bp-color-text-subtle);
   overflow-wrap: anywhere;
@@ -631,6 +859,14 @@ html[data-lean-links] .bp_stats_meaning_more {
 .bp_stats_replay_accepted::before {
   content: "\2713\00a0";
   color: var(--bp-color-accent-success);
+  font-weight: 700;
+}
+
+/* An acceptance of a build older than the sources shown, or not known to be theirs: the
+   neutral mark of a changed source, never the check mark. */
+.bp_stats_replay_changed::before {
+  content: "\25cc\00a0";
+  color: var(--bp-color-text-subtle);
   font-weight: 700;
 }
 

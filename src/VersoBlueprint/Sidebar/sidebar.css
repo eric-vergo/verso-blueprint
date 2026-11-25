@@ -9,6 +9,10 @@ html:has(meta[name="verso-blueprint-sidebar"]) {
   --bp-sidebar-rule: rgba(255, 255, 255, 0.28);
   --bp-sidebar-switch-track: rgba(255, 255, 255, 0.32);
   --bp-sidebar-switch-knob: #ffffff;
+  --bp-sidebar-guide: rgba(255, 255, 255, 0.26);
+  --bp-sidebar-current-bg: rgba(255, 255, 255, 0.16);
+  --bp-sidebar-indent: 0.85rem;
+  --bp-sidebar-twistie: 1.5rem;
   --verso-toc-background-color: var(--bp-sidebar-bg);
   --verso-toc-text-color: var(--bp-sidebar-fg);
   --verso-toc-border-color: transparent;
@@ -19,6 +23,8 @@ html[data-theme="dark"]:has(meta[name="verso-blueprint-sidebar"]) {
   --bp-sidebar-fg: #e8edf3;
   --bp-sidebar-fg-muted: rgba(232, 237, 243, 0.72);
   --bp-sidebar-rule: rgba(232, 237, 243, 0.18);
+  --bp-sidebar-guide: rgba(232, 237, 243, 0.2);
+  --bp-sidebar-current-bg: rgba(232, 237, 243, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,6 +33,8 @@ html[data-theme="dark"]:has(meta[name="verso-blueprint-sidebar"]) {
     --bp-sidebar-fg: #e8edf3;
     --bp-sidebar-fg-muted: rgba(232, 237, 243, 0.72);
     --bp-sidebar-rule: rgba(232, 237, 243, 0.18);
+    --bp-sidebar-guide: rgba(232, 237, 243, 0.2);
+    --bp-sidebar-current-bg: rgba(232, 237, 243, 0.12);
   }
 }
 
@@ -183,6 +191,254 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc label.toggle-spli
 
 html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc:not(.book) table {
   border-left-color: var(--bp-sidebar-rule);
+}
+
+/* Parts in Verso's list (the page without the sidebar script): the label
+   "Part II" on its own line above the part's title, and the chapters that
+   follow a part indented. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .bp_part_label {
+  display: block;
+  color: var(--bp-sidebar-fg-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .bp_part_separator {
+  display: none;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered:has(.bp_part_label) {
+  margin-top: 0.55rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered:has(.bp_part_label) a {
+  font-weight: 600;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbered:has(.bp_part_label) ~ tr.numbered {
+  padding-left: var(--bp-sidebar-indent);
+}
+
+/* While the sidebar script waits for the outline, Verso's list is kept out of sight, so that the
+   reader does not see it turn into the tree. Should the script never finish, the list shows after
+   a few seconds. Without scripts the class is never set. */
+html.bp-sidebar-pending:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book {
+  visibility: hidden;
+  animation: bp-sidebar-show 0s linear 4s forwards;
+}
+
+@keyframes bp-sidebar-show {
+  to {
+    visibility: visible;
+  }
+}
+
+/* "Blueprint Home" on the front page, which is the current page there. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_home.bp_sidebar_current > td {
+  background: var(--bp-sidebar-current-bg);
+  border-radius: 0.25rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_home.bp_sidebar_current a {
+  font-weight: 700;
+}
+
+/* The outline as a tree, built by the sidebar script: one row per entry,
+   indented by its level, a disclosure triangle in a gutter of fixed width
+   (leaf rows keep the gutter, so siblings align), and a guide line for each
+   open level, running down the rows below its entry. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_tree_row > td {
+  padding: 0;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_tree_row:hover > td {
+  background: transparent;
+}
+
+#toc ul.bp_tree,
+#toc ul.bp_tree_group {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#toc ul.bp_tree_group {
+  position: relative;
+}
+
+#toc ul.bp_tree_group[hidden] {
+  display: none;
+}
+
+/* The guide line of a level: under the middle of its entry's triangle. */
+#toc ul.bp_tree_group::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0.15rem;
+  left: calc(0.35rem + var(--bp-tree-level, 0) * var(--bp-sidebar-indent) + var(--bp-sidebar-twistie) / 2);
+  border-left: 1px solid var(--bp-sidebar-guide);
+  pointer-events: none;
+}
+
+#toc .bp_tree_row {
+  display: flex;
+  align-items: flex-start;
+  padding-left: calc(0.35rem + var(--bp-tree-level, 0) * var(--bp-sidebar-indent));
+  padding-right: 0.4rem;
+  border-radius: 0.25rem;
+  line-height: 1.25;
+}
+
+#toc .bp_tree_row:hover {
+  background: var(--bp-sidebar-hover-bg);
+}
+
+#toc .bp_tree_row.bp_tree_current {
+  background: var(--bp-sidebar-current-bg);
+}
+
+/* The triangle's gutter, at least 24 by 24 pixels: the button's whole box takes clicks. */
+#toc .bp_tree_toggle,
+#toc .bp_tree_toggle_space {
+  flex: 0 0 var(--bp-sidebar-twistie);
+  align-self: stretch;
+  min-height: 1.5rem;
+  max-height: 1.85rem;
+  margin: 0;
+  padding: 0;
+}
+
+#toc .bp_tree_toggle {
+  position: relative;
+  border: 0;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: var(--bp-sidebar-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The triangle: pointing right when closed, down when open. */
+#toc .bp_tree_toggle::before {
+  content: "";
+  position: absolute;
+  top: calc(0.3rem + 0.625em - 0.3rem);
+  left: calc(50% - 0.18rem);
+  border-top: 0.3rem solid transparent;
+  border-bottom: 0.3rem solid transparent;
+  border-left: 0.38rem solid currentColor;
+  transition: transform 120ms ease;
+}
+
+#toc .bp_tree_toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+#toc .bp_tree_toggle:hover {
+  color: var(--bp-sidebar-fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #toc .bp_tree_toggle::before {
+    transition: none;
+  }
+}
+
+#toc a.bp_tree_link {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.3rem 0 0.3rem 0.2rem;
+  border-radius: 0.2rem;
+  color: var(--bp-sidebar-fg);
+  text-decoration: none;
+}
+
+#toc .bp_tree_toggle:focus-visible,
+#toc a.bp_tree_link:focus-visible {
+  outline: 2px solid var(--bp-sidebar-fg);
+  outline-offset: -2px;
+}
+
+/* Sibling rows' numbers take the width of the widest (set by the sidebar script), in figures of
+   one width, so that the titles line up. */
+#toc .bp_tree_number {
+  flex: 0 0 auto;
+  box-sizing: content-box;
+  min-width: var(--bp-tree-number-width, 1.4rem);
+  padding-right: 0.4rem;
+  color: var(--bp-sidebar-fg-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Long titles wrap under their own first letter, at their level. */
+#toc .bp_tree_title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#toc .bp_tree_title code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Highlighted code in a title takes the row's colour: the code colours are made for the page's
+   background, not the sidebar's. */
+#toc .bp_tree_title code.hl,
+#toc .bp_tree_title code.hl * {
+  background: transparent;
+  color: inherit;
+}
+
+#toc .bp_tree_current > a.bp_tree_link {
+  font-weight: 700;
+}
+
+/* Parts: the label "Part II" above a semibold title, with room above. */
+#toc li.bp_tree_part:not(:first-child) {
+  margin-top: 0.45rem;
+}
+
+#toc li.bp_tree_part > .bp_tree_row > a.bp_tree_link {
+  font-weight: 600;
+}
+
+#toc li.bp_tree_part > .bp_tree_row > .bp_tree_toggle::before {
+  top: calc(0.3rem + 0.72rem * 1.25 + 0.625em - 0.3rem);
+}
+
+/* Below the chapters: sections smaller, in the muted colour. */
+#toc ul.bp_tree_group ul.bp_tree_group .bp_tree_row {
+  font-size: 0.88rem;
+}
+
+#toc ul.bp_tree_group ul.bp_tree_group a.bp_tree_link {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  color: var(--bp-sidebar-fg-muted);
+}
+
+#toc ul.bp_tree_group ul.bp_tree_group .bp_tree_current > a.bp_tree_link,
+#toc ul.bp_tree_group ul.bp_tree_group a.bp_tree_link:hover {
+  color: var(--bp-sidebar-fg);
+}
+
+#toc ul.bp_tree_group ul.bp_tree_group .bp_tree_toggle::before {
+  top: calc(0.2rem + 0.625em - 0.3rem);
+}
+
+#toc li.bp_tree_rule {
+  padding: 0.45rem 0.4rem 0.45rem 0.6rem;
+}
+
+#toc li.bp_tree_rule hr {
+  border: 0;
+  border-top: 1px solid var(--bp-sidebar-rule);
+  margin: 0;
 }
 
 /* Sidebar foot: page controls (style switcher, legends) and the theme switch. */

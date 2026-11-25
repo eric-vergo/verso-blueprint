@@ -913,7 +913,15 @@ def test_navigation_links_find_their_places(side_by_side_site_dir: Path):
 
 def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
     index = (side_by_side_site_dir / "index.html").read_text(encoding="utf-8")
-    assert "Part I — Relations" in index and "Part II — Reading" in index
+    # the label "Part I — " is marked up so that a stylesheet can set it apart
+    for numeral, title in (("I", "Relations"), ("II", "Reading")):
+        label = (
+            f'<span class="bp_part_label"><span class="bp_part_number">Part {numeral}</span>'
+            '<span class="bp_part_separator"> — </span></span>'
+        )
+        assert label + title in index, title
+    part_page = (side_by_side_site_dir / "Part-I" / "index.html").read_text(encoding="utf-8")
+    assert "<title>Part I — Relations</title>" in part_page
     # chapters stay where they were, numbered on across the parts
     for number, title in ((5, "Group Previews"), (6, "Preview Relationships"), (9, "Reading Aids")):
         assert f'<span class="number">{number}.</span> {title}' in index, title

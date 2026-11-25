@@ -58,6 +58,25 @@ def href? (dir : System.FilePath) (path : String) : IO (Option String) := do
   let path := LeanSourceAnchor.percentEncode file
   return some s!"{info.githubUrl}/blob/{info.commit}/{path}{fragment}"
 
+/-- The address of `path` (relative to the project root `root`) in the project's repository at the
+commit the site is built from, when `root` is in a Git checkout with a GitHub `origin` and the
+repository tracks the file. -/
+def projectFileHref? (root : System.FilePath) (path : String) : IO (Option String) := do
+  let some top ← Informal.Git.toplevelAt? root | return none
+  let realRoot ← (try IO.FS.realPath root catch _ => pure root)
+  let realTop ← (try IO.FS.realPath top catch _ => pure top)
+  let rootText := realRoot.toString
+  let topText := realTop.toString
+  let repoPath ← if rootText == topText then pure path
+    else if rootText.startsWith (topText ++ "/") then
+      pure ((rootText.drop (topText.length + 1)).toString ++ "/" ++ path)
+    else return none
+  -- a file the repository does not track has no address there
+  let tracked ← Informal.Process.runTrimmedCommand? "git"
+    #["-C", topText, "ls-files", "--error-unmatch", "--", repoPath]
+  if tracked.isNone then return none
+  href? root repoPath
+
 /-- Whether the Git repository at `root` tracks `path` (a file, or a folder with a tracked file). -/
 def tracked (root : System.FilePath) (path : String) : IO Bool := do
   let out ← IO.Process.output

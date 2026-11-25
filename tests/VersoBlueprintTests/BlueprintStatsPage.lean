@@ -135,7 +135,8 @@ private def view (stats : ProjectStats) : StatsPageView := {
   let html := (statsPageHtml (view rokickiLike)).render
   hasSubstr html "class=\"bp_project_stats bp_replay_accepted\"" &&
     hasSubstr html "Rokicki's constant is irrational</p>" && hasSubstr html "class=\"bp_stats_name\"" &&
-    hasSubstr html "License: Apache-2.0" && hasSubstr html "Lean v4.35.0" &&
+    hasSubstr html "<dt class=\"bp_stats_fact_label\">License</dt>" &&
+    hasSubstr html ">Apache-2.0</span>" && hasSubstr html "Lean v4.35.0" &&
     -- direct dependencies only, with the revision asked for and the locked commit
     hasSubstr html "data-bp-package=\"mathlib\"" && hasSubstr html "v4.35.0 · 56a0058" &&
     !hasSubstr html "data-bp-package=\"batteries\"" &&
@@ -193,6 +194,203 @@ private def view (stats : ProjectStats) : StatsPageView := {
     appearsBefore html "bp_stats_size" "bp_stats_build" &&
     appearsBefore html "bp_stats_build" "bp_stats_trust" &&
     appearsBefore html "bp_stats_trust" "bp_stats_summary_link"
+
+-- Addresses of the identity's facts: a package's tree at its locked commit on GitHub, in each
+-- spelling of a GitHub remote, and nothing for a path package, another host or a revision that
+-- is not a full commit.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let rev := "fc4f59e577feb1a4956671bc04ac18aaaf8cd842"
+  let tree := s!"https://github.com/leanprover-community/mathlib4/tree/{rev}"
+  let git (url : String) (rev : String := rev) : ManifestPackage :=
+    { name := "mathlib", source := "git", url := some url, rev := some rev }
+  (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4")) == some tree &&
+    (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4.git")) == some tree &&
+    (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4/")) == some tree &&
+    (packageTreeHref? (git "http://github.com/leanprover-community/mathlib4")) == some tree &&
+    (packageTreeHref? (git "git@github.com:leanprover-community/mathlib4.git")) == some tree &&
+    (packageTreeHref? (git "ssh://git@github.com/leanprover-community/mathlib4")) == some tree &&
+    -- another host, a path beyond the repository, a revision that is not a commit
+    (packageTreeHref? (git "https://gitlab.com/group/project")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b/c")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b\"onclick")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b" "v4.36.0")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b" "fc4f59e")) == none &&
+    -- a path package
+    (packageTreeHref? { name := "local", source := "path", dir := some "../local" }) == none &&
+    (packageTreeHref? { git "https://github.com/a/b" with source := "path" }) == none &&
+    -- a package in a folder of its repository links to that folder at the revision
+    (packageTreeHref? { git "https://github.com/eric-vergo/PILean" with subDir := some "verso" }) ==
+      some s!"https://github.com/eric-vergo/PILean/tree/{rev}/verso" &&
+    (packageTreeHref? { git "https://github.com/a/b" with subDir := some "x/y/" }) ==
+      some s!"https://github.com/a/b/tree/{rev}/x/y" &&
+    (packageTreeHref? { git "https://github.com/a/b" with subDir := some "../c" }) == none &&
+    (packageTreeHref? { git "https://github.com/a/b" with subDir := some "a b" }) == none &&
+    -- a name quoted in the manifest is shown as written
+    shownPackageName "«pilean-verso»" == "pilean-verso" && shownPackageName "mathlib" == "mathlib"
+
+-- The release page of a toolchain: a release or release candidate of `leanprover/lean4` only.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let release (v : String) := some s!"https://github.com/leanprover/lean4/releases/tag/{v}"
+  leanReleaseHref? "leanprover/lean4:v4.36.0\n" == release "v4.36.0" &&
+    leanReleaseHref? "v4.36.0" == release "v4.36.0" &&
+    leanReleaseHref? "leanprover/lean4:v4.36.0-rc1" == release "v4.36.0-rc1" &&
+    leanReleaseHref? "leanprover/lean4-nightly:nightly-2026-11-01" == none &&
+    leanReleaseHref? "leanprover/lean4:nightly-2026-11-01" == none &&
+    leanReleaseHref? "leanprover/lean4:stable" == none &&
+    leanReleaseHref? "someone/lean4:v4.36.0" == none &&
+    leanReleaseHref? "leanprover/lean4:v4.36" == none &&
+    leanReleaseHref? "leanprover/lean4:v4.36.0-rc" == none &&
+    leanReleaseHref? "leanprover/lean4:4.36.0" == none &&
+    leanReleaseHref? "../my-toolchain" == none
+
+-- Lean's standard axioms link to the Lean Language Reference of the build's release when it is
+-- published under its version, and to the latest reference otherwise; no other axiom has an
+-- address.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let latest := "https://lean-lang.org/doc/reference/latest"
+  let r436 := "https://lean-lang.org/doc/reference/4.36.0"
+  leanReferenceBase (some "leanprover/lean4:v4.36.0\n") == r436 &&
+    leanReferenceBase (some "v4.19.0") == "https://lean-lang.org/doc/reference/4.19.0" &&
+    leanReferenceBase (some "leanprover/lean4:v4.18.0") == latest &&
+    leanReferenceBase (some "leanprover/lean4:v4.37.0") == latest &&
+    leanReferenceBase (some "leanprover/lean4:v4.36.1") == latest &&
+    leanReferenceBase (some "leanprover/lean4:v4.036.0") == latest &&
+    leanReferenceBase (some "leanprover/lean4:v4.36.0-rc1") == latest &&
+    leanReferenceBase (some "leanprover/lean4-nightly:nightly-2026-11-01") == latest &&
+    leanReferenceBase (some "someone/lean4:v4.36.0") == latest &&
+    leanReferenceBase none == latest &&
+    axiomDocHref? r436 ``propext == some s!"{r436}/The-Type-System/Propositions/#propext" &&
+    axiomDocHref? r436 ``Quot.sound == some s!"{r436}/The-Type-System/Quotients/#Quot___sound" &&
+    axiomDocHref? r436 ``Classical.choice == some s!"{r436}/Axioms/#standard-axioms" &&
+    axiomDocHref? latest ``sorryAx == none && axiomDocHref? latest `My.axiom == none
+
+-- Each verdict links to the entry of the explanation that explains it, and the page has each
+-- entry: the replay's entry for what a replay decided or did not check, the axioms' entry for a
+-- proof that rests on an axiom the verdict does not allow, the headline's for the rest.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let replay := "bp-meaning-kernel-replay"
+  let headline := "bp-meaning-lean-statement-proved"
+  let html := (statsPageHtml (view rokickiLike)).render
+  let expected : List (String × Bool × String) := [
+    ("proved", true, headline), ("rejected", true, replay), ("not-replayed", true, replay),
+    ("axioms", true, replay), ("axioms", false, "bp-meaning-axioms"), ("sorry", false, headline),
+    ("open", false, headline), ("differs", false, headline), ("missing", false, headline),
+    ("hole", false, headline), ("not-compared", false, headline), ("not-theorem", false, headline)]
+  expected.all fun (token, met, id) =>
+    meaningEntryId (verdictMeaningTitle token met) == id && hasSubstr html s!"<dt id=\"{id}\">"
+
+-- Every chip with an address is a link that leaves the site safely, and every chip without one is
+-- not a link; the verdict links to the entry of the explanation that explains it, an entry the
+-- page has; the theorem's name and the files link to the challenge's page.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let rev := "56a0058500000000000000000000000000000000"
+  let identity := { rokickiLike.identity with
+    toolchain := some "leanprover/lean4:v4.35.0"
+    packages := #[
+      { name := "mathlib", source := "git", rev := some rev, inputRev := some "v4.35.0",
+        url := some "https://github.com/leanprover-community/mathlib4.git" },
+      { name := "local", source := "path", dir := some "../local" }] }
+  let v := { (view { rokickiLike with identity }) with
+    licenseHref := some "https://github.com/o/p/blob/abc/LICENSE"
+    challengeHrefs := #[("Main", "Comparator/Main/#Main")] }
+  let html := (statsPageHtml v).render
+  hasSubstr html s!"<a class=\"bp_stats_chip bp_stats_chip_package bp_stats_external\" \
+      href=\"https://github.com/leanprover-community/mathlib4/tree/{rev}\" title=\"github.com\" \
+      data-bp-package=\"mathlib\">" &&
+    hasSubstr html "<span class=\"bp_stats_chip bp_stats_chip_package\" data-bp-package=\"local\">" &&
+    hasSubstr html "<a class=\"bp_stats_chip bp_stats_chip_license bp_stats_external\" \
+      href=\"https://github.com/o/p/blob/abc/LICENSE\" title=\"github.com\"" &&
+    hasSubstr html "href=\"https://github.com/leanprover/lean4/releases/tag/v4.35.0\" title=\"github.com\"" &&
+    hasSubstr html "<a class=\"bp_stats_axiom bp_stats_axiom_standard bp_stats_external\" \
+      href=\"https://lean-lang.org/doc/reference/4.35.0/The-Type-System/Propositions/#propext\" \
+      data-bp-axiom-class=\"standard\"" &&
+    !hasSubstr html "noopener" &&
+    -- the verdict's entry, on the page that has the explanation
+    hasSubstr html "<a class=\"bp_stats_verdict_link bp_stats_verdict_link_proved\" \
+      href=\"Project-Stats/#bp-meaning-lean-statement-proved\"><span class=\"bp_stats_verdict \
+      bp_stats_verdict_proved\">Lean statement proved</span></a>" &&
+    hasSubstr html "<dt id=\"bp-meaning-lean-statement-proved\">" &&
+    -- the theorem's name and the files go to the challenge's page
+    hasSubstr html "<a class=\"bp_stats_theorem_name_link\" href=\"Comparator/Main/#challenge-file\">\
+      <code class=\"bp_stats_theorem_name\">rho_irrational</code></a>" &&
+    hasSubstr html ">Challenge Main: files, configuration and verdict</a>" &&
+    hasSubstr html "<a class=\"bp_stats_file_link\" href=\"Comparator/Main/#solution-file\">\
+      <code>Comparator/Main/Solution.lean</code></a>" &&
+    -- the method sentence quotes the word it is about
+    hasSubstr html "a verdict says “proved” only when" && !hasSubstr html "\"proved\" only"
+
+-- The license links to the file of the project the statistics describe at the checkout's commit,
+-- also when the site is generated from a folder below the project (`verso.blueprint.projectRoot`),
+-- whose own license file it must not take.
+/-- info: true -/
+#guard_msgs in
+#eval show IO Bool from do
+  let root ← IO.FS.realPath (← IO.FS.createTempDir)
+  let git (args : Array String) := IO.Process.output { cmd := "git", args, cwd := root }
+  IO.FS.writeFile (root / "LICENSE") "MIT License"
+  IO.FS.createDirAll (root / "blueprint")
+  IO.FS.writeFile (root / "blueprint" / "LICENSE") "Apache License"
+  let _ ← git #["init", "-q"]
+  let _ ← git #["remote", "add", "origin", "https://github.com/o/p.git"]
+  let _ ← git #["add", "LICENSE", "blueprint/LICENSE"]
+  let _ ← git #["-c", "user.name=test", "-c", "user.email=test@example.org", "-c",
+    "commit.gpgsign=false", "commit", "-q", "-m", "files"]
+  let commit := (← git #["rev-parse", "HEAD"]).stdout.trimAscii.toString
+  let cwd ← IO.currentDir
+  try
+    IO.Process.setCurrentDir (root / "blueprint")
+    let license : ProjectIdentity := { license := some { file := "LICENSE", spdx := some "MIT" } }
+    let project ← licenseHref? { identity := license, layout := { projectRoot := some ".." } }
+    let own ← licenseHref? { identity := license }
+    return project == some s!"https://github.com/o/p/blob/{commit}/LICENSE" &&
+      own == some s!"https://github.com/o/p/blob/{commit}/blueprint/LICENSE"
+  finally
+    IO.Process.setCurrentDir cwd
+    IO.FS.removeDirAll root
+
+-- A judged theorem's name breaks only after its dots.
+/-- info: "<code class=\"bp_stats_theorem_name\">Dif.<wbr/>add_swap</code>" -/
+#guard_msgs in
+#eval (theoremNameHtml `Dif.add_swap).render
+
+-- A statement is cut from its module's highlighted code, tokens and all, when the code has its
+-- text; otherwise there is none to cut.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let tok (k : SubVerso.Highlighting.Token.Kind) (s : String) : SubVerso.Highlighting.Highlighted :=
+    .token ⟨k, s⟩
+  let code : SubVerso.Highlighting.Highlighted := .seq #[
+    tok .docComment "/-- Doubling. -/", .text "\n", tok (.keyword none none none) "theorem",
+    .text " ", tok (.const `double_even "Prop" none false none) "double_even", .text " : True := by\n  ",
+    tok (.keyword none none none) "trivial", .text "\n"]
+  let statement := "theorem double_even : True"
+  match Informal.DeclarationSource.sliceByText? code statement with
+  | some cut => cut.toString == statement &&
+      (Informal.DeclarationSource.leaves cut).any (· matches .token ⟨.const .., _⟩) &&
+      (Informal.DeclarationSource.sliceByText? code "theorem double_ev").isNone &&
+      (Informal.DeclarationSource.sliceByText? code "theorem odd").isNone
+  | none => false
+
+-- Without the explanation on the site, a verdict is a plain pill; without a license address, the
+-- license is a plain chip.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let v := { (view rokickiLike) with page := { (view rokickiLike).page with meaningHref := none } }
+  let html := (statsPageHtml v).render
+  !hasSubstr html "bp_stats_verdict_link" &&
+    hasSubstr html "<span class=\"bp_stats_chip bp_stats_chip_license\" data-bp-license-file=\"LICENSE\">Apache-2.0</span>"
 
 -- Without a Comparator challenge there is no card, only the one-line hint; no license file shows.
 /-- info: true -/
@@ -277,6 +475,27 @@ A theorem.
       hasSubstr out "Informal statements: 2 of 2 nodes have one." &&
       hasSubstr out "class=\"bp_stats_band bp_stats_trust\"" &&
       total ≥ 2)
+
+-- A judged theorem's statement is cut from the challenge's code as the challenge's page shows it,
+-- with the hovers of its tokens and without a tab stop for each.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let model : RenderModel := blueprint_render_model%
+    let model := { model with stats := { model.stats with challenges := rokickiLike.challenges } }
+    let tok (k : SubVerso.Highlighting.Token.Kind) (s : String) : SubVerso.Highlighting.Highlighted :=
+      .token ⟨k, s⟩
+    registerChallengeCode `Comparator.Main.Challenge (.seq #[
+      tok .docComment "/-- Rokicki's constant is irrational. -/", .text "\n",
+      tok (.keyword none none none) "theorem", .text " ",
+      tok (.const `rho_irrational "Irrational rho" none true none) "rho_irrational", .text " : ",
+      tok (.const `Irrational "ℝ → Prop" (some "An irrational number.") false none) "Irrational",
+      .text " ", tok (.const `rho "ℝ" none false none) "rho", .text " := by\n  sorry\n"])
+    let out ← renderManualDocHtmlString extension_impls% statsDoc (model := model)
+    let code := ((out.splitOn "bp_stats_statement_code").getD 1 "").splitOn "</code>" |>.head!
+    pure (hasSubstr code "data-verso-hover" && hasSubstr code ">Irrational</span>" &&
+      !hasSubstr code "tabindex" && !hasSubstr code "sorry")
 
 -- The page on every site
 

@@ -377,8 +377,11 @@ Here the introduction is Chapter 1, the part's page is titled
 the next part go on with Chapter 4. Chapter numbers run through all parts, so a
 statement keeps the number it would have without parts (`Theorem 3.2` stays
 `Theorem 3.2` when its chapter moves into a part). The part's page is
-unnumbered: in the table of contents it stands before its chapters, at their
-level, with its introduction as its text. It is written to the folder `Part-I`
+unnumbered: in Verso's table of contents it stands before its chapters, at
+their level, with its introduction as its text (the [sidebar](#sidebar) shows
+the chapters inside the part). The label `Part I — ` is marked up
+(`span.bp_part_label`, holding `span.bp_part_number` and
+`span.bp_part_separator`) so that a stylesheet can set it apart. It is written to the folder `Part-I`
 unless the part names its own file (`file := ...`); its chapters keep their
 folders. A cross-reference to the part's tag shows its title, numeral included.
 TeX output has the same structure: the part's page is an unnumbered chapter.
@@ -1699,13 +1702,55 @@ Group-overview nodes mix their members' light colours and are not repainted.
 The generator flag `--sidebar` enables the sidebar with the default
 configuration (no external links) for one build.
 
-The sidebar lists "Blueprint Home" (the label is `homeLabel`), the numbered
-chapters with the current one in bold, a separator, the unnumbered pages
-(dependency graph, summary, bibliography, ...), the configured external links
-after another separator (none when `links` is empty), and a light/dark switch at
-its foot. The current chapter's sections are listed under that chapter,
-indented and smaller (and a section's subsections under the section); Verso's
-separate per-level lists are not shown. The current entry is in bold.
+The sidebar lists "Blueprint Home" (the label is `homeLabel`), the document's
+outline as a tree, the configured external links after a separator (none when
+`links` is empty), and a light/dark switch at its foot. The tree works like a
+file explorer's:
+
+- Parts hold their chapters and chapters their sections (and sections their
+  subsections), every chapter's sections included. Each level is indented one
+  step further, with a thin guide line running down the rows of each open level.
+  A part's row shows its label ("PART II", small and in capitals) above its
+  title in a heavier weight. In a document without parts, chapters are the top
+  level.
+- A row with entries below it has a triangle, pointing right when closed and
+  down when open, in a gutter of fixed width (at least 24 by 24 pixels, the
+  whole of which takes clicks); rows without one keep the gutter, so the titles
+  of a level line up, and sibling rows give their numbers the width of the
+  widest. Long titles wrap under their own first letter. The triangle is a
+  button (`aria-expanded`, `aria-controls`) that opens and closes the row
+  without leaving the page; the title is a link.
+- Keyboard: each row is one stop for Tab, its link. On a focused row, Right
+  opens it (or moves to its first entry), Left closes it (or moves to the row
+  above it), Up and Down move between the rows that can be seen, and Home and
+  End to the first and last. The triangle stays a button for pointers and
+  assistive technology, out of the Tab order; focused, it toggles with Enter or
+  Space.
+- Parts are open by default, so every chapter is visible; chapters are closed,
+  except those above the current page, which are open. The current page's row
+  is highlighted and in bold (on the front page, "Blueprint Home"). On a
+  single-page site the current row is the one the address's fragment names, if
+  any.
+- The rows a reader opens or closes, and how far the sidebar is scrolled, stay
+  so while they move through the site (in the browser's session storage, under
+  the keys `verso-blueprint-sidebar-tree` and `verso-blueprint-sidebar-scroll`);
+  the sidebar scrolls only when the current row would otherwise be out of view.
+  Without storage the defaults apply.
+- Pages after the last part (or, without parts, after the last numbered
+  chapter), such as Project Stats, stand at the top level after a separator.
+
+The outline comes from `-verso-data/blueprint-sidebar-outline.js`, which the
+generator writes beside the pages, with each title as the table of contents
+shows it (formulas and highlighted Lean code included, without the hover data
+that belongs to one page). Pages load it asynchronously, so no other script
+waits for it; until the tree is built, Verso's list is kept out of sight rather
+than seen turning into the tree (it shows after a few seconds should the script
+never finish, and at once when the outline cannot be loaded, with the current
+chapter's sections nested under it). Without JavaScript the sidebar shows Verso's
+table of contents with the parts set apart (the label above a heavier title,
+chapters after a part indented) and the current chapter in bold; it has no
+triangles, the other chapters' sections are not listed, and Verso's per-level
+lists of the current page stay as Verso shows them.
 
 The site title and the search box sit at the top of the sidebar instead of in a
 full-width header, so pages start at the top of the window. Page controls that
@@ -1723,8 +1768,11 @@ element and stores the choice under the `localStorage` key `verso-theme`; an
 inline script in `<head>` applies a stored choice before the page is drawn.
 Without a stored choice the operating system's preference applies. If the page
 already has a theme control in the table of contents, the sidebar adds none.
-The sidebar colours are CSS variables (`--bp-sidebar-bg`, `--bp-sidebar-fg`,
-`--bp-sidebar-rule`, ...) that a project stylesheet can override.
+The sidebar colours and the tree's measures are CSS variables
+(`--bp-sidebar-bg`, `--bp-sidebar-fg`, `--bp-sidebar-rule`,
+`--bp-sidebar-guide` for the guide lines, `--bp-sidebar-current-bg` for the
+current row, `--bp-sidebar-indent` and `--bp-sidebar-twistie` for the indent
+step and the triangle's gutter, ...) that a project stylesheet can override.
 
 ### Dependency graph
 
@@ -2622,9 +2670,18 @@ nothing:
 
 Everything is checked before the first change, in both modes: the project has
 the single-challenge layout, the folder does not exist yet, every file to be
-rewritten is a regular file, and, in a Git work tree, no file the command moves
-with Git or rewrites has changes that are not committed (it refuses and names
-them: commit or stash them first). The changes are made all or nothing: when
+rewritten is a regular file, the project as the move would leave it follows
+the layout (the new folder's files as they would be written, every rule read
+from their texts, and the rest of the project, rule K1 aside), and, in a Git
+work tree, no file the command moves with Git or rewrites has changes that are
+not committed (it refuses and names them: commit or stash them first). A key of
+the root's `comparator.json` that rule J2 does not allow, `enable_nanoda` among
+them, is never dropped from the file: the command refuses, names the key, says
+why the layout leaves it out, and asks for it to be removed by hand ("…
+Remove the key from comparator.json by hand (and name the checker in
+"external_kernels" to keep it), then run comparator-migrate again; nothing was
+changed"). Any other rule the moved files would break is refused the same way,
+with the violations as the layout check gives them. The changes are made all or nothing: when
 one fails, every change made before it is undone, in reverse order, and the
 command says so and exits with status 1.
 
@@ -2638,9 +2695,9 @@ end of its table of contents, and below it one page per challenge, titled with
 the challenge's name. The Project Stats page links each headline to its
 challenge's page.
 
-The page "Comparator" lists every challenge: a link to its page, its two
-modules, and the verdict of each judged theorem, or "Not compared: …" with the
-reason.
+The page "Comparator" lists every challenge as a card: a link to its page, its
+two modules, and each judged theorem, its name linked to the challenge file,
+with its verdict, or "Not compared: …" with the reason.
 
 A challenge's page shows:
 
@@ -2699,20 +2756,42 @@ graph. It shows the project statistics on one page, in this order:
 
 1. **Identity**: the README's heading (or the document's title; a heading that
    names no project, such as "Readme", is passed over for the package's name)
-   and first paragraph, the license (or "No license file"), the Lean version,
-   the packages the project requires directly with the revision it asked for
-   and the locked commit, the sentence that the page reports on this one build
-   ("No other toolchain or revision was checked."), and the generator's sidebar
-   links.
+   and first paragraph; then, as labelled rows of chips, the license (or "No
+   license file"), the Lean version, the packages the project requires
+   directly with the revision it asked for and the locked commit, and the
+   generator's sidebar links; and the sentence that the page reports on this
+   one build ("No other toolchain or revision was checked."). A chip is a link
+   when its fact has a known address, and a plain chip otherwise: the license
+   to its file in the project's repository at the commit the site is built
+   from (a GitHub checkout that tracks the file; the project is the root the
+   statistics describe, `verso.blueprint.projectRoot` included); the Lean version to its
+   release page on GitHub (a release or release candidate of
+   `leanprover/lean4`; a nightly or a custom toolchain has none); a package to
+   its repository's tree at the locked commit, and in it the package's folder
+   when the manifest names one (`subDir`) (a `git` package from GitHub locked
+   to a full commit; a `path` package or another host has none).
 2. **Headline result**: a band per Comparator challenge (titled with the
    challenge's name when there are several), with a link to its page, and in it
-   a card per judged theorem: the
+   a card per judged theorem: its name, linked to the challenge file on the
+   challenge's page; the
    verdict, worded about the Lean statement ("Lean statement proved", "Same
    Lean statement as the challenge; the proof uses sorry", "…; the proof rests
    on an axiom …", "Lean statement differs from the challenge", "Not in the
-   solution"); the Lean statement as the challenge writes it; the axioms of the
-   solution's proof; then, under their own captions, the challenge's docstring
-   and the author's claim. Under the cards: what the comparison is and is not.
+   solution"), as a pill beside the name that links to the entry of the
+   explanation of the marks that explains it (and to nothing else: a verdict
+   the kernel replay decided, or did not check because of an axiom, to the
+   replay's entry; one about an axiom the proof may not use to the axioms'
+   entry; the others to the headline's entry); the node of the theorem on
+   this site; the Lean statement as the challenge writes it, highlighted with
+   hovers when it is cut from the challenge's code as the challenge's page
+   shows it, and with syntax colours only when that code is not at hand;
+   the axioms of the solution's proof, each of Lean's standard three linked to
+   its account in the Lean Language Reference of the build's Lean release
+   when that reference is published under its version (4.19.0 to 4.36.0), and
+   in the latest reference otherwise; then, under their own captions,
+   the challenge's docstring and the author's claim. Under the cards: the
+   challenge's two files, each linked to its text on the challenge's page, and
+   what the comparison is and is not.
    A project without a challenge gets one line saying that a challenge would
    add a headline. "Lean statement proved" is said only when the kernel replay
    accepted the solution's theorem with every constant it depends on; when the replay
@@ -2765,7 +2844,10 @@ graph. It shows the project statistics on one page, in this order:
 It ends with a link to the summary page for the detailed breakdown. The page
 is plain HTML and CSS: the bars use the shared status colour tokens, each
 status with its own pattern, and their counts are written out, so colour is
-never the only signal. It needs no script and holds no version-control data.
+never the only signal. It needs no script. The only version-control data it
+uses is the address of the license file at the commit the site is built from.
+A link that leaves the site has its site's name as its title and shows "↗" on
+hover and focus.
 
 To place the page elsewhere in the document, write the command where it
 should go; the generator then does not add a second one:
@@ -3036,7 +3118,11 @@ complete.
   complete ones; an accepted replay then does not make the counts green, and
   the sentences about the site add "the Lean source of C nodes changed since
   the build or is not known to match it". The replay band on the Project Stats
-  page names the modules, each with why, and lists the nodes. The statistics
+  page names the modules, each with why, and lists the nodes; its first
+  sentence says that the checkers accepted the compiled build, not the sources
+  shown, with no check mark and not in the success colour (see "What each
+  state says"), also when only a challenge's comparison rests on such a
+  module. The statistics
   carry the modules (`sourceChanged`) and, for a Blueprint, what was recorded
   when its data was captured (`builtSources`).
 - **Modules a module imports**: a compiled module is built against the
@@ -3188,7 +3274,33 @@ checkers disagree on this build: C1 accepted it and C2 rejected it. Nothing on
 this site counts as checked by a kernel." after a disagreement; "No verdict of
 a kernel replay: WHY. The marks on this site say what the compiled files
 report." and "Not replayed by a kernel: WHY. The marks on this site say what the
-compiled files report." otherwise. Below it the band lists each checker's
+compiled files report." otherwise. An acceptance is about the compiled build.
+When a project module the site's marks or a headline rest on is not known to
+be the text that was compiled ("Source text and the build"), the band does not
+start with "Accepted:", carries no check mark and is never in the success
+colour: after a source that changed since the build it reads "Accepted for the
+compiled build, not for the sources shown: C each checked … and both accepted
+them. The sources changed since that build (M in F); build it again after an
+edit.", and after a source that is only not known to match it "Accepted for
+the compiled build, which is not known to match the sources shown: C each
+checked … and both accepted them. The sources shown are not known to be the
+text that was compiled (M in F, which is not known to match the build: WHY);
+build it again to compare them." It names at most three modules, or
+challenges not compared for that reason ("the challenge Main: a module the
+proof uses changed since the build (M in F)"), separated by semicolons, then
+"and N more"; the modules are listed in full below it, and the list of
+declarations reads "Declarations checked in the compiled build, each with
+everything it depends on". Its element has the class
+`bp_stats_replay_changed` (with the mark ◌) in place of
+`bp_stats_replay_accepted`, `data-bp-replay="changed"`, and
+`data-bp-replay-sources` set to `changed` or `unknown`; an accepted replay of
+sources as built keeps `bp_stats_replay_accepted bp_replay_accepted` and
+`data-bp-replay="accepted"`, and has no `data-bp-replay-sources`. The
+generator's last line about the replay says the same ("Kernel replay: both
+checkers accepted the compiled build (N constants), not the sources: they
+changed since that build (M in F); build it again after an edit"). A
+rejection, a disagreement and a replay without a verdict are said as above,
+whatever the sources. Below it the band lists each checker's
 answer ("con-leche (Lean 4.35.0) accepted the export (N declaration records)
 (12 s, at most 410 MiB of memory); its file's SHA-256 begins …", "con-ron (Lean 4.35.0) rejected the export:
 …"), without the time and memory in a reproducible build.

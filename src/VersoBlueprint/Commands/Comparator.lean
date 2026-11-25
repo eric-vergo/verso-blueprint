@@ -113,25 +113,6 @@ def sourceLinkText : String := "source at the commit this site is built from"
 
 /-! ## Reading the files -/
 
-/-- The address of `path` (relative to the project root `root`) in the project's repository at the
-commit the site is built from, when `root` is in a Git checkout with a GitHub `origin` and the
-repository tracks the file. -/
-def repositoryHref? (root : System.FilePath) (path : String) : IO (Option String) := do
-  let some top ← Informal.Git.toplevelAt? root | return none
-  let realRoot ← (try IO.FS.realPath root catch _ => pure root)
-  let realTop ← (try IO.FS.realPath top catch _ => pure top)
-  let rootText := realRoot.toString
-  let topText := realTop.toString
-  let repoPath ← if rootText == topText then pure path
-    else if rootText.startsWith (topText ++ "/") then
-      pure ((rootText.drop (topText.length + 1)).toString ++ "/" ++ path)
-    else return none
-  -- a file the repository does not track has no address there
-  let tracked ← Informal.Process.runTrimmedCommand? "git"
-    #["-C", topText, "ls-files", "--error-unmatch", "--", repoPath]
-  if tracked.isNone then return none
-  Informal.RepoFile.href? root repoPath
-
 /-- The continuous-integration run that is building the site: in GitHub Actions, from
 `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and `GITHUB_RUN_ID`, when all three are there and
 well-formed (an `https://` server without anything but a host, a repository `owner/name` of
@@ -152,13 +133,21 @@ def ciRunHref? : IO (Option String) := do
 
 /-- A file of the project as a page shows it, read with `limit`. -/
 def comparatorFile (root : System.FilePath) (path : String) (limit : Nat) : IO ComparatorFile := do
-  let href ← repositoryHref? root path
+  let href ← Informal.RepoFile.projectFileHref? root path
   match ← ComparatorLayout.readLimited (root / path) limit with
   | .ok content => return { path, text := content, href }
   | .error why => return { path, missing := some why, href }
 
+/-- Whether highlighted code is the file's text exactly, line endings and trailing white space
+aside. -/
+def codeMatches (code : SubVerso.Highlighting.Highlighted) (text : String) : Bool :=
+  let norm := fun (t : String) => (t.replace "\r\n" "\n").trimAsciiEnd.toString
+  norm code.toString == norm text
+
 /-- The pages of the challenges of `stats`, the files read under the project root `root`.
 `codeOf` gives a module's highlighted code from its text when the generator highlights it itself.
+The challenge module's code, when it is the file's text, is recorded for the headline cards
+(`registerChallengeCode`), which cut each judged theorem's statement from it.
 -/
 def challengePages (stats : ProjectStats) (root : System.FilePath)
     (codeOf : Name → String → Option SubVerso.Highlighting.Highlighted := fun _ _ => none) :
@@ -172,10 +161,17 @@ def challengePages (stats : ProjectStats) (root : System.FilePath)
       ComparatorLayout.leanFileLimit
     let config ← comparatorFile root (h.config.getD s!"{folder}/{comparatorConfigFile}")
       ComparatorLayout.configLimit
+    -- the challenge's code as its page shows it, for the statements of the headline cards
+    let challengeCode := codeOf h.challengeModule challenge.text
+    match challengeCode.filter (codeMatches · challenge.text) with
+    | some code => registerChallengeCode h.challengeModule code
+    | Option.none =>
+      if let some code ← Informal.DeclarationSource.moduleCode? h.challengeModule then
+        if codeMatches code challenge.text then registerChallengeCode h.challengeModule code
     return {
       name := h.name, challenge, solution, config
       challengeModule := h.challengeModule, solutionModule := h.solutionModule
-      challengeCode := codeOf h.challengeModule challenge.text
+      challengeCode
       solutionCode := codeOf h.solutionModule solution.text
       ciRun }
 
@@ -195,12 +191,6 @@ def percentEncode (s : String) : String :=
     let c := Char.ofNat b
     if b < 128 && (c.isAlphanum || c == '-' || c == '_' || c == '.' || c == '~') then c.toString
     else String.ofList ['%', hex[b / 16]!, hex[b % 16]!]
-
-/-- Whether highlighted code is the file's text exactly, line endings and trailing white space
-aside. -/
-def codeMatches (code : SubVerso.Highlighting.Highlighted) (text : String) : Bool :=
-  let norm := fun (t : String) => (t.replace "\r\n" "\n").trimAsciiEnd.toString
-  norm code.toString == norm text
 
 /-- The highlighted code of a challenge's file: the generator's, else the module's highlighted
 build when it matches the file, else the file with syntax colours only (and the caption that says
@@ -241,7 +231,7 @@ def fileSectionHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (title : Str
   pure <| el "section" "bp_comparator_file" (.seq #[
       el "h2" "bp_comparator_file_title" (txt title),
       el "p" "bp_comparator_file_path" pathHtml,
-      body]) #[("id", id)]
+      body]) #[("id", id), ("data-bp-own-target", "")]
 
 /-- The links of a challenge's page: the dependency graph's node of each judged theorem, the
 Project Stats page, and the run that built the site. -/
@@ -274,12 +264,14 @@ def challengePageHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (data : Ch
     | some h => .seq #[challengeBandHtml view h (several := false) (pageLink := false),
         el "section" "bp_comparator_trusted" (.seq #[
           el "h2" "bp_comparator_file_title" (txt challengeTrustedCaption),
-          el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)])]
+          -- in a body of its own, as the bands' sentences, so that it takes their measure
+          el "div" "bp_comparator_trusted_body"
+            (el "p" "bp_stats_replay_trusted" (txt Replay.trustedText))])]
     | Option.none => el "p" "bp_stats_headline_unavailable" (txt challengeWithoutResultText)
   let challenge ← fileSectionHtml "Challenge" data.challenge
-    (some (data.challengeModule, data.challengeCode)) "challenge-file"
+    (some (data.challengeModule, data.challengeCode)) challengeFileId
   let solution ← fileSectionHtml "Solution" data.solution
-    (some (data.solutionModule, data.solutionCode)) "solution-file"
+    (some (data.solutionModule, data.solutionCode)) solutionFileId
   let config ← fileSectionHtml "Configuration" data.config none "comparator-config"
   let links := match view.stats.challenges.find? (·.name == data.name) with
     | some h => challengeLinksHtml state h data.ciRun
@@ -288,6 +280,18 @@ def challengePageHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (data : Ch
       el "p" "bp_comparator_intro" (txt (challengePageIntroText data.name)),
       verdict, challenge, solution, config, links])
     #[("data-bp-challenge", data.name), ("data-bp-replay-state", view.site.token)]
+
+/-- `text` with each occurrence of `spans` set as code, its words unchanged. -/
+def withCode (text : String) (spans : Array String) : Output.Html := Id.run do
+  let mut parts : Array Output.Html := #[txt text]
+  for span in spans do
+    parts := parts.flatMap fun
+      | .text s =>
+        let pieces := s.splitOn span
+        (pieces.toArray.mapIdx fun i piece =>
+          if i == 0 then #[txt piece] else #[.element "code" #[] (txt span), txt piece]).flatten
+      | other => #[other]
+  return .seq parts
 
 /-- The index page body: each challenge with a link to its page and the verdict of each judged
 theorem, in the words of the Project Stats page. -/
@@ -304,9 +308,13 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
         el "ul" "bp_comparator_verdicts" (.seq (h.theorems.map fun t =>
           let standing := headlineStanding view.stats.replay h t
           let (token, words) := headlineVerdict t standing view.stats.replay
+          let name := theoremNameHtml t.name
           el "li" s!"bp_comparator_verdict {standing.scopeClass}" (.seq #[
-            el "code" "bp_stats_theorem_name" (txt t.name.toString), txt " ",
-            el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt words)])
+            match challengeSectionHref? view h.name challengeFileId with
+            | some href => .element "a" #[("class", "bp_stats_theorem_name_link"), ("href", href)] name
+            | Option.none => name,
+            txt " ",
+            verdictPill view.page.meaningHref token words t.conditionsMet])
             #[("data-bp-theorem", t.name.toString), ("data-bp-verdict", token)]))
     el "section" "bp_comparator_index_item" (.seq #[
       el "h2" "bp_comparator_index_title" title,
@@ -315,7 +323,9 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
         .element "code" #[] (txt h.solutionModule.toString)]),
       verdicts]) #[("data-bp-challenge", h.name)]
   el "div" s!"bp_comparator_index bp_project_stats {view.site.scopeClass}" (.seq (#[
-    el "p" "bp_comparator_intro" (txt comparatorIndexIntroText)] ++ rows))
+    el "p" "bp_comparator_intro"
+      (withCode comparatorIndexIntroText #["lake comparator", "--config Comparator/<Name>/comparator.json"])]
+      ++ rows))
     #[("data-bp-replay-state", view.site.token)]
 
 /-! ## The blocks and the pages -/
@@ -334,7 +344,7 @@ private def statsView? :
     | .ok graph => pure (some graph)
     | .error message => Verso.reportError message; pure none
   let (some stats, some graph) := (stats, graph) | pure none
-  pure (some (StatsPageView.build s stats graph { meaningHref := meaningHref? s }))
+  pure (some (← (StatsPageView.build s stats graph { meaningHref := meaningHref? s }).resolveLinks))
 
 block_extension Block.comparatorIndex (data : ComparatorIndexData) where
   data := toJson data

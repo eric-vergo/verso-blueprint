@@ -34,6 +34,9 @@ structure ManifestPackage where
   url : Option String := none
   /-- The directory of a `path` package, relative to the project root. -/
   dir : Option String := none
+  /-- The folder of a `git` package's repository that holds the package, when it is not the
+  repository's root. -/
+  subDir : Option String := none
   /-- Whether the package is required only through another package. -/
   inherited : Bool := false
 deriving Repr, Inhabited, DecidableEq, ToJson, FromJson
@@ -298,6 +301,7 @@ def parseManifest (text : String) : Option String × Array ManifestPackage := Id
       inputRev := str pkg "inputRev"
       url := (str pkg "url").map stripUserInfo
       dir := str pkg "dir"
+      subDir := str pkg "subDir"
       inherited := (pkg.getObjValAs? Bool "inherited").toOption.getD false
     }
   return (str json "name", packages)
