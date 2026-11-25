@@ -202,7 +202,6 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           sideBySideNode := sideBySide && !data.isProof
           statementSourceNote := !data.isProof && data.codeData.any (!·.isEmpty) &&
             (!blocks.isEmpty || selectedMarkupAndContent?.isSome)
-          meaningHref? := Commands.meaningHref? s
           claim := if data.isProof then .empty else
             ((claimFor? s data).map (·.render (Commands.meaningHref? s))).getD .empty
         }

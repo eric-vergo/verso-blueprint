@@ -398,30 +398,28 @@ private def claimsText : String := "{
 
 /-! ## Informal text beside Lean code -/
 
--- The line under a statement names its source and says it was not checked.
+-- A statement written in the Blueprint has no line under it; one a site generated from code took
+-- from elsewhere names its source, and nothing more.
 /-- info: true -/
 #guard_msgs in
 #eval
-  Meaning.sourceLine Option.none ==
-      "Informal statement from the blueprint · not checked against the Lean statement" &&
-    Meaning.sourceLine (some "docstring") ==
-      "Informal statement from the docstring · not checked against the Lean statement" &&
-    Meaning.sourceLine (some "tex") ==
-      "Informal statement from the project's TeX blueprint · not checked against the Lean statement" &&
-    Meaning.sourceLine (some "attribute") ==
-      "Informal statement from a blueprint attribute · not checked against the Lean statement" &&
-    hasSubstr (renderStatementSource (some "docstring")).render
-      "data-bp-statement-source=\"docstring\"" &&
-    hasSubstr (renderSideBySideNode "n" (.text "S") (some (.text "L"))
-      (renderStatementSource Option.none)).render "class=\"bp_statement_source\"" &&
-    -- a node without Lean code has nothing to be compared with: no line
-    !hasSubstr (renderSideBySideNode "n" (.text "S") Option.none
-      (renderStatementSource Option.none)).render "bp_statement_source" &&
-    -- the generator shows the line for a written statement with Lean code, and only then
-    (let data : BlockData := { kind := .theorem, label := `n, count := 1 }
-     let html (note : Bool) : String := (renderInformalBlockModel {
-        data, context := .forBlock data "1", statementSourceNote := note }).render
-     hasSubstr (html true) "bp_statement_source" && !hasSubstr (html false) "bp_statement_source")
+  Meaning.sourceTag? Option.none == Option.none &&
+    Meaning.sourceTag? (some "blueprint") == Option.none &&
+    Meaning.sourceTag? (some "docstring") == some "From the docstring" &&
+    Meaning.sourceTag? (some "tex") == some "From the project's TeX blueprint" &&
+    Meaning.sourceTag? (some "attribute") == some "From a blueprint attribute" &&
+    (renderStatementSource Option.none).render.isEmpty &&
+    (renderStatementSource (some "blueprint")).render.isEmpty &&
+    (renderStatementSource (some "docstring")).render ==
+      "<p class=\"bp_statement_source\" data-bp-statement-source=\"docstring\">From the docstring</p>" &&
+    -- the generator shows the tag for a written statement with Lean code, and only then
+    (let html (note : Bool) (source : Option String) : String :=
+       let data : BlockData := { kind := .theorem, label := `n, count := 1, statementSource := source }
+       (renderInformalBlockModel { data, context := .forBlock data "1", statementSourceNote := note }).render
+     hasSubstr (html true (some "docstring")) ">From the docstring</p>" &&
+       !hasSubstr (html false (some "docstring")) "bp_statement_source" &&
+       !hasSubstr (html true Option.none) "bp_statement_source" &&
+       !hasSubstr (html true Option.none) "What this means")
 
 private def nodeView : NodeView.NodeView := {
   label := "thm:x", title := "Theorem 1.2"
@@ -430,26 +428,29 @@ private def nodeView : NodeView.NodeView := {
   lean := #[.text "theorem x : True"]
 }
 
--- The node view: the source and the sentence under the statement, with the link; a claim in
--- the same column; neither without Lean code beside it.
+-- The node view: the source tag under a statement not written in the Blueprint, none under one
+-- that is; a claim in the same column; neither without Lean code beside it.
 /-- info: true -/
 #guard_msgs in
 #eval
   let claim : ClaimView.ClaimView := { reference := some "Theorem 2.2", statement := some "Claimed." }
   let both := ({ nodeView with informalSource := some "docstring", meaningHref? := some "Stats/#m"
                                claim? := some claim }).render.render
+  let written := ({ nodeView with meaningHref? := some "Stats/#m" }).render.render
   let leanOnly := ({ nodeView with informal? := Option.none, claim? := some claim }).render.render
-  let informalOnly := ({ nodeView with lean := #[], claim? := some claim }).render.render
-  hasSubstr both "Informal statement from the docstring. No tool has checked that this text says \
-      the same as the Lean statement." &&
-    hasSubstr both "<a href=\"Stats/#m\" class=\"bp_meaning_link\">What this means</a>" &&
-    hasSubstr both "data-bp-statement-source=\"docstring\"" &&
+  let informalOnly := ({ nodeView with lean := #[], informalSource := some "docstring"
+                                       claim? := some claim }).render.render
+  hasSubstr both "<p class=\"bp_statement_source\" data-bp-statement-source=\"docstring\">From the \
+      docstring</p>" &&
+    !hasSubstr both "Informal statement from" &&
+    appearsBefore both "Every x is fine." "From the docstring" &&
     appearsBefore both "Every x is fine." "Author's claim" &&
     appearsBefore both "Author's claim" "class=\"bp_sbs_formal\"" &&
+    !hasSubstr written "bp_statement_source" && !hasSubstr written "What this means" &&
     -- a claim alone stands in the informal column, beside the Lean statement
     hasSubstr leanOnly "data-bp-node-view-layout=\"both\"" && hasSubstr leanOnly "Claimed." &&
-    !hasSubstr leanOnly "Informal statement from" &&
-    !hasSubstr informalOnly "Informal statement from" && !hasSubstr informalOnly "Author's claim"
+    !hasSubstr leanOnly "bp_statement_source" &&
+    !hasSubstr informalOnly "bp_statement_source" && !hasSubstr informalOnly "Author's claim"
 
 /-! ## Numbers and titles -/
 
@@ -530,13 +531,11 @@ private def nodeView : NodeView.NodeView := {
       -- the statement's source, on the chapter card and in the node view
       ("source attribute on the chapter card",
         hasSubstr chapter "data-bp-statement-source=\"tex\""),
-      ("source line on the chapter card", hasSubstr chapter "Informal statement from the \
-        project's TeX blueprint · not checked against the Lean statement"),
-      ("source sentence in the node view", hasSubstr stated "Informal statement from the \
-        project's TeX blueprint. No tool has checked that this text says the same as the Lean \
-        statement."),
-      ("link to the explanation in the node view",
-        hasSubstr stated s!"Project-Stats/#{Informal.Meaning.anchor}"),
+      ("source tag on the chapter card", hasSubstr chapter ">From the project's TeX blueprint</p>"),
+      ("no caveat on the chapter card", !hasSubstr chapter "Informal statement from" &&
+        !hasSubstr chapter "not checked against the Lean statement"),
+      ("source tag in the node view", hasSubstr stated ">From the project's TeX blueprint</p>"),
+      ("no caveat in the node view", !hasSubstr stated "Informal statement from"),
       -- the author's claim, in the node view and on the stats page
       ("claim in the node view",
         hasSubstr stated "Theorem 2.2 of Finite lattices (A. Author; v2)"),
@@ -545,7 +544,7 @@ private def nodeView : NodeView.NodeView := {
       ("claim on the stats page",
         hasSubstr statsPage "Theorem 2.2 of Finite lattices (A. Author; v2)"),
       -- a node without a statement has no source line
-      ("no source line without a statement", !hasSubstr (viewOf "Demo.ax") "Informal statement from"),
+      ("no source tag without a statement", !hasSubstr (viewOf "Demo.ax") "bp_statement_source"),
       -- the counts
       ("kind groups", hasSubstr statsPage "6 nodes: 4 theorems, 2 definitions</p>"),
       ("Lean complete counts", hasSubstr statsPage "2 of 4 theorems, 1 of 2 definitions."),

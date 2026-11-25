@@ -830,12 +830,20 @@ class TestReadingAids:
         expect(panel.locator(".bp_code_summary_preview_title")).to_have_text(re.compile(r"^Theorem \d+\.1$"))
         expect(panel.locator("a.bp_meaning_link")).to_have_attribute("href", "Project-Stats/#bp-what-this-means")
 
-    def test_unchecked_notice_links_to_the_explanation(self, side_by_side_server: str, page: Page):
+    def test_statements_carry_no_unchecked_line(self, side_by_side_server: str, page: Page):
+        """A statement written in the Blueprint has no line about its source or what was checked;
+        the status legend and the Project Stats page still say what no mark is about."""
+        for path in ("/Reading-Aids/", "/Core-Previews/", "/Preview-Relationships/"):
+            page.goto(side_by_side_server + path)
+            expect(page.locator(".bp_sbs").first).to_be_attached()
+            expect(page.locator(".bp_statement_source")).to_have_count(0)
+            text = page.locator("main").inner_text()
+            assert "Informal statement from" not in text, path
+            assert "not checked against the Lean statement" not in text, path
         page.goto(side_by_side_server + "/Reading-Aids/")
-        link = page.locator(".bp_statement_source a.bp_meaning_link").first
-        expect(link).to_have_text("What this means")
-        link.click()
-        page.wait_for_url(re.compile(r"/Project-Stats/#bp-what-this-means$"))
+        legend = page.locator(".bp_status_legend_note")
+        expect(legend).to_contain_text("No tool checks that an informal statement says the same")
+        page.goto(side_by_side_server + "/Project-Stats/#bp-what-this-means")
         expect(page.locator("#bp-what-this-means")).to_be_visible()
 
     def test_proof_declarations_match_the_lean_column(self, side_by_side_server: str, page: Page):

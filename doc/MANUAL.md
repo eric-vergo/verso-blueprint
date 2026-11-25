@@ -1475,13 +1475,11 @@ shows an associated Rust code panel below the statement body.
 
 The Lean status link of a statement header (`L∃∀N`) opens a summary of the
 statement's Lean declarations, headed by the statement's numbered title
-(`Lemma 6.2`). The summary and the line under an informal statement that stands
-beside Lean code ("Informal statement from the blueprint · not checked against
-the Lean statement") end with a "What this means" link to the explanation of the
-marks on the Project Stats page, when the site has that page. Lean declarations
-attached to a proof are set in the code size of the side-by-side Lean column, and
-their signatures take Verso's narrow layout, one binder a line, whenever the
-panel is narrower than the wide layout needs.
+(`Lemma 6.2`). The summary ends with a "What this means" link to the
+explanation of the marks on the Project Stats page, when the site has that page.
+Declarations in a Lean code panel are set in the code size of the side-by-side
+Lean column, and their signatures take Verso's narrow layout, one binder a line,
+whenever the panel is narrower than the wide layout needs.
 
 Popovers (relation panels, Lean summaries, inline previews) open on hover and
 on keyboard focus. Opening one closes any other, except one that holds the new
@@ -1591,9 +1589,10 @@ layout on:
   the glyphs and ends with what no mark is about: "No tool checks that an
   informal statement says the same as the Lean statement." It sits in the
   sidebar foot when the site has a sidebar, otherwise at the end of the page.
-- Under a statement that has Lean declarations a small line names where the
-  text comes from and says the same in short: "Informal statement from the
-  blueprint · not checked against the Lean statement".
+- A statement written in the Blueprint carries no line about its source. On a
+  site generated from code, a statement with Lean declarations whose text was
+  taken from elsewhere carries a small tag naming that source ("From the
+  docstring", "From the project's TeX blueprint").
 - The relation and Lean chips of the title row (`uses N`, `used by N`,
   `✓ L∃∀N`) are shown small and muted at the right of the title; counts of
   zero are hidden.
@@ -3717,8 +3716,8 @@ The site is an ordinary Blueprint site:
   accepted then), its proof below it (folded in the node view); the statement's
   Markdown is read with raw HTML shown as text and link
   targets other than web, mail and site-relative ones dropped. Under the
-  statement a line names its `source` ("Informal statement from the docstring ·
-  not checked against the Lean statement"). A node without
+  statement a small tag names its `source` ("From the docstring"); a statement
+  whose `source` is `blueprint` has none. A node without
   one shows the Lean side alone. The Lean side is an API entry: the signature
   and the source excerpt read from `--root`,
   highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,

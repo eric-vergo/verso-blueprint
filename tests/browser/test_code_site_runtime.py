@@ -9,7 +9,8 @@ box finding a declaration, long module names wrapping in the sidebar, and the in
 the data gives (`Demo.c` with math, a title and a proof; `Demo.d` with raw HTML and a script link):
 the node view shows the statement beside the Lean side, its math typeset when the site was built
 and copied from the page's templates (theme colours, keyboard, screen-reader text, narrow
-screens), a node without one shows the Lean side alone, and a statement's HTML stays text.
+screens), a node without one shows the Lean side alone, a statement's HTML stays text, and a
+statement names the source it was taken from.
 """
 
 import json
@@ -425,6 +426,25 @@ def test_statement_html_stays_text(page: Page, code_site_url: str):
     assert page.locator("main a[href^='javascript:']").count() == 0
     assert page.locator("main .bp_math_static > svg").count() >= 1
     assert page.locator("main .katex").count() == 0
+
+
+def test_statement_taken_from_elsewhere_names_its_source(page: Page, code_site_url: str):
+    """A statement the data took from a docstring or a TeX blueprint carries a bare tag naming
+    that source, on its chapter entry and in its node view: no caveat, no link."""
+    for path, tag in (("/Demo___Some___Very___Long___Module___Name___ForTheSidebar/", "From the docstring"),
+                      ("/Demo___C/", "From the project's TeX blueprint")):
+        page.goto(code_site_url + path, wait_until="load")
+        source = page.locator("main .bp_statement_source")
+        assert source.count() == 1, path
+        assert source.inner_text().strip() == tag, path
+        assert source.locator("a").count() == 0, path
+        assert "not checked against the Lean statement" not in page.locator("main").inner_text(), path
+    page.goto(code_site_url + "/Dependency-Graph/#node=Demo.d", wait_until="domcontentloaded")
+    page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+    source = page.locator(".bp_graph_preview .bp_node_view .bp_statement_source")
+    assert source.count() == 1
+    assert source.inner_text().strip() == "From the docstring"
+    assert source.locator("a").count() == 0
 
 
 def test_contents_backdrop_closes_the_panel(page: Page, code_site_url: str):
