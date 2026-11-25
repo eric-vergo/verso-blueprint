@@ -41,7 +41,12 @@ private def page (title : String) (content : Array (Doc.Block Manual) := #[])
 
 private def marker : Doc.Block Manual := .other (Parts.Block.part {}) #[]
 
-/-- info: true -/
+/-- Whether an inline is the label `Part I — `. -/
+private def labelOk : Doc.Inline Manual → Bool
+  | .other i #[.text t] => i.name == ``Parts.Inline.partLabel && t == "Part I — "
+  | _ => false
+
+/-- info: [] -/
 #guard_msgs in
 #eval
   let doc := page "Book" #[] #[
@@ -52,18 +57,26 @@ private def marker : Doc.Block Manual := .other (Parts.Block.part {}) #[]
   let numbered := Parts.numberParts doc
   let titles := numbered.subParts.map (·.titleString)
   let partOne := numbered.subParts[1]!
-  titles == #["Intro", "Part I — Foundations", "Groups", "Orbits", "Part II — Main", "Result",
-      "Appendix"] &&
-    partOne.subParts.isEmpty &&
-    (partOne.metadata.map (·.number)) == some false &&
-    (partOne.metadata.bind (·.file)) == some "Part-I" &&
-    -- the marker knows its numeral
-    (partOne.content.any fun
-      | .other b _ => b.data.compress == "{\"numeral\":\"I\"}"
-      | _ => false) &&
+  let checks : List (String × Bool) := [
+    ("titles", titles == #["Intro", "Part I — Foundations", "Groups", "Orbits",
+      "Part II — Main", "Result", "Appendix"]),
+    ("part page alone", partOne.subParts.isEmpty),
+    ("unnumbered", (partOne.metadata.map (·.number)) == some false),
+    ("folder", (partOne.metadata.bind (·.file)) == some "Part-I"),
+    -- the marker knows its numeral and how many chapters follow the part's page
+    ("marker data", partOne.content.any fun
+      | .other b _ => b.data == toJson ({ numeral := some "I", chapters := 2 } : Parts.PartMarker)
+      | _ => false),
+    ("chapters", (Parts.partMarker? partOne).map (·.chapters) == some 2 &&
+      (Parts.partMarker? numbered.subParts[4]!).map (·.chapters) == some 1),
+    ("no marker elsewhere", (Parts.partMarker? numbered.subParts[2]!).isNone &&
+      (Parts.partMarker? numbered.subParts[0]!).isNone),
+    -- the label `Part I — ` is an inline of its own, so that it can be styled
+    ("label", partOne.title.size == 2 && labelOk partOne.title[0]!),
     -- a document without parts is unchanged
-    Parts.numberParts (page "Book" #[] #[page "A", page "B" #[] #[page "B.1"]]) ==
-      page "Book" #[] #[page "A", page "B" #[] #[page "B.1"]]
+    ("no parts", Parts.numberParts (page "Book" #[] #[page "A", page "B" #[] #[page "B.1"]]) ==
+      page "Book" #[] #[page "A", page "B" #[] #[page "B.1"]])]
+  checks.filter (!·.2) |>.map (·.1)
 
 -- A part that names its own file keeps it.
 /-- info: true -/
@@ -247,6 +260,19 @@ private def graphNode (label : Name) (caption? : Option String := none) : Graph.
 -- sections with a section sign, pages that let the reader zoom, and navigation that finds every
 -- place it names (the build fails otherwise).
 
+/-- The top level of a sidebar outline file: each entry's page, whether it is a part, and the pages
+of the entries directly below it. -/
+private def outlineShape (file : String) : Option (Array (String × Bool × Array String)) := do
+  let body := ((file.splitOn " = ")[1]?).getD ""
+  let json ← (Json.parse ((body.trimAsciiEnd.dropEndWhile (· == ';')).toString)).toOption
+  let entries ← (json.getObjValAs? (Array Json) "entries").toOption
+  entries.mapM fun e => do
+    let page ← (e.getObjValAs? String "page").toOption
+    let part := (e.getObjValAs? Bool "part").toOption.getD false
+    let children ← (e.getObjValAs? (Array Json) "children").toOption
+    let pages ← children.mapM fun c => (c.getObjValAs? String "page").toOption
+    pure (page, part, pages)
+
 #docs (Manual) partsDoc "Parts Site" :=
 :::::::
 # Introduction
@@ -284,34 +310,123 @@ The result.
 :::
 :::::::
 
-/-- info: true -/
+/-- info: [] -/
 #guard_msgs in
 #eval
-  show IO Bool from do
+  show IO (List String) from do
     let root ← freshRoot "verso-blueprint-parts-test"
     let code ← Informal.PreviewManifest.blueprintMain partsDoc.toPart
       (extensionImpls := by exact extension_impls%)
-      (options := ["--output", root.toString, "--without-html-single"])
+      (options := ["--output", root.toString, "--without-html-single", "--sidebar"])
     let site := root / "html-multi"
     let index ← IO.FS.readFile (site / "index.html")
     let groups ← IO.FS.readFile (site / "Groups" / "index.html")
     let orbits ← IO.FS.readFile (site / "Groups" / "Orbits" / "index.html")
     let result ← IO.FS.readFile (site / "Result" / "index.html")
     let partPage ← IO.FS.readFile (site / "Part-I" / "index.html")
-    pure (code == 0 &&
-      -- chapters run on across parts; the parts' pages are unnumbered
-      hasSubstr index "<span class=\"number\">1.</span> Introduction" &&
-      hasSubstr index "Part I — Foundations" && hasSubstr index "Part II — Main Result" &&
-      hasSubstr index "<span class=\"number\">2.</span> Groups" &&
-      hasSubstr index "<span class=\"number\">3.</span> Result" &&
-      appearsBefore index "Part I — Foundations" "<span class=\"number\">2.</span> Groups" &&
+    let outline ← IO.FS.readFile (site / "-verso-data" / Sidebar.outlineFile)
+    let label (n : String) :=
+      s!"<span class=\"bp_part_label\"><span class=\"bp_part_number\">Part {n}</span>" ++
+        "<span class=\"bp_part_separator\"> — </span></span>"
+    let checks : List (String × Bool) := [
+      ("built", code == 0),
+      -- chapters run on across parts; the parts' pages are unnumbered, their labels marked up
+      ("chapter 1", hasSubstr index "<span class=\"number\">1.</span> Introduction"),
+      ("part labels", hasSubstr index (label "I" ++ "Foundations") &&
+        hasSubstr index (label "II" ++ "Main Result")),
+      ("chapters 2 and 3", hasSubstr index "<span class=\"number\">2.</span> Groups" &&
+        hasSubstr index "<span class=\"number\">3.</span> Result"),
+      ("part before its chapter",
+        appearsBefore index (label "I") "<span class=\"number\">2.</span> Groups"),
+      ("part page heading", appearsBefore partPage "<h1 id=" (label "I" ++ "Foundations")),
+      ("part page title", hasSubstr partPage "<title>Part I — Foundations</title>"),
+      -- the sidebar's outline: each part's chapters inside it, sections below their chapters,
+      -- the generated pages after the last part outside it
+      ("outline script",
+        hasSubstr index s!"<script src=\"-verso-data/{Sidebar.outlineFile}\" async=\"async\">"),
+      ("outline variable", hasSubstr outline s!"window.{Sidebar.outlineVariable} = "),
+      ("outline shape", outlineShape outline == some #[
+        ("Introduction/", false, #[]),
+        ("Part-I/", true, #["Groups/"]),
+        ("Part-II/", true, #["Result/"]),
+        (Commands.statsPageFolder ++ "/", false, #[])]),
+      ("outline sections", hasSubstr outline "\"number\":\"§2.1\"" &&
+        hasSubstr outline "\"page\":\"Groups/Orbits/\""),
       -- statements keep the numbers of their chapters; a section carries a section sign
-      hasSubstr groups ">2.1</span>" && hasSubstr orbits ">2.1.1</span>" &&
-      hasSubstr orbits "\">§2.1\u00A0Orbits" && !hasSubstr orbits "2.1. Orbits" &&
-      hasSubstr groups "<span class=\"number\">§2.1</span> Orbits" &&
-      hasSubstr result ">3.1</span>" &&
-      hasSubstr partPage "The chapters of the first part." &&
+      ("statement numbers", hasSubstr groups ">2.1</span>" && hasSubstr orbits ">2.1.1</span>" &&
+        hasSubstr result ">3.1</span>"),
+      ("section signs", hasSubstr orbits "\">§2.1\u00A0Orbits" &&
+        !hasSubstr orbits "2.1. Orbits" &&
+        hasSubstr groups "<span class=\"number\">§2.1</span> Orbits"),
+      ("part text", hasSubstr partPage "The chapters of the first part."),
       -- the viewport lets the reader zoom
-      !hasSubstr index "maximum-scale" && hasSubstr index "width=device-width, initial-scale=1")
+      ("zoom", !hasSubstr index "maximum-scale" &&
+        hasSubstr index "width=device-width, initial-scale=1")]
+    pure (checks.filter (!·.2) |>.map (·.1))
+
+-- An outline title keeps its markup and its glyphs' ids, without highlighted code's hover keys,
+-- which name entries of one page's hover data.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let code : Verso.Output.Html :=
+    .element "code" #[("class", "hl lean inline"), ("data-verso-hover", "3")] <| .seq #[
+      .element "span" #[("class", "const token"), ("data-binding", "const-Nat.succ"),
+        ("data-verso-hover", "0")] (.text "Nat.succ"),
+      .element "path" #[("id", "glyph-1")] .empty]
+  Lean.Html.render (Sidebar.withoutPageLocalAttributes code) ==
+    "<code class=\"hl lean inline\"><span class=\"const token\">Nat.succ</span>" ++
+      "<path id=\"glyph-1\"></path></code>"
+
+-- A site without parts: the sidebar's outline has the chapters at the top, each with its sections.
+
+#docs (Manual) plainDoc "Plain Site" :=
+:::::::
+# Basics
+
+:::definition "plain.base"
+A base definition.
+:::
+
+## Notation
+
+:::lemma_ "plain.notation" (uses := "plain.base")
+A lemma about notation.
+:::
+
+# Results
+
+## First Result
+
+:::theorem "plain.first" (uses := "plain.notation")
+A result.
+:::
+
+## Second Result
+
+:::theorem "plain.second" (uses := "plain.first")
+Another result.
+:::
+:::::::
+
+/-- info: [] -/
+#guard_msgs in
+#eval
+  show IO (List String) from do
+    let root ← freshRoot "verso-blueprint-plain-test"
+    let code ← Informal.PreviewManifest.blueprintMain plainDoc.toPart
+      (extensionImpls := by exact extension_impls%)
+      (options := ["--output", root.toString, "--without-html-single", "--sidebar"])
+    let outline ← IO.FS.readFile (root / "html-multi" / "-verso-data" / Sidebar.outlineFile)
+    let checks : List (String × Bool) := [
+      ("built", code == 0),
+      ("outline shape", outlineShape outline == some #[
+        ("Basics/", false, #["Basics/Notation/"]),
+        ("Results/", false, #["Results/First-Result/", "Results/Second-Result/"]),
+        (Commands.statsPageFolder ++ "/", false, #[])]),
+      ("no parts", !hasSubstr outline "\"part\""),
+      ("numbers", hasSubstr outline "\"number\":\"2.\"" &&
+        hasSubstr outline "\"number\":\"§2.2\"")]
+    pure (checks.filter (!·.2) |>.map (·.1))
 
 end Verso.VersoBlueprintTests.BlueprintReadingAids
