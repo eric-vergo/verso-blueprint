@@ -2858,6 +2858,14 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
   | .single => emitHtmlSingle prepared.config prepared.text prepared.state
   | .multi => emitHtmlMulti prepared.config prepared.text prepared.state
 
+/-- The name of the layout a traversal registers destinations for. -/
+private def traversalLayoutName (sideBySide : Bool) : String :=
+  if sideBySide then "side-by-side" else "standard"
+
+/-- The file beside a saved traversal state that records its layout. -/
+private def traversalLayoutFile (path : System.FilePath) : System.FilePath :=
+  path.toString ++ ".layout"
+
 private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
@@ -2870,7 +2878,16 @@ private def emitBlueprintHtml
   if let .no := how then return
   let modeDescription := htmlModeDescription mode
   -- traversal registers only the destinations the layout will emit (no code anchors for a
-  -- proof's declarations in the side-by-side layout)
+  -- proof's declarations in the side-by-side layout), so a saved traversal state records its
+  -- layout and is resumed only in the same one
+  let layout := traversalLayoutName sideBySide
+  if let .resumeFrom path := how then
+    let recorded ← try some <$> IO.FS.readFile (traversalLayoutFile path) catch _ => pure none
+    if recorded.map (·.trimAscii.toString) != some layout then
+      Verso.reportError s!"The traversal state in {path} was saved for the \
+        {(recorded.map (·.trimAscii.toString)).getD "unrecorded"} layout, not the {layout} one: \
+        traverse the document again"
+      return
   Informal.DeclarationSource.setEnabled sideBySide
   let document? ← try
       match how with
@@ -2886,6 +2903,7 @@ private def emitBlueprintHtml
   if let .delay path := how then
     withTimedBuildProgress cfg.verbose s!"saving {modeDescription} traversal state to {path}" <|
       document.save path
+    IO.FS.writeFile (traversalLayoutFile path) layout
     return
   let prepared := PreparedRendererState.prepare document
   -- what this build writes into the folder; what an earlier build wrote and this one does not is
