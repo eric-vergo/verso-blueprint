@@ -1034,7 +1034,8 @@ class TestReadingAxis:
                 const style = getComputedStyle(band);
                 const start = band.getBoundingClientRect().left + parseFloat(style.borderLeftWidth)
                     + parseFloat(style.paddingLeft);
-                return [...band.querySelectorAll(':scope > :is(h2, p)')].map((e) => ({
+                return [...band.querySelectorAll(':scope > :is(h2, p)')]
+                    .filter((e) => e.getBoundingClientRect().width > 0).map((e) => ({
                     tag: e.tagName, offset: e.getBoundingClientRect().left - start,
                     align: getComputedStyle(e).textAlign }));
             }).flat()"""
@@ -1047,7 +1048,7 @@ class TestReadingAxis:
 
     @pytest.mark.parametrize(
         "path",
-        ("/Side-by-Side-Runs/", "/Reading-Aids/A-Numbered-Section/", "/Part-II/", "/Project-Stats/"),
+        ("/", "/Side-by-Side-Runs/", "/Reading-Aids/A-Numbered-Section/", "/Part-II/", "/Project-Stats/"),
     )
     def test_phone_width_has_no_horizontal_scroll(self, side_by_side_server: str, page: Page, path: str):
         page.set_viewport_size({"width": 390, "height": 844})
@@ -1055,6 +1056,12 @@ class TestReadingAxis:
         page.wait_for_load_state("networkidle")
         width = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
         assert width[0] <= width[1], (path, width)
-        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
-        for line in facts["lines"]:
+        # each heading's permalink marker stays inside the page
+        rights = page.evaluate(
+            "() => [...document.querySelectorAll('main .permalink-widget.inline > a')]"
+            ".map((a) => a.getBoundingClientRect().right)"
+        )
+        assert all(right <= width[1] + 0.5 for right in rights), (path, rights)
+        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1, main .titlepage > h1")
+        for line in facts["lines"] or []:
             assert abs(line - facts["axis"]) <= 1, (path, facts)
