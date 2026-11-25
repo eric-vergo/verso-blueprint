@@ -144,9 +144,9 @@ private def distinct (labels : Array (Option GraphNames.Label)) : Bool :=
 
 private def decl (name : Name) (isTheorem : Bool := false) : LeanName := { name, isTheorem }
 
--- A theorem-like node shows its first theorem, also after a helper definition; a definition
--- shows its first definition that is not a constructor, field or recursor of another of its
--- declarations, nor an instance; without one, the first declaration.
+-- A theorem-like node shows its first theorem that is not an instance, also after a helper
+-- definition; a definition shows its first definition that is not a constructor, field or
+-- recursor of another of its declarations, nor an instance; without one, the first declaration.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -155,6 +155,8 @@ private def decl (name : Name) (isTheorem : Bool := false) : LeanName := { name,
     chooseShown false #[decl `P.Stage.initial, decl `P.Stage] == 1 &&
     chooseShown false #[decl `P.instFGFoo, decl `P.foo_fg] == 1 &&
     chooseShown false #[decl `P.instFGFoo] == 0 &&
+    -- an instance of a proposition is theorem-like, and a theorem node passes over it
+    chooseShown true #[decl `P.instFGFoo true, decl `P.finite_foo true] == 1 &&
     shownFirst #[decl `P.a, decl `P.b, decl `P.c] 1 == #[decl `P.b, decl `P.a, decl `P.c]
 
 /-! ## The declarations of a node -/

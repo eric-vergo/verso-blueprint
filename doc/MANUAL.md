@@ -1984,10 +1984,10 @@ in the site's code face: `rho_irrational` for `Project.rho_irrational`. The
 declarations are taken in the order the author wrote them: the attached ones in
 the order they were attached, then those of the code blocks in source order, a
 type before the constructors and fields its command also declares. A theorem,
-lemma, proposition or corollary shows its first theorem-like declaration; a
-definition its first declaration that is not a constructor, field, projection or
-recursor of another of its declarations (named inside it) nor an instance
-(`inst…`); without one, the first declaration. When the statement has more
+lemma, proposition or corollary shows its first theorem-like declaration that
+is not an instance (`inst…`); a definition its first declaration that is not a
+constructor, field, projection or recursor of another of its declarations
+(named inside it) nor an instance; without one, the first declaration. When the statement has more
 declarations, their count follows (`rho_irrational +2`).
 
 The name keeps more trailing components where the last one does not name the

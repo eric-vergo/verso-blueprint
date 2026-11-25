@@ -86,11 +86,14 @@ def auxiliary (decls : Array LeanName) (decl : LeanName) : Bool :=
     decls.any fun other => other.name != decl.name && other.name.isPrefixOf decl.name
 
 /-- The position in `decls` of the declaration a node shows: for a theorem-like node its first
-theorem-like declaration, for a definition its first definition that is not `auxiliary`; else
-the first that is not auxiliary, else the first. -/
+theorem-like declaration that is not `auxiliary` (an instance of a proposition is a theorem too),
+for a definition its first definition that is not `auxiliary`; else the first that is not
+auxiliary, else the first. -/
 def chooseShown (theoremNode : Bool) (decls : Array LeanName) : Nat :=
   let definition := decls.findIdx? fun d => !d.isTheorem && !auxiliary decls d
-  let preferred := if theoremNode then decls.findIdx? (·.isTheorem) <|> definition else definition
+  let preferred := if theoremNode then
+      decls.findIdx? (fun d => d.isTheorem && !auxiliary decls d) <|> definition
+    else definition
   (preferred <|> decls.findIdx? (!auxiliary decls ·)).getD 0
 
 /-- `decls` with the one at `i` first, the others in their order. -/
