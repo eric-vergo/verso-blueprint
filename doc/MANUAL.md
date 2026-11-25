@@ -996,9 +996,23 @@ The proof is associated with the referenced Lean declarations.
 These declarations appear in a **Lean declarations attached to this proof** panel,
 with their own signatures, status, source links, and hover previews. A site in
 the side-by-side layout shows no such panel: there the declarations count
-towards the node's status, summaries, and generated data, and a summary's link to
-one of them leads to the node. The proof facet retains them in generated data either way;
-`lake exe vbp query node addition_assoc` returns that facet under `proof`.
+towards the node's status, summaries, and generated data, and the node's Lean
+chip lists them under "Attached to the proof". The proof facet retains them in
+generated data either way; `lake exe vbp query node addition_assoc` returns that
+facet under `proof`.
+
+Every link to one of these declarations leads to the same place, wherever it is
+made: the summary, the Lean chip, a name in the Lean code of the running text,
+or an extension that links a declaration into the site. In the standard layout
+that is the declaration's row in the proof's panel. In the side-by-side layout
+it is the statement's Lean row when the statement names the declaration as well,
+else a Lean block of the document that defines it, else the node itself, which
+is pointed out as a link's target is when the reader lands on it. The node's own
+Lean chip names such a declaration without a link to the node it is in.
+Extensions read this place from the traversal store of rendered declarations
+(`Informal.Resolve.externalRenderedDeclDomainName`, key
+`label:<label>|<declaration>`), or ask
+`Informal.TraversalIndex.ExternalDeclAnchors.declHref?`.
 
 Statement and proof attachments both contribute to the node's associated
 declarations, declaration lookup, summaries, and progress. A declaration mentioned
@@ -1584,8 +1598,10 @@ as it shows the Lean column:
   output and message hovers) keep Verso's message colours.
 - **Links.** A name in this code links to its documentation or to its
   definition in a Lean block of the document, as in Verso. A declaration of the
-  project also links to where the site shows it, the Lean row of the first
-  Blueprint node that names it (`(lean := ...)`), and to its lines in the source
+  project also links to its place in the site as a declaration of the first
+  Blueprint node that names it (`(lean := ...)`): the node's Lean row, or, for a
+  declaration attached to a proof that the layout shows no row of, the node (see
+  the proof attachments above), and to its lines in the source
   file on GitHub at the commit the site is built from. The lines come from the
   `.ilean` file Lake writes beside each project module of the document's
   environment (the modules the project statistics list), so a declaration of
