@@ -12,7 +12,7 @@ html:has(meta[name="verso-blueprint-sidebar"]) {
   --bp-sidebar-guide: rgba(255, 255, 255, 0.26);
   --bp-sidebar-current-bg: rgba(255, 255, 255, 0.16);
   --bp-sidebar-indent: 0.85rem;
-  --bp-sidebar-twistie: 1.15rem;
+  --bp-sidebar-twistie: 1.5rem;
   --verso-toc-background-color: var(--bp-sidebar-bg);
   --verso-toc-text-color: var(--bp-sidebar-fg);
   --verso-toc-border-color: transparent;
@@ -221,6 +221,30 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.unnumbere
   padding-left: var(--bp-sidebar-indent);
 }
 
+/* While the sidebar script waits for the outline, Verso's list is kept out of sight, so that the
+   reader does not see it turn into the tree. Should the script never finish, the list shows after
+   a few seconds. Without scripts the class is never set. */
+html.bp-sidebar-pending:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book {
+  visibility: hidden;
+  animation: bp-sidebar-show 0s linear 4s forwards;
+}
+
+@keyframes bp-sidebar-show {
+  to {
+    visibility: visible;
+  }
+}
+
+/* "Blueprint Home" on the front page, which is the current page there. */
+html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sidebar_home.bp_sidebar_current > td {
+  background: var(--bp-sidebar-current-bg);
+  border-radius: 0.25rem;
+}
+
+html:has(meta[name="verso-blueprint-sidebar"]) #toc tr.bp_sidebar_home.bp_sidebar_current a {
+  font-weight: 700;
+}
+
 /* The outline as a tree, built by the sidebar script: one row per entry,
    indented by its level, a disclosure triangle in a gutter of fixed width
    (leaf rows keep the gutter, so siblings align), and a guide line for each
@@ -276,10 +300,12 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sideba
   background: var(--bp-sidebar-current-bg);
 }
 
+/* The triangle's gutter, at least 24 by 24 pixels: the button's whole box takes clicks. */
 #toc .bp_tree_toggle,
 #toc .bp_tree_toggle_space {
   flex: 0 0 var(--bp-sidebar-twistie);
   align-self: stretch;
+  min-height: 1.5rem;
   max-height: 1.85rem;
   margin: 0;
   padding: 0;
@@ -337,11 +363,15 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sideba
   outline-offset: -2px;
 }
 
+/* Sibling rows' numbers take the width of the widest (set by the sidebar script), in figures of
+   one width, so that the titles line up. */
 #toc .bp_tree_number {
   flex: 0 0 auto;
-  min-width: 1.4rem;
-  padding-right: 0.3rem;
+  box-sizing: content-box;
+  min-width: var(--bp-tree-number-width, 1.4rem);
+  padding-right: 0.4rem;
   color: var(--bp-sidebar-fg-muted);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -354,6 +384,14 @@ html:has(meta[name="verso-blueprint-sidebar"]) #toc .split-toc.book tr.bp_sideba
 #toc .bp_tree_title code {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* Highlighted code in a title takes the row's colour: the code colours are made for the page's
+   background, not the sidebar's. */
+#toc .bp_tree_title code.hl,
+#toc .bp_tree_title code.hl * {
+  background: transparent;
+  color: inherit;
 }
 
 #toc .bp_tree_current > a.bp_tree_link {

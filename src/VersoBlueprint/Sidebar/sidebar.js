@@ -4,15 +4,19 @@
  * the document's outline as a tree, and keeps the page header (site title and
  * search) at the top of the sidebar.
  * The outline (parts, chapters and sections, with a part's chapters inside it)
- * comes from -verso-data/blueprint-sidebar-outline.js, which sets
- * window.versoBlueprintSidebarOutline. Each row with entries below it has a
- * disclosure button (aria-expanded, aria-controls); the title is a link. By
- * default parts are open, and so is every entry above the current page; the
- * rows the reader opens or closes are remembered for the site in
- * sessionStorage under "verso-blueprint-sidebar-tree". Right and Left on a
- * row open and close it (Left on a closed row moves to the row above it).
- * Without the outline, the current chapter's sections are nested under that
- * chapter as Verso lists them.
+ * comes from -verso-data/blueprint-sidebar-outline.js, loaded asynchronously,
+ * which sets window.versoBlueprintSidebarOutline; while it loads, the class
+ * "bp-sidebar-pending" (set by an inline head script) keeps Verso's list out of
+ * sight. Each row with entries below it has a disclosure button
+ * (aria-expanded, aria-controls) out of the Tab order; the title is a link and
+ * the row's one Tab stop. By default parts are open, and so is every entry
+ * above the current page; the rows the reader opens or closes, and the
+ * sidebar's scroll position, are kept for the site in sessionStorage under
+ * "verso-blueprint-sidebar-tree" and "verso-blueprint-sidebar-scroll". On a
+ * row, Right and Left open and close it (or move into it and to the row above
+ * it), Up and Down move between the rows that can be seen, Home and End to the
+ * ends. Without the outline, the current chapter's sections are nested under
+ * that chapter as Verso lists them.
  * Configuration: <script type="application/json" id="verso-blueprint-sidebar-config">.
  * The theme switch sets html[data-theme] and stores "light" or "dark" under
  * localStorage key "verso-theme" (the key Verso's own theme toggle uses).
@@ -166,25 +170,49 @@
 
   // The outline as a tree --------------------------------------------------
 
+  const outlineFile = "blueprint-sidebar-outline.js";
+  const scrollKey = "verso-blueprint-sidebar-scroll";
+  const pendingClass = "bp-sidebar-pending";
+
   function readOutline() {
     const outline = window.versoBlueprintSidebarOutline;
     if (!outline || !Array.isArray(outline.entries) || outline.entries.length === 0) return null;
     return outline;
   }
 
-  function readTreeState() {
+  // Call `done` once, with the outline or null, when the outline file has run or failed. The
+  // file loads asynchronously: it may have run before this script looks, or run later.
+  function whenOutline(done) {
+    let settled = false;
+    function settle() {
+      if (settled) return;
+      settled = true;
+      done(readOutline());
+    }
+    if (readOutline()) return settle();
+    const script = document.querySelector('script[src$="' + outlineFile + '"]');
+    if (script) {
+      script.addEventListener("load", settle);
+      script.addEventListener("error", settle);
+    }
+    // an asynchronous script has run or failed by the time the page has loaded
+    if (!script || document.readyState === "complete") settle();
+    else window.addEventListener("load", settle);
+  }
+
+  function readStored(key) {
     try {
-      const raw = sessionStorage.getItem(treeStateKey);
+      const raw = sessionStorage.getItem(key);
       const parsed = raw ? JSON.parse(raw) : null;
-      return parsed && typeof parsed === "object" ? parsed : {};
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch (_err) {
       return {};
     }
   }
 
-  function writeTreeState(state) {
+  function writeStored(key, value) {
     try {
-      sessionStorage.setItem(treeStateKey, JSON.stringify(state));
+      sessionStorage.setItem(key, JSON.stringify(value));
     } catch (_err) {}
   }
 
@@ -203,24 +231,45 @@
     }
   }
 
-  // The chain of entries from the top of the outline to the one whose page is
-  // the current page, or null.
-  function currentChain(entries, here) {
+  // The chain of entries from the top of the outline to the one `matches` accepts, or null.
+  function chainTo(entries, matches) {
     for (const entry of entries) {
       const children = Array.isArray(entry.children) ? entry.children : [];
-      const below = currentChain(children, here);
+      const below = chainTo(children, matches);
       if (below) return [entry].concat(below);
-      if (entry.page !== undefined) {
-        const url = resolve(entry.page);
-        if (url && pageKey(url) === here) return [entry];
-      }
+      if (matches(entry)) return [entry];
     }
     return null;
   }
 
-  function buildTree(outline, toc) {
-    const saved = readTreeState();
-    const chain = currentChain(outline.entries, pageKey(window.location)) || [];
+  // The entries above and at the current place: the entry whose page this is, else (on a page
+  // that holds several entries, as a single-page site does) the entry the address's fragment
+  // names, else none.
+  function currentChain(entries) {
+    const here = pageKey(window.location);
+    const byPage = chainTo(entries, function (entry) {
+      if (typeof entry.page !== "string") return false;
+      const url = resolve(entry.page);
+      return url !== null && pageKey(url) === here;
+    });
+    if (byPage) return byPage;
+    if (!window.location.hash) return [];
+    return chainTo(entries, function (entry) {
+      const url = resolve(entry.href);
+      return url !== null && url.hash === window.location.hash && pageKey(url) === here;
+    }) || [];
+  }
+
+  // The rows the reader can see, in order: their links.
+  function visibleLinks(root) {
+    return Array.prototype.filter.call(root.querySelectorAll(".bp_tree_link"), function (a) {
+      return !a.closest("ul[hidden]");
+    });
+  }
+
+  function buildTree(outline) {
+    const saved = readStored(treeStateKey);
+    const chain = currentChain(outline.entries);
     const current = chain.length > 0 ? chain[chain.length - 1] : null;
     let groupCount = 0;
     const root = element("ul", "bp_tree");
@@ -231,21 +280,25 @@
       if (!button || !group) return;
       button.setAttribute("aria-expanded", open ? "true" : "false");
       group.hidden = !open;
-      item.classList.toggle("bp_tree_open", open);
     }
 
     function remember(item, open) {
-      const key = item.getAttribute("data-key");
-      if (!key) return;
-      const state = readTreeState();
-      state[key] = open;
-      writeTreeState(state);
+      const state = readStored(treeStateKey);
+      state[item.getAttribute("data-key") || ""] = open;
+      writeStored(treeStateKey, state);
+    }
+
+    // The numbers of sibling rows take the width of the widest, so that their titles line up.
+    function numberWidth(list, entries) {
+      const widest = entries.reduce(function (n, entry) {
+        return typeof entry.number === "string" ? Math.max(n, entry.number.length) : n;
+      }, 0);
+      if (widest > 0) list.style.setProperty("--bp-tree-number-width", widest + "ch");
     }
 
     function itemFor(entry, level) {
-      const item = element("li", "bp_tree_item");
+      const item = element("li", "bp_tree_item" + (entry.part ? " bp_tree_part" : ""));
       item.setAttribute("data-key", entry.href || "");
-      item.setAttribute("data-kind", entry.part ? "part" : "entry");
       const row = element("div", "bp_tree_row");
       row.style.setProperty("--bp-tree-level", String(level));
       const children = Array.isArray(entry.children) ? entry.children : [];
@@ -264,40 +317,41 @@
         row.classList.add("bp_tree_current");
         link.setAttribute("aria-current", "page");
       }
-      if (children.length > 0) {
-        const groupId = "bp-tree-group-" + ++groupCount;
-        const button = element("button", "bp_tree_toggle");
-        button.type = "button";
-        button.setAttribute("aria-controls", groupId);
-        button.setAttribute("aria-label", (title.textContent || "").trim());
-        row.appendChild(button);
-        row.appendChild(link);
-        item.appendChild(row);
-        const group = element("ul", "bp_tree_group");
-        group.id = groupId;
-        group.style.setProperty("--bp-tree-level", String(level));
-        children.forEach(function (child) {
-          group.appendChild(itemFor(child, level + 1));
-        });
-        item.appendChild(group);
-        const onPath = chain.indexOf(entry) >= 0;
-        const key = entry.href || "";
-        let open = !!entry.part;
-        if (Object.prototype.hasOwnProperty.call(saved, key)) open = saved[key] === true;
-        if (onPath) open = true;
-        setOpen(item, open);
-        button.addEventListener("click", function (event) {
-          event.preventDefault();
-          const next = button.getAttribute("aria-expanded") !== "true";
-          setOpen(item, next);
-          remember(item, next);
-        });
-      } else {
+      if (children.length === 0) {
         row.appendChild(element("span", "bp_tree_toggle_space"));
         row.appendChild(link);
         item.appendChild(row);
+        return item;
       }
-      if (entry.part) item.classList.add("bp_tree_part");
+      const groupId = "bp-tree-group-" + ++groupCount;
+      const button = element("button", "bp_tree_toggle");
+      button.type = "button";
+      // one stop per row for Tab: the row's link; the arrow keys open and close the row
+      button.tabIndex = -1;
+      button.setAttribute("aria-controls", groupId);
+      button.setAttribute("aria-label", (title.textContent || "").trim());
+      row.appendChild(button);
+      row.appendChild(link);
+      item.appendChild(row);
+      const group = element("ul", "bp_tree_group");
+      group.id = groupId;
+      group.style.setProperty("--bp-tree-level", String(level));
+      numberWidth(group, children);
+      children.forEach(function (child) {
+        group.appendChild(itemFor(child, level + 1));
+      });
+      item.appendChild(group);
+      const key = entry.href || "";
+      let open = !!entry.part;
+      if (Object.prototype.hasOwnProperty.call(saved, key)) open = saved[key] === true;
+      if (chain.indexOf(entry) >= 0) open = true;
+      setOpen(item, open);
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        const next = button.getAttribute("aria-expanded") !== "true";
+        setOpen(item, next);
+        remember(item, next);
+      });
       return item;
     }
 
@@ -306,6 +360,7 @@
     outline.entries.forEach(function (entry, i) {
       if (entry.part || typeof entry.number === "string") lastGrouped = i;
     });
+    numberWidth(root, outline.entries);
     outline.entries.forEach(function (entry, i) {
       if (i === lastGrouped + 1 && lastGrouped >= 0) {
         const rule = element("li", "bp_tree_rule");
@@ -316,17 +371,28 @@
       root.appendChild(itemFor(entry, 0));
     });
 
-    // Right opens a row (or moves into it), Left closes it (or moves to its parent).
+    // Keys on a row's link: Right opens the row (or moves into it), Left closes it (or moves to
+    // the row above it), Enter or Space on the triangle toggles it, Up and Down move between the
+    // rows that can be seen, Home and End to the first and last.
     root.addEventListener("keydown", function (event) {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       const target = event.target;
-      if (!target.classList || !(target.classList.contains("bp_tree_link") || target.classList.contains("bp_tree_toggle"))) return;
+      if (!target.classList) return;
+      if (!target.classList.contains("bp_tree_link") && !target.classList.contains("bp_tree_toggle")) return;
       const item = target.closest(".bp_tree_item");
       if (!item) return;
+      const link = item.querySelector(":scope > .bp_tree_row > .bp_tree_link");
       const button = item.querySelector(":scope > .bp_tree_row > .bp_tree_toggle");
-      const open = button && button.getAttribute("aria-expanded") === "true";
-      if (event.key === "ArrowRight") {
+      const open = button !== null && button.getAttribute("aria-expanded") === "true";
+      if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+        const links = visibleLinks(root);
+        const at = links.indexOf(link);
+        const next =
+          event.key === "Home" ? links[0] :
+          event.key === "End" ? links[links.length - 1] :
+          links[at + (event.key === "ArrowDown" ? 1 : -1)];
+        if (next) next.focus();
+      } else if (event.key === "ArrowRight") {
         if (!button) return;
         if (!open) {
           setOpen(item, true);
@@ -335,54 +401,80 @@
           const first = item.querySelector(":scope > .bp_tree_group > .bp_tree_item > .bp_tree_row > .bp_tree_link");
           if (first) first.focus();
         }
-      } else if (open) {
-        setOpen(item, false);
-        remember(item, false);
+      } else if (event.key === "ArrowLeft") {
+        if (open) {
+          setOpen(item, false);
+          remember(item, false);
+        } else {
+          const parent = item.parentElement && item.parentElement.closest(".bp_tree_item");
+          const up = parent && parent.querySelector(":scope > .bp_tree_row > .bp_tree_link");
+          if (!up) return;
+          up.focus();
+        }
       } else {
-        const parent = item.parentElement && item.parentElement.closest(".bp_tree_item");
-        const link = parent && parent.querySelector(":scope > .bp_tree_row > .bp_tree_link");
-        if (!link) return;
-        link.focus();
+        return;
       }
       event.preventDefault();
     });
     return root;
   }
 
-  // Scroll the sidebar, not the page, so that the current row is in view.
-  function revealCurrent(toc) {
-    const row = toc.querySelector(".bp_tree_row.bp_tree_current");
-    if (!row) return;
-    let box = row.parentElement;
-    while (box && box !== document.body) {
+  // The element that scrolls the sidebar's list, or null.
+  function scrollBox(toc) {
+    let box = toc.querySelector(".bp_tree") || toc;
+    while (box && box !== document.body && box !== document.documentElement) {
       const style = window.getComputedStyle(box);
-      if ((style.overflowY === "auto" || style.overflowY === "scroll") && box.scrollHeight > box.clientHeight) break;
+      if ((style.overflowY === "auto" || style.overflowY === "scroll") && box.scrollHeight > box.clientHeight) {
+        return box;
+      }
       box = box.parentElement;
     }
-    if (!box || box === document.body) return;
+    return null;
+  }
+
+  // Keep the sidebar where the reader left it when they move to another page of the site.
+  function keepScroll(toc) {
+    window.addEventListener("pagehide", function () {
+      const box = scrollBox(toc);
+      if (box) writeStored(scrollKey, { top: box.scrollTop });
+    });
+  }
+
+  function restoreScroll(toc) {
+    const top = readStored(scrollKey).top;
+    const box = scrollBox(toc);
+    if (box && typeof top === "number") box.scrollTop = top;
+  }
+
+  // Scroll the sidebar, not the page, so that the current row is in view, if it is not already.
+  function revealCurrent(toc) {
+    const row = toc.querySelector(".bp_tree_row.bp_tree_current, tr.bp_sidebar_home.bp_sidebar_current");
+    const box = scrollBox(toc);
+    if (!row || !box) return;
     const boxRect = box.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
     if (rowRect.top >= boxRect.top && rowRect.bottom <= boxRect.bottom) return;
     box.scrollTop += rowRect.top - boxRect.top - box.clientHeight / 3;
   }
 
-  // Replace the rows of Verso's book list (after `home`) by the outline's tree.
+  // Replace the rows of Verso's book list by the outline's tree, after `home`.
   function installTree(toc, body, home, outline) {
     Array.prototype.slice.call(body.rows).forEach(function (row) {
-      if (row !== home) row.remove();
+      if (!/\bbp_sidebar_/.test(row.className)) row.remove();
     });
-    body.appendChild(ruleRow());
     const row = element("tr", "bp_sidebar_tree_row");
     const cell = element("td");
     cell.colSpan = 2;
-    cell.appendChild(buildTree(outline, toc));
+    cell.appendChild(buildTree(outline));
     row.appendChild(cell);
-    body.appendChild(row);
+    body.insertBefore(row, home.nextSibling);
+    body.insertBefore(ruleRow(), row);
     // Verso's per-level lists of the current page say what the tree shows.
     toc.querySelectorAll(".split-toc:not(.book)").forEach(function (splitToc) {
       splitToc.classList.add("bp_sidebar_nested");
     });
-    toc.classList.add("bp_sidebar_nesting", "bp_sidebar_has_tree");
+    toc.classList.add("bp_sidebar_nesting");
+    wrapDottedNames(row);
   }
 
   // Keep the sidebar below the page header, whose height follows the title.
@@ -400,7 +492,8 @@
 
   // Let the dotted names of `root`'s entries wrap after their dots.
   function wrapDottedNames(root) {
-    root.querySelectorAll("tr > td > a code, tr > td > a, .bp_tree_title code, .bp_tree_title").forEach(function (el) {
+    const names = "tr > td > a code, tr > td > a, .bp_tree_title code, .bp_tree_title";
+    root.querySelectorAll(names).forEach(function (el) {
       if (el.querySelector("code")) return;
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       const texts = [];
@@ -420,8 +513,8 @@
 
   // An entry still cut off (a name without dots, a narrow sidebar) gets its text as tooltip.
   function titleCutEntries(root) {
-    root.querySelectorAll("tr > td > a, .bp_tree_link").forEach(function (a) {
-      const cell = a.classList.contains("bp_tree_link") ? null : a.closest("td");
+    root.querySelectorAll("tr > td > a").forEach(function (a) {
+      const cell = a.closest("td");
       const cut = a.scrollWidth > a.clientWidth + 1 || (cell && cell.scrollWidth > cell.clientWidth + 1);
       if (cut && !a.hasAttribute("title")) a.setAttribute("title", (a.textContent || "").trim());
     });
@@ -430,48 +523,66 @@
   function install() {
     const config = readConfig();
     const toc = document.getElementById("toc");
-    if (!config || !toc || toc.querySelector(".bp_sidebar_foot, .bp_sidebar_home")) return;
+    const root = document.documentElement;
+    if (!config || !toc || toc.querySelector(".bp_sidebar_foot, .bp_sidebar_home")) {
+      root.classList.remove(pendingClass);
+      return;
+    }
     const book = toc.querySelector(".split-toc.book table");
-    if (book) {
-      const body = book.tBodies[0] || book;
-      const homeLink = toc.querySelector("a.toc-title");
-      const home = element("tr", "bp_sidebar_home");
-      const cell = element("td");
-      cell.colSpan = 2;
-      const link = element("a", "", config.homeLabel || "Blueprint Home");
-      link.href = homeLink ? homeLink.getAttribute("href") || "./" : "./";
-      cell.appendChild(link);
-      home.appendChild(cell);
-      body.insertBefore(home, body.firstChild);
-      const outline = readOutline();
+    adoptControls(installFoot(toc));
+    trackHeader();
+    keepScroll(toc);
+    if (!book) {
+      root.classList.remove(pendingClass);
+      return;
+    }
+    const body = book.tBodies[0] || book;
+    const homeLink = toc.querySelector("a.toc-title");
+    const home = element("tr", "bp_sidebar_home");
+    const cell = element("td");
+    cell.colSpan = 2;
+    const link = element("a", "", config.homeLabel || "Blueprint Home");
+    link.href = homeLink ? homeLink.getAttribute("href") || "./" : "./";
+    if (pageKey(link) === pageKey(window.location)) {
+      home.classList.add("bp_sidebar_current");
+      link.setAttribute("aria-current", "page");
+    }
+    cell.appendChild(link);
+    home.appendChild(cell);
+    body.insertBefore(home, body.firstChild);
+    const links = Array.isArray(config.links) ? config.links : [];
+    if (links.length > 0) {
+      body.appendChild(ruleRow());
+      links.forEach(function (entry) {
+        if (!entry || !entry.href) return;
+        const row = element("tr", "unnumbered bp_sidebar_link");
+        row.appendChild(element("td", "num"));
+        const td = element("td");
+        const a = element("a", "", entry.label || entry.href);
+        a.href = entry.href;
+        td.appendChild(a);
+        row.appendChild(td);
+        body.appendChild(row);
+      });
+    }
+    wrapDottedNames(body);
+    titleCutEntries(body);
+    // Verso's list stays hidden (`pendingClass`) until the outline has replaced it, or the
+    // outline is known to be missing.
+    whenOutline(function (outline) {
       if (outline) {
         installTree(toc, body, home, outline);
       } else {
-        const firstUnnumbered = body.querySelector("tr.unnumbered");
+        const firstUnnumbered = body.querySelector("tr.unnumbered:not(.bp_sidebar_link)");
         if (firstUnnumbered) body.insertBefore(ruleRow(), firstUnnumbered);
+        nestSections(toc, body);
+        body.querySelectorAll("tr.bp_sidebar_sections").forEach(wrapDottedNames);
+        titleCutEntries(body);
       }
-      const links = Array.isArray(config.links) ? config.links : [];
-      if (links.length > 0) {
-        body.appendChild(ruleRow());
-        links.forEach(function (entry) {
-          if (!entry || !entry.href) return;
-          const row = element("tr", "unnumbered bp_sidebar_link");
-          row.appendChild(element("td", "num"));
-          const td = element("td");
-          const a = element("a", "", entry.label || entry.href);
-          a.href = entry.href;
-          td.appendChild(a);
-          row.appendChild(td);
-          body.appendChild(row);
-        });
-      }
-      if (!outline) nestSections(toc, body);
-      wrapDottedNames(body);
-      titleCutEntries(body);
-    }
-    adoptControls(installFoot(toc));
-    trackHeader();
-    revealCurrent(toc);
+      root.classList.remove(pendingClass);
+      restoreScroll(toc);
+      revealCurrent(toc);
+    });
   }
 
   if (document.readyState === "loading") {

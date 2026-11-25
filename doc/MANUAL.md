@@ -1679,23 +1679,39 @@ file explorer's:
   title in a heavier weight. In a document without parts, chapters are the top
   level.
 - A row with entries below it has a triangle, pointing right when closed and
-  down when open, in a gutter of fixed width; rows without one keep the gutter,
-  so the titles of a level line up. Long titles wrap under their own first
-  letter. The triangle is a button (`aria-expanded`, `aria-controls`) that opens
-  and closes the row without leaving the page; the title is a link. Enter or
-  Space on the triangle toggles it; on a focused row, Right opens it (or moves to
-  its first entry) and Left closes it (or moves to the row above it).
+  down when open, in a gutter of fixed width (at least 24 by 24 pixels, the
+  whole of which takes clicks); rows without one keep the gutter, so the titles
+  of a level line up, and sibling rows give their numbers the width of the
+  widest. Long titles wrap under their own first letter. The triangle is a
+  button (`aria-expanded`, `aria-controls`) that opens and closes the row
+  without leaving the page; the title is a link.
+- Keyboard: each row is one stop for Tab, its link. On a focused row, Right
+  opens it (or moves to its first entry), Left closes it (or moves to the row
+  above it), Up and Down move between the rows that can be seen, and Home and
+  End to the first and last. The triangle stays a button for pointers and
+  assistive technology, out of the Tab order; focused, it toggles with Enter or
+  Space.
 - Parts are open by default, so every chapter is visible; chapters are closed,
   except those above the current page, which are open. The current page's row
-  is highlighted and in bold, and the sidebar scrolls it into view.
-- The rows a reader opens or closes stay so while they move through the site
-  (in the browser's session storage, under the key
-  `verso-blueprint-sidebar-tree`); without storage the defaults apply.
+  is highlighted and in bold (on the front page, "Blueprint Home"). On a
+  single-page site the current row is the one the address's fragment names, if
+  any.
+- The rows a reader opens or closes, and how far the sidebar is scrolled, stay
+  so while they move through the site (in the browser's session storage, under
+  the keys `verso-blueprint-sidebar-tree` and `verso-blueprint-sidebar-scroll`);
+  the sidebar scrolls only when the current row would otherwise be out of view.
+  Without storage the defaults apply.
 - Pages after the last part (or, without parts, after the last numbered
   chapter), such as Project Stats, stand at the top level after a separator.
 
 The outline comes from `-verso-data/blueprint-sidebar-outline.js`, which the
-generator writes beside the pages. Without JavaScript the sidebar shows Verso's
+generator writes beside the pages, with each title as the table of contents
+shows it (formulas and highlighted Lean code included, without the hover data
+that belongs to one page). Pages load it asynchronously, so no other script
+waits for it; until the tree is built, Verso's list is kept out of sight rather
+than seen turning into the tree (it shows after a few seconds should the script
+never finish, and at once when the outline cannot be loaded, with the current
+chapter's sections nested under it). Without JavaScript the sidebar shows Verso's
 table of contents with the parts set apart (the label above a heavier title,
 chapters after a part indented) and the current chapter in bold; it has no
 triangles, the other chapters' sections are not listed, and Verso's per-level
