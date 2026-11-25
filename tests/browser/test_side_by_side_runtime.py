@@ -927,3 +927,134 @@ def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
     assert ">9.1.1</span>" in aids
     assert re.search(r">§9\.1[ \u00a0]A Numbered Section", aids), "section sign"
     assert not re.search(r"9\.1\.[ \u00a0]A Numbered Section", aids)
+
+
+_AXIS_JS = r"""(sel) => {
+    const centre = (b) => (b.left + b.right) / 2;
+    const area = document.querySelector('main .content-wrapper > section');
+    const axis = centre(area.getBoundingClientRect());
+    // the centre of each line of a heading's text, without its permalink marker
+    const lines = (h) => {
+        const parts = [...h.childNodes].filter((n) => !(n.classList && n.classList.contains('permalink-widget')));
+        const range = document.createRange();
+        range.setStartBefore(parts[0]);
+        range.setEndAfter(parts[parts.length - 1]);
+        const rows = {};
+        for (const r of range.getClientRects()) {
+            if (r.width === 0) continue;
+            const row = (rows[Math.round(r.bottom)] ||= { left: r.left, right: r.right });
+            row.left = Math.min(row.left, r.left);
+            row.right = Math.max(row.right, r.right);
+        }
+        return Object.values(rows).map(centre);
+    };
+    const h = document.querySelector(sel);
+    return { axis, area: area.getBoundingClientRect().width, lines: h ? lines(h) : null };
+}"""
+
+
+class TestReadingAxis:
+    """Every page reads about one centred axis: its title, its headings and its reading column."""
+
+    @pytest.mark.parametrize("width", (1024, 1440))
+    @pytest.mark.parametrize(
+        "path", ("/Side-by-Side-Runs/", "/Part-II/", "/Project-Stats/", "/Dependency-Graph/")
+    )
+    def test_page_title_is_centred_on_the_content_area(
+        self, side_by_side_server: str, page: Page, path: str, width: int
+    ):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(side_by_side_server + path)
+        page.wait_for_load_state("networkidle")
+        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
+        assert facts["lines"], facts
+        for line in facts["lines"]:
+            assert abs(line - facts["axis"]) <= 1, (path, facts)
+
+    def test_headings_column_and_figures_share_the_axis(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        page.wait_for_load_state("networkidle")
+        # a figure narrower than the content area, as a site's own figure block would make it
+        page.evaluate(
+            """() => {
+                const f = document.createElement('figure');
+                f.id = 'axis-probe';
+                f.style.width = '20rem';
+                f.textContent = 'A figure';
+                document.querySelector('main section section > h2').after(f);
+            }"""
+        )
+        title = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
+        axis = title["axis"]
+        for line in title["lines"]:
+            assert abs(line - axis) <= 1, title
+        heading = page.evaluate(_AXIS_JS, "main section section > h2")
+        # the long section heading wraps within the column, each line centred
+        assert len(heading["lines"]) >= 2, heading
+        for line in heading["lines"]:
+            assert abs(line - axis) <= 1, heading
+        sub = page.evaluate(_AXIS_JS, "main section section section > h3")
+        for line in sub["lines"]:
+            assert abs(line - axis) <= 1, sub
+        boxes = page.evaluate(
+            """() => [...document.querySelectorAll(
+                    'main section section > :is(p, ul, blockquote, pre), #axis-probe, main section section > h2')]
+                .map((e) => { const b = e.getBoundingClientRect();
+                              return { tag: e.tagName, centre: (b.left + b.right) / 2, width: b.width,
+                                       align: getComputedStyle(e).textAlign }; })"""
+        )
+        measure = page.evaluate(
+            "() => document.querySelector('main section section > p').getBoundingClientRect().width"
+        )
+        # the reading column is narrower than the content area, so centring it is visible
+        assert measure < title["area"] - 100, (measure, title)
+        for box in boxes:
+            assert abs(box["centre"] - axis) <= 1, (box, axis)
+            if box["tag"] in ("P", "UL", "BLOCKQUOTE"):
+                # text inside the column stays aligned to its start
+                assert box["align"] in ("start", "left"), box
+                assert box["width"] <= measure + 0.5, (box, measure)
+
+    def test_side_by_side_runs_keep_the_full_width(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Side-by-Side-Runs/")
+        widths = page.evaluate(
+            """() => { const s = document.querySelector('main .content-wrapper > section');
+                       const run = s.querySelector(':scope > .bp_sbs_run');
+                       return [s.getBoundingClientRect().width, run.getBoundingClientRect().width]; }"""
+        )
+        assert abs(widths[0] - widths[1]) <= 1, widths
+
+    def test_stats_bands_keep_their_own_layout(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Project-Stats/")
+        bands = page.evaluate(
+            """() => [...document.querySelectorAll('section.bp_stats_band')].map((band) => {
+                const style = getComputedStyle(band);
+                const start = band.getBoundingClientRect().left + parseFloat(style.borderLeftWidth)
+                    + parseFloat(style.paddingLeft);
+                return [...band.querySelectorAll(':scope > :is(h2, p)')].map((e) => ({
+                    tag: e.tagName, offset: e.getBoundingClientRect().left - start,
+                    align: getComputedStyle(e).textAlign }));
+            }).flat()"""
+        )
+        assert bands, "no stats bands"
+        for item in bands:
+            # band titles and band text start at the band's edge, left-aligned, as on any card
+            assert abs(item["offset"]) <= 1, item
+            assert item["align"] in ("start", "left"), item
+
+    @pytest.mark.parametrize(
+        "path",
+        ("/Side-by-Side-Runs/", "/Reading-Aids/A-Numbered-Section/", "/Part-II/", "/Project-Stats/"),
+    )
+    def test_phone_width_has_no_horizontal_scroll(self, side_by_side_server: str, page: Page, path: str):
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(side_by_side_server + path)
+        page.wait_for_load_state("networkidle")
+        width = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
+        assert width[0] <= width[1], (path, width)
+        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
+        for line in facts["lines"]:
+            assert abs(line - facts["axis"]) <= 1, (path, facts)
