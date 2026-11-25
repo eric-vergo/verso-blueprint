@@ -37,6 +37,59 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   max-width: var(--bp-sbs-measure, 48rem);
 }
 
+/* Definition lists, block quotes and section headings keep to the same measure,
+   so that a long heading wraps within the reading column. A short code block in
+   the prose starts at the column's edge and grows about the page's axis as its
+   lines get longer, up to the content area. */
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class])) > :is(dl, blockquote, h2, h3, h4, h5, h6) {
+  max-width: var(--bp-sbs-measure, 48rem);
+}
+
+html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class])) > pre {
+  width: fit-content;
+  min-width: min(100%, var(--bp-sbs-measure, 48rem));
+  max-width: 100%;
+}
+
+/* One axis for every page. The title and the section headings are centred, and
+   the reading column (paragraphs, lists, definition lists, block quotes and
+   figures) is centred in the content area, with its text aligned to its start.
+   Content wider than the column (side-by-side nodes, tables, wide code, the
+   dependency graph, the cards of generated pages) spans the content area, so it
+   shares the axis. Only the sections of the document are matched: the bands and
+   cards of generated pages are `section` elements with a class, and keep their
+   own layout. `:where` keeps these rules as easy to override as element rules. */
+:where(main section:not([class])) > :is(h1, h2, h3, h4, h5, h6) {
+  margin-inline: auto;
+  text-align: center;
+}
+
+:where(main section:not([class])) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
+  box-sizing: border-box;
+  margin-inline: auto;
+}
+
+/* A block quote is indented from both edges of the column. */
+:where(main section:not([class])) > blockquote {
+  padding-inline: 2.5rem;
+}
+
+/* A heading's permalink marker sits just after the last word without taking
+   room in the line, so that a centred heading is centred on its text. The
+   marker shows while the pointer is over the heading or the marker has the
+   keyboard focus. */
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline {
+  margin-inline-start: 0;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline > a {
+  left: 0.5rem;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline:focus-within {
+  opacity: 1;
+}
+
 html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
   font-size: inherit;
   line-height: 1.5;
