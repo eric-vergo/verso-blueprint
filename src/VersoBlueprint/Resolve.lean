@@ -47,8 +47,11 @@ declaration-anchor-centric (one destination per declaration), while rendered ext
 occurrence-centric (one destination per visible code occurrence and canonical declaration).
 A label-level fallback names the first visible code row when the selected statement
 does not display code. This allows summary/graph UI to jump to a rendered instance, even when the same declaration
-is referenced by many blueprint entries. Inline preview bodies themselves are keyed by the owning
-source code-block identity.
+is referenced by many blueprint entries. A declaration attached to a proof that shows no rows of
+its declarations (the side-by-side layout), and not to the node's statement, has as fallback the
+declaration's one place in the site (`Informal.TraversalIndex.ExternalDeclAnchors.placeTarget?`),
+so that the first of a declaration's fallback keys in string order that resolves names that place.
+Inline preview bodies themselves are keyed by the owning source code-block identity.
 -/
 def externalRenderedDeclDomainName : Name := Name.mkSimple "Informal.Block.externalRenderedDecl"
 def bibliographyDomainName : Name := Name.mkSimple "Informal.Block.bpCitations"
@@ -90,23 +93,28 @@ def resolveDomainHrefs (s : Verso.Genre.Manual.TraverseState) (domain : Name) (l
       (s.externalTags[id]?).map (·.relativeLink)
     hrefs.qsort (fun a b => a < b)
 
+/--
+The key of the inline Lean anchor of `decl`: its own name, else the one key of the form
+`decl (in …)` (a declaration defined in a named example).
+-/
+def inlineLeanDeclKey? (s : Verso.Genre.Manual.TraverseState) (decl : Name) : Option String := do
+  let dom ← s.domains.get? inlineLeanDeclDomainName
+  if dom.objects.contains decl.toString then return decl.toString
+  let pref := decl.toString ++ " (in "
+  let cands := dom.objects.foldl (init := #[]) fun acc key _obj =>
+    if key.startsWith pref then acc.push key else acc
+  if cands.size = 1 then cands[0]? else none
+
 def resolveInlineLeanDeclHref? (s : Verso.Genre.Manual.TraverseState) (decl : Name) : Option String :=
-  match resolveDomainHref? s inlineLeanDeclDomainName decl.toString with
-  | some href => some href
-  | none =>
-    match s.domains.get? inlineLeanDeclDomainName with
-    | none => none
-    | some dom =>
-      let pref := decl.toString ++ " (in "
-      let cands := dom.objects.foldl (init := #[]) fun acc key _obj =>
-        if key == decl.toString || key.startsWith pref then
-          acc.push key
-        else
-          acc
-      if cands.size = 1 then
-        resolveDomainHref? s inlineLeanDeclDomainName cands[0]!
-      else
-        none
+  (inlineLeanDeclKey? s decl).bind (resolveDomainHref? s inlineLeanDeclDomainName ·)
+
+/-- The one target of the inline Lean anchor of `decl` (`inlineLeanDeclKey?`). -/
+def inlineLeanDeclId? (s : Verso.Genre.Manual.TraverseState) (decl : Name) :
+    Option Verso.Multi.InternalId := do
+  let obj ← s.getDomainObject? inlineLeanDeclDomainName (← inlineLeanDeclKey? s decl)
+  match obj.ids.toList with
+  | [id] => some id
+  | _ => none
 
 def resolveRenderedExternalDeclHref? (s : Verso.Genre.Manual.TraverseState)
     (label decl : Name) : Option String :=
@@ -122,7 +130,9 @@ Resolve a Lean declaration link as seen from one informal block.
 If the block rendered the declaration in its external-code panel, prefer that
 row: it lands the reader on the concrete code that the block is discussing.
 If no row was registered, fall back to the ordinary inline-Lean declaration
-anchor shared by the rest of the document.
+anchor shared by the rest of the document. Renderers use
+`Informal.TraversalIndex.ExternalDeclAnchors.declHref?`, which adds the declaration's one place in
+the site.
 -/
 def resolveInformalDeclHref? (s : Verso.Genre.Manual.TraverseState)
     (label decl : Name) : Option String :=

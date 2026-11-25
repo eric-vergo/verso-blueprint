@@ -9,7 +9,9 @@ import threading
 import time
 import urllib.request
 from contextlib import contextmanager
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urljoin, urlsplit
 
 from playwright.sync_api import Page
 
@@ -253,3 +255,51 @@ def write_large_code_site(root: Path, **kwargs) -> Path:
     data = root / "code-site.json"
     data.write_text(json.dumps(large_code_site_data(**kwargs)), encoding="utf-8")
     return data
+
+
+class _PlacesAndLinks(HTMLParser):
+    """The `id` values of a page, its `<base href>` and the targets of its links."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.ids: set[str] = set()
+        self.base: str | None = None
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if values.get("id"):
+            self.ids.add(values["id"])
+        if tag == "base" and self.base is None and values.get("href") is not None:
+            self.base = values["href"]
+        if tag == "a" and values.get("href"):
+            self.hrefs.append(values["href"])
+
+
+def dead_place_links(site_dir: Path) -> list[tuple[str, str]]:
+    """The links of the site's pages that name a place (`page/#id`) on a page of the site that has
+    no element with that `id`: each as the page with the link, relative to `site_dir`, and the link
+    as written. Links resolve against the page's `<base href>`; a fragment with `=` (`#node=...`) is
+    state that a page's script reads, not a place."""
+    pages: dict[Path, _PlacesAndLinks] = {}
+    for path in site_dir.rglob("*.html"):
+        parsed = _PlacesAndLinks()
+        parsed.feed(path.read_text(encoding="utf-8"))
+        pages[path.resolve()] = parsed
+    root = site_dir.resolve()
+    dead = []
+    for path, parsed in pages.items():
+        base = "http://site/" + path.relative_to(root).as_posix()
+        if parsed.base is not None:
+            base = urljoin(base, parsed.base)
+        for href in parsed.hrefs:
+            url = urlsplit(urljoin(base, href))
+            if url.netloc != "site" or not url.fragment or "=" in url.fragment:
+                continue
+            target = root / unquote(url.path.lstrip("/"))
+            if url.path.endswith("/"):
+                target = target / "index.html"
+            target = target.resolve()
+            if target in pages and unquote(url.fragment) not in pages[target].ids:
+                dead.append((path.relative_to(root).as_posix(), href))
+    return dead

@@ -141,8 +141,12 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           else #[]
         let attrs := s.htmlId id ++ sourceBackedAttrs ++ LeanSourceAnchor.rootAttrs externalDecls ++
           sideBySideAttrs ++ replayScopeAttrs s data
+        -- a declaration whose target is this block itself (the node, in a layout that shows no
+        -- row of it) is named without a link to where the reader already is
+        let ownHref? := (s.externalTags[id]?).map (·.relativeLink)
         let getDeclHref (decl : Name) : Option String :=
-          Resolve.resolveInformalDeclHref? s data.label decl
+          (TraversalIndex.ExternalDeclAnchors.declHref? s data.label decl).filter
+            (some · != ownHref?)
         let getDeclAnchorAttrs (decl : Data.ExternalRef) : Array (String × String) :=
           Informal.TraversalIndex.ExternalDeclAnchors.htmlIdAttrs s id decl.canonical
         let headingParts? : Option CodeSummary.RenderParts :=

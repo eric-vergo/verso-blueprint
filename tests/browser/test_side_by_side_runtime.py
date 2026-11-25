@@ -11,7 +11,8 @@ from playwright.sync_api import Page, expect
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from scripts.blueprint_harness_utils import lean_low_priority_command
-from support import PACKAGE_ROOT, assert_no_runtime_errors, find_free_port, record_runtime_errors, wait_for_server
+from support import (PACKAGE_ROOT, assert_no_runtime_errors, dead_place_links, find_free_port,
+                     record_runtime_errors, wait_for_server)
 
 
 @pytest.fixture(scope="session")
@@ -959,6 +960,81 @@ class TestReadingAids:
             )
             assert target == "aids_sectioned", (href, target)
 
+    @pytest.mark.parametrize("decl, node", [("aidOpen", "aids_sectioned"),
+                                            ("aidProofOnly", "aids_proof_only")])
+    def test_a_proof_declaration_named_in_the_text_leads_to_its_node(
+        self, side_by_side_server: str, page: Page, decl: str, node: str
+    ):
+        """A declaration attached to a proof has no row of its own in this layout: its name in a
+        Lean block of the text, on another page, leads to the node, which the landing points out."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        link = page.locator(f"code.hl.lean.block a:has(.const.token[data-binding$='.{decl}'])").first
+        expect(link).to_have_count(1)
+        href = link.get_attribute("href") or ""
+        assert "#" in href, href
+        link.click()
+        page.wait_for_url(re.compile(r"/Reading-Aids/A-Numbered-Section/#"))
+        landing = page.evaluate(
+            """() => {
+                const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+                if (!el) return null;
+                const node = el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]');
+                return { node: node && node.getAttribute('data-bp-node'), id: el.id };
+            }"""
+        )
+        assert landing and landing["node"] == node, (href, landing)
+        target = page.locator(f'[id="{landing["id"]}"]')
+        expect(target).to_be_visible()
+        expect(target).to_be_in_viewport()
+        expect(target).to_have_class(re.compile(r"\bbp_decl_target\b"))
+        # the node's chip names the declaration under what its proof has attached
+        target.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel.locator(".bp_code_decl_item", has_text=decl)).to_have_count(1)
+
+    def test_a_proof_declaration_is_not_linked_to_its_own_node(self, side_by_side_server: str, page: Page):
+        """In the node's own chip the declaration is named without a link to where the reader
+        already is."""
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        node = page.locator(".bp_sbs[data-bp-node='aids_sectioned']").first
+        node.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        row = panel.locator(".bp_code_decl_item", has_text="aidOpen")
+        expect(row).to_have_count(1)
+        expect(row.locator("a[href]")).to_have_count(0)
+        # the statement's own declaration keeps its link to its row of the Lean column
+        expect(panel.locator(".bp_code_decl_item", has_text="aidSectioned").locator("a[href]")).to_have_count(1)
+
+    def test_a_placement_links_the_declarations_of_its_chip(self, side_by_side_server: str, page: Page):
+        """A placement of a node is not the node: its chip links the statement's declaration to its
+        Lean row and the proof's declaration to the node, as every other link to them does."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        placement = page.locator("[data-bp-blueprint-node][data-bp-label='aids_sectioned']")
+        placement.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        proof_link = panel.locator(".bp_code_decl_item", has_text="aidOpen").locator("a[href]")
+        expect(proof_link).to_have_count(1)
+        href = proof_link.get_attribute("href") or ""
+        target = page.evaluate(
+            """(id) => {
+                const el = document.getElementById(id);
+                if (!el || el.closest('[data-bp-blueprint-node]')) return null;
+                const node = el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]');
+                return node && node.getAttribute('data-bp-node');
+            }""",
+            href.split("#", 1)[1],
+        )
+        assert target == "aids_sectioned", (href, target)
+        statement_link = panel.locator(".bp_code_decl_item", has_text="aidSectioned").locator("a[href]")
+        expect(statement_link).to_have_count(1)
+        fragment = (statement_link.get_attribute("href") or "").split("#", 1)[1]
+        expect(page.locator(f'[id="{fragment}"][data-lean-decl$="aidSectioned"]')).to_have_count(1)
+
     def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(side_by_side_server + "/Dependency-Graph/")
@@ -1005,6 +1081,12 @@ def test_navigation_links_find_their_places(side_by_side_site_dir: Path):
     stats = (side_by_side_site_dir / "Project-Stats" / "index.html").read_text(encoding="utf-8")
     assert 'href="#bp-what-this-means"' not in stats
     assert 'href="Project-Stats/#bp-what-this-means"' in stats
+
+
+def test_every_link_to_a_place_of_the_site_finds_it(side_by_side_site_dir: Path):
+    """Every link of every page (navigation, the Blueprint's components, the running text's Lean
+    code) that names a place on a page of the site finds an element with that `id` there."""
+    assert dead_place_links(side_by_side_site_dir) == []
 
 
 def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):

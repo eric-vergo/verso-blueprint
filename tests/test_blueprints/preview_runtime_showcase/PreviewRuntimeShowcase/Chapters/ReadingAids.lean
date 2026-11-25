@@ -113,6 +113,15 @@ example : aidSlack = 2 ∧ (Nat : Type) = Nat :=
 end PreviewRuntimeShowcase.ReadingAidDecls
 ```
 
+The lemmas attached to the proofs of the numbered section are named in the text as well; each
+name leads to the node whose proof it is attached to:
+
+```Verso.Genre.Manual.InlineLean.lean
+open PreviewRuntimeShowcase.ReadingAidDecls in
+example : 0 + 3 = 3 ∧ 3 * 1 = 3 :=
+  ⟨aidOpen 3, aidProofOnly 3⟩
+```
+
 An error that Lean reports is shown in Lean's message colours:
 
 ```Verso.Genre.Manual.InlineLean.lean +error
