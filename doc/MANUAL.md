@@ -1528,13 +1528,15 @@ as it shows the Lean column:
   `--bp-code-literal`, `--bp-code-comment` (comments and doc comments, in
   italics) and `--bp-code-punctuation`, with light defaults and dark values in
   the dark theme. A project stylesheet can override them.
-- **Frame.** A block of the running text (a block directly in a section, a
-  paragraph, a list item, a block quote, a definition or a node's statement) is
-  a framed panel on the subtle surface colour. It starts at the reading
-  column's left edge, is at least as wide as the column (`--bp-sbs-measure`)
-  and grows with its longest line up to the content area; a line longer than
-  that scrolls inside the panel, not the page. The code of the Blueprint's own
-  components is not framed this way.
+- **Frame.** A block of the running text (a block directly in a section or on
+  the front page, a paragraph, a list item, a block quote, a definition or a
+  node's statement) is a framed panel on the subtle surface colour. A block
+  directly in a section or on the front page sits on the page's axis, as wide
+  as the column (`--bp-sbs-measure`) for short lines and growing equally on
+  both sides up to the content area, as a plain code block of the prose does;
+  one inside another block starts at that block's edge. A line longer than the
+  space the block has scrolls inside the panel, not the page. The code of the
+  Blueprint's own components is not framed this way.
 - **Messages.** Tokens inside Lean messages (error, warning and information
   output and message hovers) keep Verso's message colours.
 - **Links.** A name in this code links to its documentation or to its

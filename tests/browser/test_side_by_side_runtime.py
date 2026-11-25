@@ -1193,7 +1193,7 @@ PROSE_LEAN_PAGE = "/Reading-Aids/Lean-in-the-Text/"
 
 # The places of the running text where a Lean block is a block of the text.
 _PROSE_PLACES = (
-    "main section:not([class]), main section:not([class]) > :is(ul, ol) > li, "
+    "main section:not([class]), main .titlepage, main section:not([class]) > :is(ul, ol) > li, "
     "main section:not([class]) > blockquote, main section:not([class]) > dl > dd, div.paragraph, "
     ".bp_content"
 )
@@ -1324,14 +1324,40 @@ class TestLeanInTheText:
             )
             assert facts["border"] == "1px" and facts["overflow"] == "auto", facts
             assert float(facts["padding"][:-2]) > 4, facts
-            # it starts where the paragraphs start, is at least as wide as they are, and stays in the
+            # it sits on the paragraphs' axis, is at least as wide as they are, and stays in the
             # content area: a line longer than that scrolls inside the block, not the page
-            assert abs(facts["left"] - facts["textLeft"]) <= 1, (width, facts)
+            centre = (facts["left"] + facts["right"]) / 2
+            assert abs(centre - (facts["textLeft"] + facts["textWidth"] / 2)) <= 1, (width, facts)
             assert facts["width"] >= facts["textWidth"] - 1, (width, facts)
             assert facts["right"] <= facts["sectionRight"] + 1, (width, facts)
             assert facts["page"][0] <= facts["page"][1], (width, facts)
             if width == 360:
                 assert facts["scrolls"], facts
+
+    def test_prose_lean_block_shares_the_plain_code_block_geometry(
+        self, side_by_side_server: str, page: Page
+    ):
+        # a Lean block of the text and a plain code block of the prose: both on the page's axis,
+        # both at least as wide as the reading column, both within the content area
+        js = """(sel) => {
+            const b = document.querySelector(sel);
+            const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+            const p = b.parentElement.querySelector(':scope > p').getBoundingClientRect();
+            const box = b.getBoundingClientRect(), cs = getComputedStyle(b);
+            return { offset: (box.left + box.right) / 2 - (area.left + area.right) / 2,
+                     wide: box.width >= p.width - 1, inside: box.right <= area.right + 1,
+                     minWidth: cs.minWidth, maxWidth: cs.maxWidth };
+        }"""
+        for width in (1920, 1440, 1024, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+            plain = page.evaluate(js, "main section:not([class]) > pre")
+            page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+            lean = page.evaluate(js, "main section:not([class]) > code.hl.lean.block")
+            for facts in (plain, lean):
+                assert abs(facts["offset"]) <= 1 and facts["wide"] and facts["inside"], (width, plain, lean)
+            assert (plain["minWidth"], plain["maxWidth"]) == (lean["minWidth"], lean["maxWidth"]), (
+                width, plain, lean)
 
     def test_blueprint_components_keep_their_own_code_layout(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
