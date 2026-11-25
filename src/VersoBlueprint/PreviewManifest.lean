@@ -19,6 +19,7 @@ import VersoManual.HighlightedCode
 import VersoBlueprint.Cite
 import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Sidebar
+import VersoBlueprint.Motion
 import VersoBlueprint.Informal.Block
 import VersoBlueprint.Informal.Block.Runs
 import VersoBlueprint.Informal.Uses
@@ -3032,7 +3033,9 @@ where
     let config := if sideBySide then withSideBySideDefaultStyle config else config
     -- Consecutive Blueprint blocks form runs that share one column divider.
     let htmlText := if sideBySide then Informal.SideBySideRuns.groupRuns htmlText else htmlText
-    let cfg ← parseRenderConfigOptions (withBuildMetadataAssets config) options
+    -- every page can turn animations off (`Informal.Motion`)
+    let cfg ← parseRenderConfigOptions (withBuildMetadataAssets (Informal.Motion.withMotion config))
+      options
     let cfg := if pdfOptions.enabled then { cfg with emitTeX := true } else cfg
     let buildMetadata ← readBuildMetadata reproducibility
     let extraSteps := emitBuildMetadata buildMetadata :: extraSteps

@@ -62,6 +62,7 @@ import VersoBlueprint.ModuleInclude
 import VersoBlueprint.Resolve
 import VersoBlueprint.TraversalIndex
 import VersoBlueprint.Sidebar
+import VersoBlueprint.Motion
 import VersoBlueprint.StyleSwitcher
 import VersoBlueprint.Profiling
 import VersoBlueprint.Parts

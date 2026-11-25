@@ -1890,6 +1890,70 @@ The sidebar colours and the tree's measures are CSS variables
 current row, `--bp-sidebar-indent` and `--bp-sidebar-twistie` for the indent
 step and the triangle's gutter, ...) that a project stylesheet can override.
 
+### Animations
+
+Pages may hold figures that move by themselves, such as inline SVG with a
+declarative (script-free) animation. Every Blueprint site lets the reader turn
+such motion off, on every page at once, and respects the operating system's
+"reduce motion" setting.
+
+A page has motion when it contains an element with the attribute
+`data-bp-motion` (or the class `pilean-motion`). Only such a page shows the
+switch, an "Animations: On | Off" control right under the theme control at the
+foot of the table of contents (with or without the sidebar); a site without
+animations looks as it would without this feature. The two choices are radio
+buttons in a group named "Animations": Tab reaches the chosen one and the arrow
+keys choose the other.
+
+The choice is the root element's `data-motion` attribute, the contract between
+the site and any figure producer:
+
+- `data-motion="reduce"`: do not show motion.
+- No attribute, or `data-motion="auto"`: follow the operating system's
+  `prefers-reduced-motion` setting.
+
+There is no value that turns motion on against the system's setting: the switch
+can ask for less motion than the system, never for more. While the system asks
+for reduced motion, the switch shows "Off" chosen, "On" cannot be chosen, and a
+note under it says why; it follows the setting if it changes while the page is
+open.
+
+"Off" sets `data-motion="reduce"` and stores `reduce` under the `localStorage`
+key `verso-blueprint-motion`; "On" removes both. As with the theme, an inline
+script in `<head>` applies a stored choice before the page is drawn, so an
+animation turned off is never seen moving, and a choice made in another tab of
+the site is followed. Without storage the choice lasts for the page.
+
+The site's stylesheet provides two hook classes for figure producers:
+
+- An element with class `bp_motion_live` (the animation) is hidden while motion
+  is off, by `data-motion="reduce"` or by the system's setting.
+- An element with class `bp_motion_stills` (a still picture to show instead) is
+  shown, as a block, only while motion is off.
+
+The animation is hidden with `visibility: hidden; position: absolute;
+pointer-events: none` rather than `display: none`: a browser may stop the clock
+of an SVG animation that is not rendered and resume it out of step when it is
+shown again, while a hidden one keeps running and is in step when motion is
+turned back on. A producer with its own classes can follow the same attribute
+in its own stylesheet:
+
+```css
+html[data-motion="reduce"] .my-animation { visibility: hidden; position: absolute; }
+@media (prefers-reduced-motion: reduce) {
+  .my-animation { visibility: hidden; position: absolute; }
+}
+```
+
+A figure written for this looks like:
+
+```html
+<figure data-bp-motion="">
+  <div class="bp_motion_live"><svg>...<animateTransform .../>...</svg></div>
+  <div class="bp_motion_stills"><svg>...</svg></div>
+</figure>
+```
+
 ### Dependency graph
 
 `blueprint_graph` renders a dependency-oriented view of the current Blueprint
