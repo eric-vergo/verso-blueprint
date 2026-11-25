@@ -91,10 +91,13 @@ main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline:focus-within {
   opacity: 1;
 }
 
-/* A centred heading keeps room for the marker on both sides, so that the marker
-   stays inside the content area when the heading's last line is a full one. */
-:where(main section:not([class]) > :is(h1, h2, h3, h4, h5, h6), main .titlepage > h1):where(:has(> .permalink-widget.inline)) {
-  padding-inline: calc(0.5rem + 0.65em);
+/* On a narrow screen, where a heading's last line is often a full one, a
+   centred heading keeps room for the marker on both sides, so that the marker
+   stays on the screen and the text stays centred. */
+@media screen and (max-width: 700px) {
+  :where(main section:not([class]) > :is(h1, h2, h3, h4, h5, h6), main .titlepage > h1):where(:has(> .permalink-widget.inline)) {
+    padding-inline: calc(0.5rem + 0.65em);
+  }
 }
 
 html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
