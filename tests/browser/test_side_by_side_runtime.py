@@ -1061,13 +1061,16 @@ class TestReadingAxis:
                 const style = getComputedStyle(band);
                 const start = band.getBoundingClientRect().left + parseFloat(style.borderLeftWidth)
                     + parseFloat(style.paddingLeft);
-                return [...band.querySelectorAll(':scope > :is(h2, p)')]
+                return [...band.querySelectorAll(
+                    ':scope > :is(h2, p), :scope > .bp_stats_band_body > :is(h2, p)')]
                     .filter((e) => e.getBoundingClientRect().width > 0).map((e) => ({
                     tag: e.tagName, offset: e.getBoundingClientRect().left - start,
                     align: getComputedStyle(e).textAlign }));
             }).flat()"""
         )
         assert bands, "no stats bands"
+        # the band text is in each band's body, beside the title
+        assert any(item["tag"] == "P" for item in bands), bands
         for item in bands:
             # band titles and band text start at the band's edge, left-aligned, as on any card
             assert abs(item["offset"]) <= 1, item
