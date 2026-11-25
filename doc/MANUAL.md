@@ -1882,6 +1882,7 @@ or with explicit graph layout options:
 {blueprint_graph (direction := LR)}
 {blueprint_graph (direction := LR) (pack := true)}
 {blueprint_graph (routing := spline)}
+{blueprint_graph (nodeText := number)}
 {blueprint_graph (preview := hover)}
 {blueprint_graph (preview := hover) (previewPlacement := anchored)}
 ```
@@ -1899,6 +1900,11 @@ The `(routing := bundled | spline)` option chooses how edges are drawn:
 `spline` as one smooth curve per edge (see "How the graph is laid out"). It
 defaults to `verso.blueprint.graph.defaultRouting`, which is `bundled`; a site
 generated from compiled code takes `--graph-routing spline` (`vbp code-site`).
+The `(nodeText := name | number)` option chooses what the nodes show first; see
+"Node labels" below. It defaults to `verso.blueprint.graph.defaultNodeText`,
+which is `name`; a project that prefers numbers sets
+`set_option verso.blueprint.graph.defaultNodeText "number"` in its Blueprint
+source, or passes `(nodeText := number)` to one graph.
 The `(preview := pinned | hover)` option chooses the initial graph-node preview
 behavior. The default is `pinned`: clicking a node opens a persistent preview
 panel that stays open until closed. `hover` opens a transient preview that
@@ -1914,7 +1920,9 @@ The rendered graph page is interactive:
   views
 - a `Legend` button opens the current graph legend in a popover
 - a `Graph options` button exposes runtime graph options such as direction and
-  component packing, plus the graph-node preview behavior and placement
+  component packing, what the nodes show (`Node text`: `Lean name` or `Number`,
+  offered when a node has a Lean statement), plus the graph-node preview
+  behavior and placement
 - the drawing pans and zooms: the wheel zooms about the pointer, a drag pans (a
   press that moves less than a few pixels stays a click on the node under it),
   two fingers pinch, a double click zooms in, and with the drawing focused the
@@ -1941,6 +1949,37 @@ The command-side options and the runtime graph controls are compatible:
 
 Group metadata may be used to organize the presentation, but grouping does not
 change dependency edges.
+
+#### Node labels
+
+A node whose statement has a Lean statement (`BlockCodeData.isLeanStatement`:
+declarations attached to the statement, or named declarations of its code
+blocks) shows the name of its first declaration, in the order the author wrote
+them, without its namespaces and set in the site's code face: `rho_irrational`
+for `Project.rho_irrational`. When the statement has more declarations, a quiet
+count follows (`rho_irrational +2`). The name keeps more trailing components
+where the last one does not name the declaration on its own (a number, or a
+component that starts with `_`), and where it would read the same as the name
+shown on another node of the graph or as another declaration of the same
+statement (`Real.foo` and `Complex.foo`); the prefix of a private declaration is
+left out. A name longer than 30 characters is shortened with an ellipsis, first
+at the namespace side, then in the middle. A node without a Lean statement shows
+its number (`Theorem 7.2`), however complete the declarations attached to its
+proof are: a name there would suggest a Lean statement that does not exist.
+
+The number stays available: a node's accessible name reads its number, its
+label and the full names of its declarations before its status
+(`Theorem 7.2 (main), Lean name Project.main: …`), and the node view shows the
+declarations. `Graph options` switches every node between `Lean name` and
+`Number`; the choice is remembered for the reader in the browser's local
+storage (`bp-graph-node-text`) and applies to every graph of the site, and a
+page read without scripts shows the site's default. A node's box is sized for
+the wider of its two labels, so it holds either, and the layout is computed
+with those sizes.
+
+The fragments that name a node (`#node=…` and `#ego=…`) accept its label, the
+full name of a declaration of its Lean statement or its trailing components (the
+name a node shows), and its number (`#node=Theorem%207.2`).
 
 #### Neighbourhood (ego) view
 
@@ -2105,12 +2144,18 @@ edges are drawn (`data-bp-routing`: `bundled` or `spline`) and, for a view drawn
 with curves because of the limits, why (`data-bp-routing-note`, also shown under
 the first drawing of a page read without scripts).
 
-Labels are drawn at 12 pixels. A node of a statement the document numbers is
-labelled with its numbered title (`Theorem 6.5`); its label (`critical_radius`)
-stays its name and its tooltip, and both make its accessible name: every node is
-an image (`role="img"`) named by `aria-label` (`Theorem 6.5 (critical_radius)`),
-and on the page a node that opens a view or preview is a button the keyboard
-reaches (`role="button"`). Other nodes are labelled with their label. A label
+Labels are drawn at 12 pixels, Lean names at 11 pixels in the code face. A node
+with a Lean statement carries its Lean name (`text.bp_graph_label_name`, the
+count of further declarations in a `tspan.bp_graph_label_more`) and its number
+label (`text.bp_graph_label_number`); the one the site does not show first has
+`display="none"`, and the stylesheet shows the one the graph block's
+`data-bp-graph-node-text` names (see "Node labels"). The number label of a node
+of a statement the document numbers is its numbered title (`Theorem 6.5`); its
+label (`critical_radius`) stays its name and its tooltip, and both make its
+accessible name: every node is an image (`role="img"`) named by `aria-label`
+(`Theorem 6.5 (critical_radius)`, followed by `, Lean name …` for a node with a
+Lean statement), and on the page a node that opens a view or preview is a button
+the keyboard reaches (`role="button"`). Other nodes are labelled with their label. A label
 that is a long dotted name (a module, a declaration in its namespaces) is broken
 after dots into lines of at most 28 characters, so that a node is not much wider
 than the others; the node's name and its tooltip keep the whole name.
