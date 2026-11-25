@@ -2855,6 +2855,7 @@ private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
     (sideBySide : Bool)
+    (sidebar : Bool)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config)
     (how : EmitHtml)
     (mode : Mode)
@@ -2905,6 +2906,12 @@ private def emitBlueprintHtml
       withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
   finally
     Informal.DeclarationSource.setEnabled false
+  if sidebar then
+    -- the full outline for the sidebar's tree, beside the pages that show it
+    let depth := match mode with | .single => 0 | .multi => prepared.config.htmlDepth
+    withReader (fun _ => pageImpls) <|
+      Informal.Sidebar.writeOutline (outDirForMode prepared.config.toConfig mode) depth
+        prepared.config prepared.state prepared.text
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
   -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
@@ -2951,7 +2958,8 @@ private def blueprintMainCore (text : Part Manual)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
     (statsPage? : Option Informal.Commands.StatsPageData := some {})
-    (comparatorPages : Array Informal.Commands.ChallengePageData := #[]) : IO UInt32 :=
+    (comparatorPages : Array Informal.Commands.ChallengePageData := #[])
+    (sidebar : Bool := false) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
@@ -2987,10 +2995,10 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
-        htmlText
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
-        htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide sidebar previewConfig?
+        cfg.emitHtmlSingle .single cfg htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide sidebar previewConfig?
+        cfg.emitHtmlMulti .multi cfg htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -3045,6 +3053,14 @@ def comparatorPagesOf (model : RenderModel) (highlight : Bool := true)
       (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
   Informal.Commands.challengePages model.stats root codeOf
 
+/-- Print the last line about the kernel replay when both checkers accepted a build whose sources
+are not known to be the text shown now (`Informal.Commands.replayBuildSourcesLine?`), after the
+sources were checked for the last time: a reader of the generator's output who takes its last
+line about the replay does not take the acceptance for one of the sources. -/
+def sayReplayBuildSources (model : RenderModel) : IO Unit := do
+  if let some line := Informal.Commands.replayBuildSourcesLine? model.stats then
+    IO.eprintln s!"Kernel replay: {line}"
+
 /-- Generate a document using semantic data captured after all generator imports.
 
 The HTML site gets a Project Stats page at the end of its table of contents
@@ -3075,6 +3091,7 @@ def blueprintMain (text : Part Manual)
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  sayReplayBuildSources model
   let comparatorPages ← try comparatorPagesOf model
     catch e => IO.eprintln s!"error: {e}"; return 1
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
@@ -3084,6 +3101,7 @@ def blueprintMain (text : Part Manual)
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
     (reproducibility := reproducibility) (sideBySide := sideBySide)
     (statsPage? := statsPageData? statsPage sidebar?) (comparatorPages := comparatorPages)
+    (sidebar := sidebar?.isSome)
 
 /-- `blueprintMain` with preview data files and the generator's command-line flags; it adds the
 Project Stats page the same way. -/
@@ -3109,6 +3127,7 @@ def blueprintMainWithPreviewData
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  sayReplayBuildSources model
   -- a generator that highlights the code itself gives `comparatorCode?`; others take Lake's
   let comparatorPages ← try
       comparatorPagesOf model (highlight := comparatorCode?.isNone)
@@ -3133,6 +3152,6 @@ def blueprintMainWithPreviewData
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
     (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
     (sideBySide := sideBySide) (statsPage? := statsPageData? statsPage sidebar?)
-    (comparatorPages := comparatorPages)
+    (comparatorPages := comparatorPages) (sidebar := sidebar?.isSome)
 
 end Informal.PreviewManifest
