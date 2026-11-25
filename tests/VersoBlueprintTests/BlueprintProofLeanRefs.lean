@@ -415,6 +415,206 @@ lands on the node, and every link to a place on the page finds it. -/
   unless !declLinks.isEmpty && declLinks.all landsOnNode do
     throw <| IO.userError s!"The summary's link to the open proof declaration misses its node: {declLinks}"
 
+theorem placeShown : True := trivial
+theorem placeShared : True := trivial
+theorem placeKeyOrder : True := trivial
+
+#docs (Manual) proofDeclTargetsDoc "Proof declaration targets" :=
+:::::::
+:::lemma_ "proof.targets.only"
+A statement without a Lean declaration of its own.
+:::
+:::proof "proof.targets.only" (lean := "admittedAttachedResult")
+Its declaration is named by the proof alone.
+:::
+:::lemma_ "proof.targets.both" (lean := "attachedResult")
+A statement whose declaration its proof names as well.
+:::
+:::proof "proof.targets.both" (lean := "attachedResult, inferredDependency")
+The proof names the statement's declaration and one of its own.
+:::
+
+```Verso.Genre.Manual.InlineLean.lean
+theorem proofTargetsInline : True := trivial
+```
+
+:::lemma_ "proof.targets.inline"
+A statement whose proof names a declaration of the text.
+:::
+:::proof "proof.targets.inline" (lean := "proofTargetsInline")
+The declaration is defined in a Lean block of the text.
+:::
+
+:::lemma_ "place.zeta" (lean := "placeShown")
+A statement that shows the declaration.
+:::
+:::lemma_ "place.alpha"
+A node whose key comes first and whose proof attaches the declaration another statement shows.
+:::
+:::proof "place.alpha" (lean := "placeShown")
+The proof names it too.
+:::
+:::lemma_ "place.p.a"
+The first of two nodes whose proofs alone attach a declaration.
+:::
+:::proof "place.p.a" (lean := "placeShared")
+Attached here.
+:::
+:::lemma_ "place.p.b"
+The second of them.
+:::
+:::proof "place.p.b" (lean := "placeShared")
+And here.
+:::
+:::lemma_ "place.k"
+A node whose label comes first, and whose key comes second.
+:::
+:::proof "place.k" (lean := "placeKeyOrder")
+Attached here.
+:::
+:::lemma_ "place.k.b"
+A node whose label comes second, and whose key comes first.
+:::
+:::proof "place.k.b" (lean := "placeKeyOrder")
+And here.
+:::
+
+{blueprint_summary}
+:::::::
+
+/-- The fragment of `href`, if it has one. -/
+private def fragmentOf? (href : String) : Option String :=
+  match href.splitOn "#" with
+  | [_, fragment] => if fragment.isEmpty then none else some fragment
+  | _ => none
+
+/-- The opening tag of the element of `html` whose `id` is `fragment`. -/
+private def tagWithId (html fragment : String) : String :=
+  match html.splitOn s!"id=\"{fragment}\"" with
+  | before :: after :: _ => ((before.splitOn "<").getLast?.getD "") ++ ((after.splitOn ">").headD "")
+  | _ => ""
+
+/-- Where a reader of the traversal store of rendered declarations finds `decl` without asking the
+Blueprint's resolver: the first fallback key of a node (by key) that names it, else an inline Lean
+block that defines it. This is how a library that draws figures with links into the site looks a
+declaration up. -/
+private def storeTarget? (state : TraverseState) (decl : Name) : Option String :=
+  let dom := Resolve.externalRenderedDeclDomainName
+  let keys := match state.domains.get? dom with
+    | some d => d.objects.foldl (init := (#[] : Array String)) fun (acc : Array String) (k : String) _ =>
+        if k.startsWith "label:" && k.endsWith ("|" ++ decl.toString) then acc.push k else acc
+    | none => #[]
+  (keys.qsort (· < ·)).findSome? (Resolve.resolveDomainHref? state dom ·) <|>
+    Resolve.resolveInlineLeanDeclHref? state decl
+
+/-- The place a declaration's links should lead to. -/
+private inductive Place where
+  /-- The Lean row of the declaration that node `label` shows. -/
+  | row (label : String)
+  /-- The node `label`. -/
+  | node (label : String)
+  /-- The Lean block of the text that defines it. -/
+  | inline
+
+/-- The place of `decl`, the nodes that name it, and where its links lead in the side-by-side and
+the standard layout. -/
+private def placeCases : List (Name × List String × Place × Place) := [
+  (``admittedAttachedResult, ["proof.targets.only"], .node "proof.targets.only",
+    .row "proof.targets.only"),
+  (``attachedResult, ["proof.targets.both"], .row "proof.targets.both", .row "proof.targets.both"),
+  (``inferredDependency, ["proof.targets.both"], .node "proof.targets.both",
+    .row "proof.targets.both"),
+  (``proofTargetsInline, ["proof.targets.inline"], .inline, .row "proof.targets.inline"),
+  -- a row of another node's statement, though the node whose proof attaches it comes first
+  (``placeShown, ["place.alpha", "place.zeta"], .row "place.zeta", .row "place.alpha"),
+  -- two proofs alone attach it: the first node in key order
+  (``placeShared, ["place.p.a", "place.p.b"], .node "place.p.a", .row "place.p.a"),
+  -- key order, not label order: `«place.k.b»|` comes before `«place.k»|`
+  (``placeKeyOrder, ["place.k", "place.k.b"], .node "place.k.b", .row "place.k.b")]
+
+/-- Checks that every resolver of the site leads `decl` to one place of `html`, of the kind
+`place`. A node's own links (its chip, its summary entry) may lead to its own row of the
+declaration instead, in the standard layout, where each proof shows its rows. -/
+private def checkPlace (layout html : String) (state : TraverseState) (sideBySide : Bool)
+    (decl : Name) (labels : List String) (place : Place) : IO Unit := do
+  let ids := attrValues html "id"
+  let some global := storeTarget? state decl
+    | throw <| IO.userError s!"{layout}: the store has no place for {decl}"
+  let inPage (href : String) : Bool :=
+    (fragmentOf? href).any fun f => ids.contains f ||
+      -- this test's renderer gives the defining name of a Lean block of the text no `id` (a site
+      -- does, `TraverseState.definitionIds`); the name is on the page, under its link target
+      (some href == Resolve.resolveInlineLeanDeclHref? state decl &&
+        hasSubstr html s!"data-binding=\"const-{decl}\"")
+  unless inPage global do
+    throw <| IO.userError s!"{layout}: {decl} leads to {global}, missing from the page"
+  let site := (LeanCodeLinks.siteTargets state).get? decl
+  unless site == some global do
+    throw <| IO.userError s!"{layout}: Lean code leads {decl} to {site}, the store to {global}"
+  let mut own : List String := []
+  for label in labels do
+    let label := Name.mkSimple label
+    let some href := TraversalIndex.ExternalDeclAnchors.declHref? state label decl
+      | throw <| IO.userError s!"{layout}: {decl} of {label} has no place in the site"
+    unless href == global ||
+        (!sideBySide && some href == Resolve.resolveRenderedExternalDeclHref? state label decl) do
+      throw <| IO.userError s!"{layout}: {decl} of {label} leads to {href}, the store to {global}"
+    unless inPage href do
+      throw <| IO.userError s!"{layout}: {decl} of {label} leads to {href}, missing from the page"
+    own := href :: own
+  let links := (linksMentioning html decl.toString).filter (fragmentOf? · |>.isSome)
+  unless !links.isEmpty && links.all (fun h => h == global || own.contains h) do
+    throw <| IO.userError s!"{layout}: the page's links to {decl} are {links}, not {global}"
+  let tag := tagWithId html ((fragmentOf? global).getD "")
+  let right : Bool := match place with
+    | .row label => hasSubstr tag s!"data-lean-decl=\"{decl}\"" &&
+        some global == Resolve.resolveRenderedExternalDeclHref? state (Name.mkSimple label) decl
+    | .node label => hasSubstr tag s!"data-bp-node=\"«{label}»\""
+    | .inline => some global == Resolve.resolveInlineLeanDeclHref? state decl
+  unless right do
+    throw <| IO.userError s!"{layout}: {decl} leads to the wrong place: <{tag}>"
+
+/- Every resolver of the site leads a declaration attached to a proof to one place of the page: in
+the standard layout a proof's panel row; in the side-by-side layout, which shows no row of a
+proof's declarations, a row of any node that shows it, else the Lean block of the text that defines
+it, else the first node (in the store's key order) whose proof attaches it. -/
+#eval show IO Unit from do
+  for sideBySide in [false, true] do
+    let layout := if sideBySide then "side-by-side" else "standard"
+    let (html, state) ← DeclarationSource.withEnabled sideBySide <|
+      renderManualDocHtmlStringAndState extension_impls% proofDeclTargetsDoc
+    for (decl, labels, sbs, std) in placeCases do
+      checkPlace layout html state sideBySide decl labels (if sideBySide then sbs else std)
+
+/--
+warning: Label «place.later»: external Lean name 'Verso.VersoBlueprintTests.BlueprintProofLeanRefs.placeLaterInline' could not be resolved in current namespace/open declarations; keeping parsed name
+-/
+#guard_msgs in
+#docs (Manual) proofDeclLaterBlockDoc "A Lean block after the proof" :=
+:::::::
+:::lemma_ "place.later"
+A statement whose proof names a declaration that a later Lean block of the text defines.
+:::
+:::proof "place.later" (lean := "Verso.VersoBlueprintTests.BlueprintProofLeanRefs.placeLaterInline")
+The block comes after this proof.
+:::
+
+```Verso.Genre.Manual.InlineLean.lean
+theorem placeLaterInline : True := trivial
+```
+
+{blueprint_summary}
+:::::::
+
+/- The place of a declaration does not depend on the order of the document: a Lean block of the
+text that defines a proof's declaration is its place in the side-by-side layout also when it comes
+after the proof. -/
+#eval show IO Unit from do
+  let (html, state) ← DeclarationSource.withEnabled true <|
+    renderManualDocHtmlStringAndState extension_impls% proofDeclLaterBlockDoc
+  checkPlace "side-by-side" html state true `Verso.VersoBlueprintTests.BlueprintProofLeanRefs.placeLaterInline
+    ["place.later"] .inline
+
 /--
 error: Label «proof.duplicate» has duplicate external Lean reference 'Nat.add' (canonical 'Nat.add'); previously declared as 'Nat.add'
 -/

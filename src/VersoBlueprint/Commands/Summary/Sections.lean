@@ -455,14 +455,7 @@ private def summaryBlockToHtml : BlockToHtml Manual (ReaderT AllRemotes (ReaderT
       | Option.none => keys
     let ctx : SummaryHtmlContext := {
       entryHref? := fun label => Informal.TraversalIndex.Nodes.href? s label
-      -- a declaration attached to the proof that has no row of its own (the side-by-side layout
-      -- shows none) leads to the node whose mark it affects
-      declHref? := fun label decl =>
-        Resolve.resolveInformalDeclHref? s label decl <|>
-          if (Informal.TraversalIndex.Nodes.node? s label).any
-              (·.proofExternalRefs.any fun ref => ref.canonical == decl || ref.written == decl) then
-            Informal.TraversalIndex.Nodes.href? s label
-          else Option.none
+      declHref? := Informal.TraversalIndex.ExternalDeclAnchors.declHref? s
       declPreviewLookupKey? := fun label decl => do
         let block ← Informal.TraversalIndex.InlineCode.forDecl? s label decl
         some (Informal.TraversalIndex.LeanCodePreviews.lookupInlineKey block.blockId)

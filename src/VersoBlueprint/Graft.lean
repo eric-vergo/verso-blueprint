@@ -84,7 +84,7 @@ private def renderLeanCodePreviewBody?
     | .inlineBlocks _label blocks _sourceLocation => renderManualBlocks goB blocks
     | .externalDecl decl =>
       pure (Informal.ExternalCode.renderPreviewHtml #[decl]
-        (Informal.Resolve.resolveInformalDeclHref? state label)
+        (Informal.TraversalIndex.ExternalDeclAnchors.declHref? state label)
         (fun decl => Informal.TraversalIndex.ExternalDeclAnchors.htmlIdAttrs state id decl.canonical))
   pure <| some (body, panel.facts)
 
@@ -157,7 +157,12 @@ private def renderManualGraftNode
             -- the statement's chip counts the declarations attached to the proof
             blockRenderConfig := { manualBlockRenderConfig with
               proofDeclsOf := fun e =>
-                ((Informal.TraversalIndex.Nodes.node? state e.label).map (·.proofExternalRefs)).getD #[] }
+                ((Informal.TraversalIndex.Nodes.node? state e.label).map (·.proofExternalRefs)).getD #[]
+              -- the chip's links lead where every other link to the declaration does, but not
+              -- to this placement itself
+              declHrefOf := fun e decl =>
+                (Informal.TraversalIndex.ExternalDeclAnchors.declHref? state e.label decl).filter
+                  (some · != (state.externalTags[id]?).map (·.relativeLink)) }
             nodeAttrs := fun node => state.htmlId id ++ manualNodeAttrs node }
           node
           entry

@@ -996,9 +996,34 @@ The proof is associated with the referenced Lean declarations.
 These declarations appear in a **Lean declarations attached to this proof** panel,
 with their own signatures, status, source links, and hover previews. A site in
 the side-by-side layout shows no such panel: there the declarations count
-towards the node's status, summaries, and generated data, and a summary's link to
-one of them leads to the node. The proof facet retains them in generated data either way;
-`lake exe vbp query node addition_assoc` returns that facet under `proof`.
+towards the node's status, summaries, and generated data, and the node's Lean
+chip lists them under "Attached to the proof". The proof facet retains them in
+generated data either way; `lake exe vbp query node addition_assoc` returns that
+facet under `proof`.
+
+A Lean declaration of the Blueprint has one place in the site, and links to it
+lead there: from the summary, from a Lean chip (also on a placement of a node
+with `blueprint_node`), from a name in the Lean code of the running text, and
+from an extension that links a declaration into the site. That place is a Lean
+row that shows the declaration; when several nodes show one, the row of the
+node whose label comes first in the store's key order (below). Without a row it
+is a Lean block of the document that defines the declaration, else the node
+whose proof attaches it (again the first in key order). The standard layout
+shows a row for each declaration of a proof, in the proof's panel; the
+side-by-side layout shows none, so there a declaration that only proofs attach
+leads to a row of another node's statement, to a Lean block, or to the node.
+Landing on the node marks it, as a link's target is marked. The exception is a
+node's own links, from its Lean chip and its entry in the summary: they lead to
+the node's own row of the declaration when the node shows one, and a node's own
+chip names a declaration whose place is the node itself without a link.
+
+Extensions read the place from the traversal store of rendered declarations
+(`Informal.Resolve.externalRenderedDeclDomainName`): of the keys
+`label:<label>|<declaration>` of a declaration, the first in string order that
+resolves names it, since an entry for a proof that shows no row holds the
+declaration's place. Code of the site asks
+`Informal.TraversalIndex.ExternalDeclAnchors.declHref?` (as a node's
+declaration) or `placeHref?` (as a declaration on its own).
 
 Statement and proof attachments both contribute to the node's associated
 declarations, declaration lookup, summaries, and progress. A declaration mentioned
@@ -1584,8 +1609,8 @@ as it shows the Lean column:
   output and message hovers) keep Verso's message colours.
 - **Links.** A name in this code links to its documentation or to its
   definition in a Lean block of the document, as in Verso. A declaration of the
-  project also links to where the site shows it, the Lean row of the first
-  Blueprint node that names it (`(lean := ...)`), and to its lines in the source
+  project that a Blueprint node names (`(lean := ...)`) also links to its one
+  place in the site (see the proof attachments above), and to its lines in the source
   file on GitHub at the commit the site is built from. The lines come from the
   `.ilean` file Lake writes beside each project module of the document's
   environment (the modules the project statistics list), so a declaration of
