@@ -17,6 +17,10 @@ theorem aidLongSignature (first second third fourth : Nat) (hFirst : first ≤ s
 
 theorem aidSectioned (n : Nat) : n + 0 = n := Nat.add_zero n
 
+/-- A lemma attached to a proof and still open. -/
+theorem aidOpen (n : Nat) : 0 + n = n := by
+  sorry
+
 end PreviewRuntimeShowcase.ReadingAidDecls
 
 #doc (Manual) "Reading Aids" =>
@@ -36,4 +40,8 @@ Chain the inequalities.
 
 :::lemma_ "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidSectioned")
 Adding zero changes nothing.
+:::
+
+:::proof "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidOpen")
+The attached lemma is still open, so the node is incomplete.
 :::

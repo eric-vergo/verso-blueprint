@@ -95,6 +95,13 @@ private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array 
       if token == "accepted" && !checked then "none" else token)]
   | none => #[]
 
+/-- The Lean declarations attached to the proof of `data`'s node and not to its statement: they
+count towards the statement's mark. -/
+private def proofSourceOf (s : TraverseState) (data : BlockData) : BlockCodeData :=
+  let statement := (data.codeData.map (·.externalDecls)).getD #[]
+  { externalDecls := ((TraversalIndex.Nodes.node? s data.label).map (·.proofExternalRefs)).getD #[]
+      |>.filter fun ref => !statement.any (·.canonical == ref.canonical) }
+
 open Verso.Doc.Html in
 /-- Render this occurrence with relation previews restricted to the resources
 prepared for its output. Semantic resolution and numbering remain occurrence-owned. -/
@@ -147,6 +154,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
             } getDeclHref (replayOf? s) (heading := data.displayTitle s)
               (meaningHref? := Commands.meaningHref? s)
+              (proofSource := proofSourceOf s data)
           | true => none
         let formalColumn? : Option Output.Html ←
           if sideBySide && !data.isProof && !externalDecls.isEmpty then
@@ -221,7 +229,9 @@ block_extension Block.informal (data : BlockOccurrence) where
     | none =>
       pure none
     | some occurrence =>
-      registerTraversedBlock id occurrence _contents
+      -- the side-by-side layout shows no panel of a proof's declarations: no anchors for them
+      let sideBySide ← (DeclarationSource.enabled : IO Bool)
+      registerTraversedBlock id occurrence _contents (showsCode := !(sideBySide && occurrence.isProof))
       return none
   toTeX := some <| fun _goI goB _id data blocks => do
       let .ok occurrence := fromJson? (α := BlockOccurrence) data

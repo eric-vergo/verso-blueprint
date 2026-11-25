@@ -2862,13 +2862,19 @@ private def emitBlueprintHtml
     (text : Part Manual) : EmitM Unit := do
   if let .no := how then return
   let modeDescription := htmlModeDescription mode
-  let document? ← match how with
-    | .resumeFrom path =>
-      withTimedBuildProgress cfg.verbose s!"loading {modeDescription} traversal state from {path}" <|
-        HtmlDocument.load mode cfg path
-    | _ =>
-      withTimedBuildProgress cfg.verbose s!"{modeDescription} HTML traversal" <|
-        HtmlDocument.traverse mode cfg text
+  -- traversal registers only the destinations the layout will emit (no code anchors for a
+  -- proof's declarations in the side-by-side layout)
+  Informal.DeclarationSource.setEnabled sideBySide
+  let document? ← try
+      match how with
+      | .resumeFrom path =>
+        withTimedBuildProgress cfg.verbose s!"loading {modeDescription} traversal state from {path}" <|
+          HtmlDocument.load mode cfg path
+      | _ =>
+        withTimedBuildProgress cfg.verbose s!"{modeDescription} HTML traversal" <|
+          HtmlDocument.traverse mode cfg text
+    finally
+      Informal.DeclarationSource.setEnabled false
   let some document := document? | return
   if let .delay path := how then
     withTimedBuildProgress cfg.verbose s!"saving {modeDescription} traversal state to {path}" <|

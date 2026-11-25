@@ -669,15 +669,18 @@ private def withMeaningLink (body : Output.Html) (meaningHref? : Option String) 
         (.text Informal.Meaning.linkText))]
   | none => body
 
-/-- Heading status and tooltip cover every association, independent of panel layout. The
-tooltip is headed `heading` (the statement's numbered title) and ends with a link to the
+/-- Heading status and tooltip cover every association, independent of panel layout: the
+statement's (`cdata`) and those of its proof (`proofSource`), which the summary does not list.
+The tooltip is headed `heading` (the statement's numbered title) and ends with a link to the
 explanation of the marks at `meaningHref?`. -/
 def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Option String)
     (replay? : Option Replay.Result := none) (heading : String := toString data.label)
-    (meaningHref? : Option String := none) : RenderParts :=
+    (meaningHref? : Option String := none) (proofSource : BlockCodeData := {}) : RenderParts :=
   if data.isProof then {} else
   let source := cdata.source.getD {}
-  let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
+  let source? := if proofSource.isEmpty then cdata.source else some (source.append proofSource)
+  let source := source?.getD {}
+  let health := Informal.Graph.codeHealthOfBlockSource data.kind {} source?
   let renderHealth := externalRenderHealth source.externalDecls
   let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
     (declarationsOf source)

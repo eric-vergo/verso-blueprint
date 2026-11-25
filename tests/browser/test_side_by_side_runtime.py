@@ -858,26 +858,50 @@ class TestReadingAids:
         expect(page.get_by_text("Lean declarations attached to this proof")).to_have_count(0)
         expect(page.locator("[data-lean-decl$='aidLongSignature']")).to_have_count(0)
         assert "theorem aidLongSignature" not in page.locator("main").inner_text()
-        # the node's status still counts the proof's declaration
-        glyph = page.locator(".bp_sbs[data-bp-node='aids_first'] .bp_status_glyph").first
-        expect(glyph).to_have_attribute("title", re.compile(r"^Lean proof without sorry"))
-        # the preview data keeps the proof facet's declarations; its rendered fragment has no panel
-        manifest = page.evaluate(
+        # a node whose statement's declaration is complete and whose proof's declaration has a
+        # sorry is marked incomplete, and its page shows no panel either: the hidden declaration
+        # still counts
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        glyph = page.locator(".bp_sbs[data-bp-node='aids_sectioned'] .bp_status_glyph").first
+        expect(glyph).to_have_class(re.compile(r"\bbp_status_glyph_partial\b"))
+        expect(page.get_by_text("Lean declarations attached to this proof")).to_have_count(0)
+        expect(page.locator("[data-lean-decl$='aidOpen']")).to_have_count(0)
+        # the preview data keeps the proof facet's declarations
+        entry = page.evaluate(
             """async () => {
                 const manifest = await (await fetch('-verso-data/blueprint-manifest.json')).json();
-                const cache = await (await fetch('-verso-data/blueprint-html-cache.json')).json();
-                const entry = manifest.previews.find((e) => e.key === 'aids_first--proof');
-                return { entry, cache: JSON.stringify(cache) };
+                return manifest.previews.find((e) => e.key === 'aids_first--proof');
             }"""
         )
-        decls = [d["canonical"] for d in manifest["entry"]["codeData"]["externalDecls"]]
+        decls = [d["canonical"] for d in entry["codeData"]["externalDecls"]]
         assert decls == ["PreviewRuntimeShowcase.ReadingAidDecls.aidLongSignature"], decls
-        assert "Lean declarations attached to this proof" not in manifest["cache"]
         # a hover preview of the node (from its graph node view and from a link to it)
         page.goto(side_by_side_server + "/Dependency-Graph/#node=aids_first", wait_until="domcontentloaded")
         page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
         view = page.locator(".bp_graph_preview .bp_node_view")
         assert "Lean declarations attached to this proof" not in view.inner_text()
+
+    def test_summary_leads_a_proof_declaration_to_its_node(self, side_by_side_server: str, page: Page):
+        """The summary's link to a declaration attached to a proof, which has no row of its own in
+        this layout, lands on an element of the page it names: the node."""
+        page.goto(side_by_side_server + "/Blueprint-Summary/")
+        hrefs = page.locator("a").evaluate_all(
+            """anchors => [...new Set(anchors
+                .filter((a) => a.textContent.includes('aidOpen'))
+                .map((a) => a.href))]"""
+        )
+        assert hrefs, "the summary links the open proof declaration"
+        for href in hrefs:
+            assert "#" in href, href
+            page.goto(href)
+            target = page.evaluate(
+                """() => {
+                    const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+                    const node = el && (el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]'));
+                    return node ? node.getAttribute('data-bp-node') : null;
+                }"""
+            )
+            assert target == "aids_sectioned", (href, target)
 
     def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})

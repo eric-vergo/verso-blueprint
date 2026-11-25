@@ -47,7 +47,8 @@ initialize stateRef : IO.Ref State ← IO.mkRef {}
 def clear : IO Unit :=
   stateRef.set {}
 
-/-- Turn rendering of declaration sources (the side-by-side node layout) on or off. -/
+/-- Turn rendering of declaration sources (the side-by-side node layout) on or off. A site
+generator turns it on for the traversal and the emission of its pages. -/
 def setEnabled (enabled : Bool) : IO Unit :=
   stateRef.modify fun st => { st with enabled }
 

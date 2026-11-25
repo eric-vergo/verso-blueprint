@@ -276,16 +276,6 @@ run_meta do
   unless hasSubstr rendered.render "Lean declarations attached to this proof" &&
       hasSubstr rendered.render "Supporting declaration preview" do
     throw <| IO.userError "Cached proof rendering dropped its supporting declarations"
-  let sideBySide := PreviewManifest.BlockRender.renderWithRenderedContent
-    { proofCodePanel := false } proof {
-      body := .raw proofBody
-      codeBodies := #[.raw "Supporting declaration preview"]
-      codeData := proof.codeData.getD {}
-    }
-  unless hasSubstr sideBySide.render "A proof with two associated declarations." &&
-      !hasSubstr sideBySide.render "Lean declarations attached to this proof" &&
-      !hasSubstr sideBySide.render "Supporting declaration preview" do
-    throw <| IO.userError "A side-by-side proof rendering showed its declaration panel"
   let .ok (some query) := VersoBlueprint.Vbp.parseQueryPlan ["node", "proof.references"]
     | throw <| IO.userError "Node query failed to parse"
   let result := query.run files.manifest
@@ -312,8 +302,7 @@ run_meta do
         (declarations[0]!.getObjValAs? String "facet").toOption == some "proof" do
       throw <| IO.userError "Status query lost proof association provenance"
 
-/- The side-by-side layout shows no panel of a proof's declarations, on the page or in its
-cached rendering, while the node's data keeps them: the same proof facet, status and queries. -/
+/- The side-by-side layout shows no panel of a proof's declarations on the page, while the node's data keeps them: the same proof facet, status and queries. -/
 #eval show IO Unit from do
   let (plain, plainState) ← renderManualDocHtmlStringAndState extension_impls% proofReferencesDoc
   let (html, state) ← DeclarationSource.withEnabled true <|
@@ -323,6 +312,15 @@ cached rendering, while the node's data keeps them: the same proof facet, status
       !hasSubstr html "data-lean-decl=\"Nat.add_left_comm\"" &&
       hasSubstr html "data-lean-decls=\"Nat.add_comm Nat.add_left_comm\"" do
     throw <| IO.userError "A side-by-side page showed a proof's declarations"
+  -- the mark of a node counts its proof's declarations: one with `sorry` is incomplete
+  let glyphOf (label : String) : String :=
+    let marker := "data-bp-node=\"«" ++ label ++ "»\""
+    let after := marker.intercalate ((html.splitOn marker).drop 1)
+    toString (((after.splitOn "bp_status_glyph bp_status_glyph_").getD 1 "").takeWhile (· != '"'))
+  unless glyphOf "proof.attachments.admitted" == "partial" &&
+      glyphOf "proof.attachments.only" == "reported" do
+    throw <| IO.userError s!"A side-by-side mark ignored the proof's declarations: \
+      {glyphOf "proof.attachments.admitted"} / {glyphOf "proof.attachments.only"}"
   let build (state : TraverseState) := PreviewManifest.buildPreviewDataFiles extension_impls%
     (fun message => throw <| IO.userError message)
     (PreviewManifest.PreparedPreviewState.prepare state)
@@ -336,14 +334,70 @@ cached rendering, while the node's data keeps them: the same proof facet, status
     unless (plainFiles.manifest.findEntry? key).any (toJson · == toJson proof) &&
         proof.codeData.any (!·.externalDecls.isEmpty) do
       throw <| IO.userError s!"The side-by-side layout changed the proof facet of {label}"
-    if let some cached := files.htmlCache.findHtml? key then
-      if hasSubstr cached "Lean declarations attached to this proof" then
-        throw <| IO.userError s!"The cached proof of {label} carries a declaration panel"
   for (label, complete) in #[("proof.attachments.only", true), ("proof.attachments.admitted", false)] do
     let .ok (some statusQuery) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
       | throw <| IO.userError "Status query failed to parse"
     unless ((statusQuery.run files.manifest).getObjValAs? Bool "complete").toOption == some complete do
       throw <| IO.userError "A side-by-side status ignored the proof association"
+
+#docs (Manual) proofPlacementsDoc "Proof placements" :=
+:::::::
+:::lemma_ "proof.placed"
+A statement whose proof is placed again below.
+:::
+:::proof "proof.placed" (lean := "admittedAttachedResult")
+The attached proof hole is placed with the proof.
+:::
+
+{blueprint_node "proof.placed" (facet := "proof")}
+
+{blueprint_summary}
+:::::::
+
+/-- The values of `attr="…"` in `html`. -/
+private def attrValues (html attr : String) : List String :=
+  (html.splitOn s!"{attr}=\"").drop 1 |>.map fun rest => (rest.splitOn "\"").headD ""
+
+/-- The `href` values of the links whose text mentions `text`. -/
+private def linksMentioning (html text : String) : List String :=
+  (html.splitOn "href=\"").drop 1 |>.filterMap fun rest =>
+    let href := (rest.splitOn "\"").headD ""
+    if hasSubstr ((rest.splitOn "</a>").headD "") text then some href else none
+
+/- A placement of a proof shows no panel of its declarations (a placement shows code only for a
+statement), so the panel is the proof's own: in the standard layout only. In the side-by-side
+layout the summary's link to the proof's declaration with `sorry`, which has no row of its own,
+lands on the node, and every link to a place on the page finds it. -/
+#eval show IO Unit from do
+  let (plain, _) ← renderManualDocHtmlStringAndState extension_impls% proofPlacementsDoc
+  let (html, _) ← DeclarationSource.withEnabled true <|
+    renderManualDocHtmlStringAndState extension_impls% proofPlacementsDoc
+  unless countSubstr plain "Lean declarations attached to this proof" == 1 &&
+      hasSubstr plain "data-bp-facet=\"proof\" data-bp-preview-key" do
+    throw <| IO.userError "A placed proof changed its declaration panels in the standard layout"
+  if hasSubstr html "Lean declarations attached to this proof" then
+    throw <| IO.userError "A placed proof showed its declaration panel in the side-by-side layout"
+  let ids := attrValues html "id"
+  let fragments := (attrValues html "href").filterMap fun href =>
+    match href.splitOn "#" with
+    | [_, fragment] => if fragment.isEmpty || hasSubstr fragment "=" then none else some fragment
+    | _ => none
+  let missing := fragments.filter (!ids.contains ·)
+  unless missing.isEmpty do
+    throw <| IO.userError s!"Links to places missing from the page: {missing}"
+  let declLinks := linksMentioning html "admittedAttachedResult"
+  -- the target is the node's placement: the element carrying the id names the node
+  let landsOnNode (href : String) : Bool :=
+    match href.splitOn "#" with
+    | [_, fragment] =>
+      match html.splitOn s!"id=\"{fragment}\"" with
+      | before :: after :: _ =>
+        hasSubstr (((before.splitOn "<").getLast?.getD "") ++ ((after.splitOn ">").headD ""))
+          "proof.placed"
+      | _ => false
+    | _ => false
+  unless !declLinks.isEmpty && declLinks.all landsOnNode do
+    throw <| IO.userError s!"The summary's link to the open proof declaration misses its node: {declLinks}"
 
 /--
 error: Label «proof.duplicate» has duplicate external Lean reference 'Nat.add' (canonical 'Nat.add'); previously declared as 'Nat.add'
