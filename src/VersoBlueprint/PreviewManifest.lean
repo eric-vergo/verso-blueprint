@@ -712,7 +712,7 @@ This is a VBP stale-artifact diagnostic marker, not a public interchange
 version. It may change whenever the generated-data reader needs a clean
 validation boundary.
 -/
-def manifestInternalSchemaVersion : Nat := 11
+def manifestInternalSchemaVersion : Nat := 12
 
 def manifestInternalSchemaVersionField : String := "vbpInternalSchemaVersion"
 
@@ -2784,12 +2784,13 @@ def emitBlueprintPreviewData : BlueprintExtraStep := fun preparedState => do
     for graph in files.manifest.graphs do
       let direction := (graph.variants[0]?.map (·.options.direction)).getD .TB
       let routing := (graph.variants[0]?.map (·.options.routing)).getD .bundled
+      let nodeText := (graph.variants[0]?.map (·.options.nodeText)).getD .name
       let views := graph.variantGraphs.map fun v =>
         (v.key, ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters
-                   routing } : Informal.GraphLayout.View))
+                   routing, nodeText } : Informal.GraphLayout.View))
       let (_, omitted) ← Informal.GraphLayout.writeDrawings
         (dataDir / Informal.GraphLayout.drawingsFolder graph.key) views graph.renderGraph direction
-        routing
+        routing nodeText
       if omitted > 0 then
         Verso.reportWarning s!"Blueprint graph: {omitted} neighbourhood drawings left out \
           (neighbourhoods of more than {Informal.GraphLayout.egoNodeLimit} nodes, or more than \

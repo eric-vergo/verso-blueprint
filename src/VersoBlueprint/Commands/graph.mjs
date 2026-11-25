@@ -13,6 +13,10 @@ const {
   readPreviewBehaviorDefaults,
   layoutGraphCanvas,
   graphNodeLabel,
+  graphNodeLabelFor,
+  normalizeNodeText,
+  storedNodeText,
+  storeNodeText,
   graphNodeId,
   ensureGraphBlockState,
   rememberGraphLayoutMeasurements,
@@ -49,9 +53,9 @@ export function parseDrawing(text) {
   return document.importNode(root, true);
 }
 
-const drawingElements = new Set(["svg", "g", "path", "ellipse", "text", "title", "desc"]);
+const drawingElements = new Set(["svg", "g", "path", "ellipse", "text", "tspan", "title", "desc"]);
 
-// Whether a parsed drawing holds only what a drawing is written with: its seven kinds of
+// Whether a parsed drawing holds only what a drawing is written with: its eight kinds of
 // element, and no attribute that is an event handler, a link or a style. Anything else is not a
 // drawing of this site and is refused whole.
 function drawingIsPlain(root) {
@@ -245,7 +249,13 @@ export function createGraphBlock(graphData, options) {
   const doc = opts.document && typeof opts.document.createElement === "function" ? opts.document : document;
   const variants = data.variants;
   const graphOptions = graphOptionsFromRenderOptions(opts, variants);
-  const block = createEl(doc, "div", { class: "bp_graph_fullwidth", "data-bp-graph-source": "runtime" });
+  const nodeText = normalizeNodeText(opts.nodeText) ||
+    normalizeNodeText(variants[0] && variants[0].options ? variants[0].options.nodeText : "") || "name";
+  const block = createEl(doc, "div", {
+    class: "bp_graph_fullwidth",
+    "data-bp-graph-source": "runtime",
+    "data-bp-graph-node-text": nodeText
+  });
   if (opts.layout) block.setAttribute("data-bp-graph-layout", graphLayoutMode(block, opts));
   const graphViewSelectId = graphControlId(data, "--view");
   const graphDirectionSelectId = graphControlId(data, "--direction");
@@ -325,6 +335,21 @@ export function createGraphBlock(graphData, options) {
   packLabel.appendChild(packInput);
   packLabel.appendChild(createEl(doc, "span", {}, "Pack disconnected components"));
   optionsBody.appendChild(packLabel);
+  const hasLeanNames = (data.nodes || []).some(function (node) {
+    return node && Array.isArray(node.leanNames) && node.leanNames.length > 0;
+  });
+  if (hasLeanNames) {
+    const graphNodeTextSelectId = graphControlId(data, "--node-text");
+    optionsBody.appendChild(createEl(doc, "label", { class: "bp_graph_controls_label", for: graphNodeTextSelectId }, "Node text"));
+    const nodeTextSelect = createEl(doc, "select", {
+      id: graphNodeTextSelectId,
+      class: "bp_graph_controls_select bp_graph_node_text_select",
+      "data-bp-graph-default-node-text": nodeText
+    });
+    appendSelectOption(doc, nodeTextSelect, "name", "Lean name", nodeText === "name");
+    appendSelectOption(doc, nodeTextSelect, "number", "Number", nodeText === "number");
+    optionsBody.appendChild(nodeTextSelect);
+  }
   optionsBody.appendChild(createEl(doc, "label", { class: "bp_graph_controls_label", for: graphPreviewModeSelectId }, "Preview"));
   const previewModeSelect = createEl(doc, "select", {
     id: graphPreviewModeSelectId,
@@ -555,7 +580,7 @@ function setNodeViewLocation(label) {
 }
 
 function graphNodeIdForLabel(graphData, previewKeys, label) {
-  const graphNode = graphDataNodeForPreview(graphData, label, "");
+  const graphNode = graphDataNodeForPreview(graphData, graphNodeLabelFor(graphData, label) || label, "");
   const previewKey = graphNode && typeof graphNode.previewKey === "string" ? graphNode.previewKey : "";
   if (!previewKey) return "";
   for (const [nodeId, key] of previewKeys) {
@@ -631,8 +656,8 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
     if (!canPreviewNode(node)) return;
     node.style.cursor = "pointer";
     node.setAttribute("tabindex", "0");
-    const titleNode = node.querySelector("title");
-    if (titleNode) titleNode.remove();
+    const titleNode = node.querySelector(":scope > title");
+    if (titleNode && !node.hasAttribute("data-bp-node-hover")) titleNode.remove();
     [node].concat(Array.from(node.querySelectorAll("*"))).forEach(function (el) {
       if (!(el instanceof Element)) return;
       if (el.hasAttribute("title")) el.removeAttribute("title");
@@ -775,8 +800,9 @@ export function egoNeighbourhood(edges, label, k) {
 }
 
 // The ego view of `label` as a render variant, or null when the graph does not have the node.
-export function egoVariant(fullVariant, graphData, label, k) {
+export function egoVariant(fullVariant, graphData, query, k) {
   const graphNodes = graphData && Array.isArray(graphData.nodes) ? graphData.nodes : [];
+  const label = graphNodeLabelFor(graphData, query) || query;
   const centre = graphNodes.find(function (node) { return node && node.label === label; });
   if (!fullVariant || !centre) return null;
   const edges = graphData && Array.isArray(graphData.edges) ? graphData.edges : [];
@@ -1192,7 +1218,10 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       }
       // A node view the URL names (`#node=<label>`) is opened in a view that has the node: the
       // view the page starts on if it does, else the node's own group's view, else the full graph.
-      const nodeFromLocation = activeKey === egoVariantKey ? "" : nodeViewLabelFromLocation();
+      const nodeQueryFromLocation = activeKey === egoVariantKey ? "" : nodeViewLabelFromLocation();
+      const nodeFromLocation = nodeQueryFromLocation
+        ? (graphNodeLabelFor(graphApiData, nodeQueryFromLocation) || nodeQueryFromLocation)
+        : "";
       if (nodeFromLocation) {
         const wantedId = prefixedHtmlId("bp-node", nodeFromLocation);
         const has = function (variant) { return !!variant && variant.previewKeyByNodeId.has(wantedId); };
@@ -1214,6 +1243,32 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       if (directionSelector) directionSelector.value = activeOptions.direction;
       if (packInput) packInput.checked = activeOptions.pack;
       syncLegend(graphBlock, activeKey);
+      // What the nodes show (`name` or `number`): the reader's stored choice, else the site's.
+      // Every drawing carries both labels; the block's attribute picks the one the stylesheet shows.
+      const nodeTextSelector = graphBlock.querySelector(".bp_graph_node_text_select");
+      const defaultNodeText = normalizeNodeText(
+        nodeTextSelector ? nodeTextSelector.getAttribute("data-bp-graph-default-node-text") : ""
+      ) || normalizeNodeText(graphBlock.getAttribute("data-bp-graph-node-text")) || "name";
+      const setNodeText = function (value) {
+        const nodeText = normalizeNodeText(value) || defaultNodeText;
+        graphBlock.setAttribute("data-bp-graph-node-text", nodeText);
+        if (nodeTextSelector) nodeTextSelector.value = nodeText;
+        // a label shown for the first time is fitted to its box like the others
+        const shownSvg = graphRoot.querySelector(":scope > svg");
+        if (shownSvg) fitDrawingLabels(shownSvg);
+        return nodeText;
+      };
+      // the site's address: the folder its data folder is in
+      const siteAddress = (function () {
+        try {
+          const url = previewUtils && typeof previewUtils.dataUrl === "function"
+            ? String(previewUtils.dataUrl("index.json") || "") : "";
+          return url ? new URL(url, window.location.href).pathname.replace(/-verso-data\/index\.json$/, "") : "";
+        } catch (_err) {
+          return "";
+        }
+      })();
+      setNodeText(storedNodeText(siteAddress) || defaultNodeText);
       const legendPopover = bindLegendPopover(previewUtils, graphBlock);
       const optionsPopover = bindOptionsPopover(previewUtils, graphBlock);
 
@@ -1421,7 +1476,8 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         const wanted = egoFromLocation();
         if (!wanted) return;
         const ego = activeKey === egoVariantKey ? variantsByKey.get(egoVariantKey) : null;
-        if (ego && ego.egoLabel === wanted.label && ego.egoHops === wanted.k) return;
+        const wantedLabel = graphNodeLabelFor(graphApiData, wanted.label) || wanted.label;
+        if (ego && ego.egoLabel === wantedLabel && ego.egoHops === wanted.k) return;
         showEgo(wanted.label, wanted.k, false);
       });
 
@@ -1544,8 +1600,14 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           svg.querySelectorAll("g.node").forEach(function (node) {
             const title = node.querySelector(":scope > title");
             const desc = node.querySelector(":scope > desc");
-            if (title) node.setAttribute("data-bp-node-name", title.textContent || "");
-            if (title && desc && (desc.textContent || "").trim()) title.textContent = desc.textContent;
+            if (title && !node.hasAttribute("data-bp-node-name")) {
+              node.setAttribute("data-bp-node-name", title.textContent || "");
+            }
+            // a node with a Lean label keeps the title it was drawn with (its number and the full
+            // names of its declarations); the others show their tooltip
+            if (title && desc && (desc.textContent || "").trim() && !node.hasAttribute("data-bp-node-hover")) {
+              title.textContent = desc.textContent;
+            }
           });
           graphRoot.insertBefore(svg, graphRoot.firstChild);
           fitDrawingLabels(svg);
@@ -1592,6 +1654,11 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       if (packInput) {
         packInput.addEventListener("change", function () {
           switchPack(packInput.checked);
+        });
+      }
+      if (nodeTextSelector) {
+        nodeTextSelector.addEventListener("change", function () {
+          storeNodeText(siteAddress, setNodeText(nodeTextSelector.value));
         });
       }
       if (previewModeSelector) {
@@ -1644,6 +1711,9 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         setDirection: function (nextDirection) {
           switchDirection(nextDirection);
           return controller;
+        },
+        setNodeText: function (nextNodeText) {
+          return setNodeText(nextNodeText);
         },
         setPack: function (nextPack) {
           switchPack(nextPack);

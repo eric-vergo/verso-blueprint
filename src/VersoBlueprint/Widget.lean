@@ -292,6 +292,7 @@ def buildFor [Monad m] [MonadEnv m] [MonadError m] (label : Name) : m BuildResul
       let (graph, nodes, edges) := Informal.GraphLayout.toLayoutGraph
         { graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters }
       Informal.GraphLayout.svgFor (Informal.GraphLayout.layoutOf graph true true) nodes edges .LR
+        (lean := Informal.GraphLayout.leanTexts v.graph)
     | none => ""
   let previewSelection? := Informal.PreviewSource.environmentSelection? env label
   let includeMathlibLegend :=

@@ -1035,17 +1035,23 @@ class TestReadingAids:
         fragment = (statement_link.get_attribute("href") or "").split("#", 1)[1]
         expect(page.locator(f'[id="{fragment}"][data-lean-decl$="aidSectioned"]')).to_have_count(1)
 
-    def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
+    def test_graph_nodes_are_named_by_their_lean_names_and_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(side_by_side_server + "/Dependency-Graph/")
         node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Ffirst']")
         expect(node).to_have_count(1)
         label = node.get_attribute("aria-label") or ""
-        # its number and name, then its state in the words of its mark
-        assert re.fullmatch(r"Theorem \d+\.1 \(aids_first\): Lean proof .+", label), label
+        # its number and name, the declaration of its Lean statement, then its state in the words
+        # of its mark
+        assert re.fullmatch(
+            r"Theorem \d+\.1 \(aids_first\), Lean name PreviewRuntimeShowcase\.ReadingAidDecls\.aidBase: "
+            r"Lean proof .+", label), label
         assert node.get_attribute("role") == "button"
-        texts = node.locator("text").all_text_contents()
-        assert len(texts) == 1 and re.fullmatch(r"Theorem \d+\.1", texts[0]), texts
+        # it shows the short Lean name; its number is the other label a reader can switch to
+        expect(node.locator("text.bp_graph_label_name")).to_have_text("aidBase")
+        numbers = node.locator("text.bp_graph_label_number").all_text_contents()
+        assert len(numbers) == 1 and re.fullmatch(r"Theorem \d+\.1", numbers[0]), numbers
+        expect(node.locator("text.bp_graph_label_number")).to_be_hidden()
         # a node outside the document keeps its name
         assert all((n.get_attribute("aria-label") or "") for n in page.locator(".bp_graph_canvas svg g.node").all())
 
