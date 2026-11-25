@@ -7,6 +7,7 @@ import PreviewRuntimeShowcase.Chapters.CodePanels
 import PreviewRuntimeShowcase.Chapters.CorePreviews
 import PreviewRuntimeShowcase.Chapters.CustomRenderClient
 import PreviewRuntimeShowcase.Chapters.ExternalDeclHeadings
+import PreviewRuntimeShowcase.Chapters.Motion
 import PreviewRuntimeShowcase.Parts.Reading
 import PreviewRuntimeShowcase.Parts.Relations
 
@@ -29,3 +30,5 @@ generator checks can run against a focused, synthetic site.
 
 {blueprint_graph (pack := true)}
 {blueprint_summary}
+
+{include 0 PreviewRuntimeShowcase.Chapters.Motion}
