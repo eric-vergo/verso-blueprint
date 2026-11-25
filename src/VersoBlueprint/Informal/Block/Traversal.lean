@@ -135,11 +135,14 @@ def registerExternalDeclAnchors
     registerExternalDeclAnchor occurrence label decl
 
 /--
-The targets of the declarations of a proof that shows no rows of them (the side-by-side layout):
-each declaration that the node's statement does not show gets, under its fallback key, the inline
-Lean block that defines it, else the node (`ExternalDeclAnchors.declHref?`). A key keeps its first
-target, so it is registered only once every inline Lean block and the node's own target are
-known: from the second traversal pass on (`earlierPass`), never in the first.
+The entries of the declarations of a proof that shows no rows of them (the side-by-side layout),
+each under the node's fallback key, for those that the node's statement does not show. The first
+traversal pass marks each entry as naming no row (`ExternalDeclAnchors.unshownData`); a later pass
+(`earlierPass`) gives it, once, the declaration's one place in the site
+(`ExternalDeclAnchors.placeTarget?`). By then the first pass has registered every row, every Lean
+block of the text, every node's target and every such mark, so every entry of a declaration gets
+the same place whatever the order of the document. Writing the places changes the state of the
+second pass, so a site with such proofs takes one more traversal pass, after which nothing changes.
 -/
 private def registerUnshownProofDeclTargets
     {m}
@@ -149,17 +152,19 @@ private def registerUnshownProofDeclTargets
     (decls : Array Data.ExternalRef)
     (earlierPass : Bool) :
     m Unit := do
-  unless earlierPass do return
   let statement := ((Informal.TraversalIndex.Nodes.node? (← get) label).map (·.externalRefs)).getD #[]
   for decl in decls do
     if statement.any (·.canonical == decl.canonical) then continue
-    let state ← get
     let key := Resolve.externalRenderedDeclFallbackKey label decl.canonical
-    if (Informal.TraversalIndex.ExternalDeclAnchors.object? state key).isSome then continue
-    let target? := Resolve.inlineLeanDeclId? state decl.canonical <|>
-      Informal.TraversalIndex.Nodes.target? state label
-    if let some id := target? then
-      modify fun s => Informal.TraversalIndex.ExternalDeclAnchors.saveId s key id
+    match Informal.TraversalIndex.ExternalDeclAnchors.object? (← get) key with
+    | some obj => if !obj.ids.isEmpty then continue
+    | none =>
+      modify fun s => Informal.TraversalIndex.ExternalDeclAnchors.saveData s key
+        (Informal.TraversalIndex.ExternalDeclAnchors.unshownData label)
+    if earlierPass then
+      if let some id := Informal.TraversalIndex.ExternalDeclAnchors.placeTarget? (← get)
+          decl.canonical then
+        modify fun s => Informal.TraversalIndex.ExternalDeclAnchors.saveId s key id
 
 /--
 Register all traversal-time preview and anchor data owned by an informal block.

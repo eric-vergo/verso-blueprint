@@ -49,8 +49,9 @@ A label-level fallback names the first visible code row when the selected statem
 does not display code. This allows summary/graph UI to jump to a rendered instance, even when the same declaration
 is referenced by many blueprint entries. A declaration attached to a proof that shows no rows of
 its declarations (the side-by-side layout), and not to the node's statement, has as fallback the
-inline Lean block that defines it, else the node itself. Inline preview bodies themselves are
-keyed by the owning source code-block identity.
+declaration's one place in the site (`Informal.TraversalIndex.ExternalDeclAnchors.placeTarget?`),
+so that the first of a declaration's fallback keys in string order that resolves names that place.
+Inline preview bodies themselves are keyed by the owning source code-block identity.
 -/
 def externalRenderedDeclDomainName : Name := Name.mkSimple "Informal.Block.externalRenderedDecl"
 def bibliographyDomainName : Name := Name.mkSimple "Informal.Block.bpCitations"
@@ -130,7 +131,8 @@ If the block rendered the declaration in its external-code panel, prefer that
 row: it lands the reader on the concrete code that the block is discussing.
 If no row was registered, fall back to the ordinary inline-Lean declaration
 anchor shared by the rest of the document. Renderers use
-`Informal.TraversalIndex.ExternalDeclAnchors.declHref?`, which adds the node as the last target.
+`Informal.TraversalIndex.ExternalDeclAnchors.declHref?`, which adds the declaration's one place in
+the site.
 -/
 def resolveInformalDeclHref? (s : Verso.Genre.Manual.TraverseState)
     (label decl : Name) : Option String :=

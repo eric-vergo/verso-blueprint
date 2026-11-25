@@ -617,7 +617,7 @@ def spec : StoreSpec := {
   kind := .internalIndex
   key := "(occurrence, canonical declaration), plus (label, declaration) fallback"
   value := "rendered declaration row anchor ids"
-  summary := "Visible declaration rows and the first visible fallback when the selected prose occurrence has no code; for a proof's declaration that no row shows, its inline Lean anchor or its node."
+  summary := "Visible declaration rows and the first visible fallback when the selected prose occurrence has no code; for a proof's declaration that no row shows, the declaration's one place in the site."
 }
 
 def domainName : Name := spec.name
@@ -628,22 +628,85 @@ def key (occurrence : Verso.Multi.InternalId) (decl : Name) : String :=
 def object? (state : TraverseState) (targetKey : String) : Option Verso.Multi.Object :=
   state.getDomainObject? domainName targetKey
 
+/-- The data of a fallback entry that names no row: the declaration is attached to the proof of
+node `label`, which shows no rows of its declarations (the side-by-side layout). -/
+def unshownData (label : Name) : Json :=
+  Json.mkObj [("unshownProofDeclarationOf", toJson label)]
+
+/-- The node of a fallback entry written with `unshownData`; `none` for an entry of a row. -/
+def unshownLabel? (obj : Verso.Multi.Object) : Option Name :=
+  (obj.data.getObjValAs? Name "unshownProofDeclarationOf").toOption
+
+/-- The fallback entries (`Resolve.externalRenderedDeclFallbackKey`) of the declaration printed
+`decl`, in key order. -/
+def fallbackEntries (state : TraverseState) (decl : String) : Array Verso.Multi.Object :=
+  let suffix := "|" ++ decl
+  match state.domains.get? domainName with
+  | none => #[]
+  | some dom => dom.objects.foldl (init := #[]) fun acc key obj =>
+      if key.startsWith "label:" && key.endsWith suffix then acc.push obj else acc
+
+/-- The fallback entries of the store grouped by the declaration they name, each group in key
+order: `fallbackEntries` of every declaration at once. -/
+def fallbackIndex (state : TraverseState) : Std.HashMap String (Array Verso.Multi.Object) :=
+  match state.domains.get? domainName with
+  | none => {}
+  | some dom => dom.objects.foldl (init := {}) fun acc key obj =>
+      if !key.startsWith "label:" then acc else
+      -- a declaration name may itself contain `|`: every split names a candidate
+      let parts := (key.drop 6).toString.splitOn "|"
+      (List.range (parts.length - 1)).foldl (init := acc) fun acc i =>
+        let decl := "|".intercalate (parts.drop (i + 1))
+        acc.insert decl ((acc.getD decl #[]).push obj)
+
+/--
+The one place of a declaration in the site, from its fallback entries `entries` (in key order,
+`fallbackEntries`): the row of the first entry that names a row, else an inline Lean block that
+defines it, else the node of the first entry that names no row (a proof showing no rows of its
+declarations). Key order is the choice because a reader of the store sees only the keys: one that
+takes the first entry that resolves gets this place, since every entry written with `unshownData`
+holds it too.
+-/
+def placeTargetOf (state : TraverseState) (decl : Name) (entries : Array Verso.Multi.Object) :
+    Option Verso.Multi.InternalId :=
+  let single (obj : Verso.Multi.Object) : Option Verso.Multi.InternalId :=
+    match obj.ids.toList with
+    | [id] => some id
+    | _ => none
+  entries.findSome? (fun obj => if (unshownLabel? obj).isSome then none else single obj) <|>
+    Resolve.inlineLeanDeclId? state decl <|>
+    entries.findSome? fun obj => (unshownLabel? obj).bind (Nodes.target? state)
+
+/-- `placeTargetOf` the entries of `decl` in the store. -/
+def placeTarget? (state : TraverseState) (decl : Name) : Option Verso.Multi.InternalId :=
+  placeTargetOf state decl (fallbackEntries state decl.toString)
+
+private def idHref? (state : TraverseState) (id : Verso.Multi.InternalId) : Option String :=
+  (state.externalTags[id]?).map (·.relativeLink)
+
 /--
 Where a link to `decl`, a Lean declaration of node `label`, leads; every renderer of the site asks
-this. The row that shows it (`Resolve.resolveRenderedExternalDeclHref?`: the node's statement row,
-the proof's panel row, the first visible row), else an inline Lean block that defines it, else,
-when the declaration is attached to the node's statement or proof, the node itself
-(`Nodes.href?`). A declaration attached to a proof that shows no rows of its declarations (the
-side-by-side layout) has this target registered as the node's fallback key, so that readers of
-this store that do not call this function find it as well.
+this. The node's own row of it (`Resolve.resolveRenderedExternalDeclHref?`: its statement row, its
+proof's panel row), else the declaration's one place in the site (`placeTarget?`: a row of any
+node, a Lean block of the text, the node whose proof attaches it), else, when the declaration is
+attached to this node and the site has no place for it, the node itself (`Nodes.href?`).
 -/
 def declHref? (state : TraverseState) (label decl : Name) : Option String :=
-  Resolve.resolveInformalDeclHref? state label decl <|>
+  Resolve.resolveRenderedExternalDeclHref? state label decl <|>
+    (placeTarget? state decl).bind (idHref? state) <|>
     if (Nodes.node? state label).any fun node =>
         (node.externalRefs ++ node.proofExternalRefs).any fun ref =>
           ref.canonical == decl || ref.written == decl then
       Nodes.href? state label
     else none
+
+/-- `declHref?` for a link that no node makes (the Lean code of the running text): the
+declaration's one place in the site, from the store's `fallbackIndex`, else `declHref?` of
+`label`, a node that names it. -/
+def placeHref? (state : TraverseState) (index : Std.HashMap String (Array Verso.Multi.Object))
+    (label decl : Name) : Option String :=
+  (placeTargetOf state decl (index.getD decl.toString #[])).bind (idHref? state) <|>
+    declHref? state label decl
 
 /-- HTML `id` attributes for a registered rendered external-declaration row. -/
 def htmlIdAttrs (state : TraverseState) (occurrence : Verso.Multi.InternalId) (decl : Name) : Array (String × String) :=
@@ -657,6 +720,9 @@ def htmlIdAttrs (state : TraverseState) (occurrence : Verso.Multi.InternalId) (d
 def saveId
     (state : TraverseState) (targetKey : String) (id : Verso.Multi.InternalId) : TraverseState :=
   saveObjectId state domainName targetKey id
+
+def saveData (state : TraverseState) (targetKey : String) (data : Json) : TraverseState :=
+  saveObjectData state domainName targetKey data
 
 end ExternalDeclAnchors
 

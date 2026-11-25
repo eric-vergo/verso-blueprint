@@ -25,10 +25,10 @@ renders on the site's pages (the Lean blocks and inline Lean code of the running
 Verso's; the Blueprint's own components (the Lean column, code panels, previews) render their code
 with links of their own:
 
-* **the site**: a declaration that a Blueprint node names (`(lean := "…")`) links to the place the
-  site gives it (`TraversalIndex.ExternalDeclAnchors.declHref?`): the Lean row of that node that
-  shows it, else the node itself (a declaration attached to a proof, in a layout that shows no row
-  of it) (`siteTargets`);
+* **the site**: a declaration that a Blueprint node names (`(lean := "…")`) links to its one place
+  in the site (`TraversalIndex.ExternalDeclAnchors.placeHref?`): a Lean row that shows it, else a
+  Lean block of the text that defines it, else the node whose proof attaches it (in a layout that
+  shows no row of a proof's declarations) (`siteTargets`);
 * **the repository**: a declaration of a project module of the document's environment (the modules
   the project statistics list, `Stats.ProjectStats.modules`) links to its lines in that module's
   source file on GitHub at the commit the site is built from (`SourceIndex.load`). The lines are
@@ -51,9 +51,9 @@ open Verso.Genre.Manual
 
 /-! ## The site -/
 
-/-- The places of the site, by declaration name: each declaration a node names, linked to its
-place as a declaration of the first node that names it (nodes in the order of their labels,
-statements' declarations before proofs'; `TraversalIndex.ExternalDeclAnchors.declHref?`). -/
+/-- The places of the site, by declaration name: each declaration a node names, linked to its one
+place in the site (`TraversalIndex.ExternalDeclAnchors.placeHref?`, which the other links to it
+share). -/
 def siteTargets (state : TraverseState) : Std.HashMap Name String := Id.run do
   let some dom := TraversalIndex.Nodes.domain? state | return {}
   let mut nodes : Array (Name × Json) := #[]
@@ -65,12 +65,13 @@ def siteTargets (state : TraverseState) : Std.HashMap Name String := Id.run do
     match data.getObjValAs? (Array Json) field with
     | .ok refs => refs.filterMap fun r => (r.getObjValAs? Name "canonical").toOption
     | .error _ => #[]
+  let index := TraversalIndex.ExternalDeclAnchors.fallbackIndex state
   let mut out : Std.HashMap Name String := {}
   for field in ["externalRefs", "proofExternalRefs"] do
     for (label, data) in nodes do
       for decl in declsOf data field do
         if out.contains decl then continue
-        if let some href := TraversalIndex.ExternalDeclAnchors.declHref? state label decl then
+        if let some href := TraversalIndex.ExternalDeclAnchors.placeHref? state index label decl then
           out := out.insert decl href
   return out
 
