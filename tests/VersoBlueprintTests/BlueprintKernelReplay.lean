@@ -768,6 +768,8 @@ info: [(`top, Informal.Graph.NodeReplay.accepted),
     standings := Std.HashMap.ofList [
       (`top, .accepted), (`mid, .accepted), (`side, .accepted), (`loop, .accepted),
       (`leaf, Replay.standing replay? #[`Script.decl])]
+    -- the nodes whose mark is the check mark
+    checked := Std.HashSet.ofList [`top, `mid, `side, `loop]
     uses := Std.HashMap.ofList [
       (`top, #[`mid, `side]), (`mid, #[`leaf]), (`leaf, #[]), (`side, #[`text]), (`text, #[]),
       (`loop, #[`loop, `side])] }
