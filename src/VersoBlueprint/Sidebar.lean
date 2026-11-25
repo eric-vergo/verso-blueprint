@@ -82,6 +82,16 @@ def outlineFile : String := "blueprint-sidebar-outline.js"
 /-- The global variable the outline file sets. -/
 def outlineVariable : String := "versoBlueprintSidebarOutline"
 
+/-- The class of the root element while the sidebar script has not yet shown the outline. -/
+def pendingClass : String := "bp-sidebar-pending"
+
+/-- Inline `<head>` script that marks the page as waiting for the outline: the stylesheet keeps
+Verso's list of the table of contents hidden until the sidebar script has replaced it by the tree
+(or has given up waiting), so that the list is not seen changing into the tree. Without
+JavaScript the mark is never set and the list is shown. -/
+def pendingScript : String :=
+  s!"document.documentElement.classList.add(\"{pendingClass}\");"
+
 /-- The `<head>` elements that enable the sidebar. -/
 def headHtml (cfg : Config) : Array Verso.Output.Html :=
   -- `<` cannot occur in the JSON payload's markup context once escaped this way.
@@ -90,8 +100,10 @@ def headHtml (cfg : Config) : Array Verso.Output.Html :=
     .element "meta" #[("name", metaName), ("content", "on")] .empty,
     .element "script" #[("type", "application/json"), ("id", configElementId)] (.raw json),
     .element "script" #[] (.raw themeInitScript),
-    -- relative to the page's `<base>`, the site's root
-    .element "script" #[("src", s!"-verso-data/{outlineFile}"), ("defer", "defer")] .empty
+    .element "script" #[] (.raw pendingScript),
+    -- relative to the page's `<base>`, the site's root; `async`, so that no other script of the
+    -- page waits for it
+    .element "script" #[("src", s!"-verso-data/{outlineFile}"), ("async", "async")] .empty
   ]
 
 /-- Enable the sidebar for a generated site. -/
@@ -113,39 +125,69 @@ def numberText (number : String) : String :=
   | some (comps, used) => if used == number.length then PageText.sectionSign comps else number
   | none => number
 
+/-- Attributes of highlighted code that refer to state kept for the page it was written for: the
+key of a hover in the site's hover data, and the binding a variable's occurrences share. An outline
+title is shown on every page, so its elements carry neither. -/
+def pageLocalAttributes : List String := ["data-verso-hover", "data-binding"]
+
+/-- `html` without the attributes in `pageLocalAttributes`. -/
+partial def withoutPageLocalAttributes : Verso.Output.Html → Verso.Output.Html
+  | .element tag attrs children =>
+    .element tag (attrs.filter fun (name, _) => !pageLocalAttributes.contains name)
+      (withoutPageLocalAttributes children)
+  | .seq items => .seq (items.map withoutPageLocalAttributes)
+  | html => html
+
+/-- An entry's title as the outline gives it: as the table of contents shows it, with links
+relative to the site's root and without attributes that refer to one page's state. -/
+def titleText (entry : Html.Toc) : String :=
+  Lean.Html.render <| withoutPageLocalAttributes <|
+    Verso.Genre.Manual.Html.Hoist.postprocess <| relativizeLinks (entry.shortTitle.getD entry.title)
+
+mutual
 /-- One entry of the outline and the entries below it. `pagePath` is the path of the page of the
 entry above it: an entry whose own path is longer has a page of its own. -/
-partial def entryJson (pagePath : Verso.Multi.Path) (entry : Html.Toc) : Json :=
-  let ownPage := entry.path.size > pagePath.size
-  let title := Verso.Output.Html.asString <| Verso.Genre.Manual.Html.Hoist.postprocess <| relativizeLinks (entry.shortTitle.getD entry.title)
-  let fields : List (String × Json) := [
-    ("title", title),
-    ("href", Verso.Multi.Path.relativeLink entry.path entry.id),
-    ("children", Json.arr (entry.children.toArray.map (entryJson entry.path)))]
-  let fields := match entry.sectionNum with
-    | some ns => ("number", Json.str (numberText (sectionNumberString ns))) :: fields
-    | none => fields
-  let fields := if ownPage then ("page", Json.str (Verso.Multi.Path.relativeLink entry.path)) :: fields
-    else fields
-  Json.mkObj fields
+def entryJson (pagePath : Verso.Multi.Path) : Html.Toc → Json
+  | entry@(.entry info children) =>
+    let fields : List (String × Json) := [
+      ("title", titleText entry),
+      ("href", Verso.Multi.Path.relativeLink info.path info.id),
+      ("children", Json.arr (entriesJson info.path children).toArray)]
+    let fields := match info.sectionNum with
+      | some ns => ("number", Json.str (numberText (sectionNumberString ns))) :: fields
+      | none => fields
+    let fields :=
+      if info.path.size > pagePath.size then
+        ("page", Json.str (Verso.Multi.Path.relativeLink info.path)) :: fields
+      else fields
+    Json.mkObj fields
+
+/-- The entries of a list, below the page at `pagePath` (`entryJson`). -/
+def entriesJson (pagePath : Verso.Multi.Path) : List Html.Toc → List Json
+  | [] => []
+  | entry :: rest => entryJson pagePath entry :: entriesJson pagePath rest
+end
 
 /-- The outline's top-level entries: the document's own parts, each numbered part
-(`Informal.Parts`) with its chapters inside it again, marked `"part": true`. -/
+(`Informal.Parts`) with its chapters, the entries that follow its page, inside it again and
+marked `"part": true`. -/
 def outlineJson (parts : Array (Verso.Doc.Part Verso.Genre.Manual × Html.Toc)) : Json := Id.run do
   let mut out : Array Json := #[]
-  let mut i := 0
-  while h : i < parts.size do
-    let (part, entry) := parts[i]
-    match Parts.partMarker? part with
-    | some marker =>
-      let chapters := (parts.extract (i + 1) (i + 1 + marker.chapters)).map fun (_, c) =>
-        entryJson #[] c
-      let own := entryJson #[] entry
-      out := out.push <| own.setObjVal! "part" true |>.setObjVal! "children" (Json.arr chapters)
-      i := i + 1 + marker.chapters
-    | none =>
-      out := out.push (entryJson #[] entry)
-      i := i + 1
+  -- the part whose chapters are being collected: its entry, its chapters so far, how many follow
+  let mut current : Option (Json × Array Json × Nat) := none
+  for (part, entry) in parts do
+    if let some (own, chapters, left + 1) := current then
+      current := some (own, chapters.push (entryJson #[] entry), left)
+    else
+      if let some (own, chapters, _) := current then
+        out := out.push (own.setObjVal! "children" (Json.arr chapters))
+      current := none
+      match Parts.partMarker? part with
+      | some marker =>
+        current := some ((entryJson #[] entry).setObjVal! "part" true, #[], marker.chapters)
+      | none => out := out.push (entryJson #[] entry)
+  if let some (own, chapters, _) := current then
+    out := out.push (own.setObjVal! "children" (Json.arr chapters))
   return Json.mkObj [("entries", Json.arr out)]
 
 /-- Write the outline of the traversed document `text` into the data folder of the site in `dir`,

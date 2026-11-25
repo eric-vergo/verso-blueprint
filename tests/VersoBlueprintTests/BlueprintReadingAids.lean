@@ -58,8 +58,8 @@ private def labelOk : Doc.Inline Manual → Bool
   let titles := numbered.subParts.map (·.titleString)
   let partOne := numbered.subParts[1]!
   let checks : List (String × Bool) := [
-    ("titles", titles == #["Intro", "Part I — Foundations", "Groups", "Orbits", "Part II — Main",
-      "Result", "Appendix"]),
+    ("titles", titles == #["Intro", "Part I — Foundations", "Groups", "Orbits",
+      "Part II — Main", "Result", "Appendix"]),
     ("part page alone", partOne.subParts.isEmpty),
     ("unnumbered", (partOne.metadata.map (·.number)) == some false),
     ("folder", (partOne.metadata.bind (·.file)) == some "Part-I"),
@@ -325,7 +325,9 @@ The result.
     let result ← IO.FS.readFile (site / "Result" / "index.html")
     let partPage ← IO.FS.readFile (site / "Part-I" / "index.html")
     let outline ← IO.FS.readFile (site / "-verso-data" / Sidebar.outlineFile)
-    let label (n : String) := s!"<span class=\"bp_part_label\"><span class=\"bp_part_number\">Part {n}</span><span class=\"bp_part_separator\"> — </span></span>"
+    let label (n : String) :=
+      s!"<span class=\"bp_part_label\"><span class=\"bp_part_number\">Part {n}</span>" ++
+        "<span class=\"bp_part_separator\"> — </span></span>"
     let checks : List (String × Bool) := [
       ("built", code == 0),
       -- chapters run on across parts; the parts' pages are unnumbered, their labels marked up
@@ -334,12 +336,14 @@ The result.
         hasSubstr index (label "II" ++ "Main Result")),
       ("chapters 2 and 3", hasSubstr index "<span class=\"number\">2.</span> Groups" &&
         hasSubstr index "<span class=\"number\">3.</span> Result"),
-      ("part before its chapter", appearsBefore index (label "I") "<span class=\"number\">2.</span> Groups"),
+      ("part before its chapter",
+        appearsBefore index (label "I") "<span class=\"number\">2.</span> Groups"),
       ("part page heading", appearsBefore partPage "<h1 id=" (label "I" ++ "Foundations")),
       ("part page title", hasSubstr partPage "<title>Part I — Foundations</title>"),
       -- the sidebar's outline: each part's chapters inside it, sections below their chapters,
       -- the generated pages after the last part outside it
-      ("outline script", hasSubstr index s!"<script src=\"-verso-data/{Sidebar.outlineFile}\" defer=\"defer\">"),
+      ("outline script",
+        hasSubstr index s!"<script src=\"-verso-data/{Sidebar.outlineFile}\" async=\"async\">"),
       ("outline variable", hasSubstr outline s!"window.{Sidebar.outlineVariable} = "),
       ("outline shape", outlineShape outline == some #[
         ("Introduction/", false, #[]),
@@ -351,13 +355,28 @@ The result.
       -- statements keep the numbers of their chapters; a section carries a section sign
       ("statement numbers", hasSubstr groups ">2.1</span>" && hasSubstr orbits ">2.1.1</span>" &&
         hasSubstr result ">3.1</span>"),
-      ("section signs", hasSubstr orbits "\">§2.1\u00A0Orbits" && !hasSubstr orbits "2.1. Orbits" &&
+      ("section signs", hasSubstr orbits "\">§2.1\u00A0Orbits" &&
+        !hasSubstr orbits "2.1. Orbits" &&
         hasSubstr groups "<span class=\"number\">§2.1</span> Orbits"),
       ("part text", hasSubstr partPage "The chapters of the first part."),
       -- the viewport lets the reader zoom
       ("zoom", !hasSubstr index "maximum-scale" &&
         hasSubstr index "width=device-width, initial-scale=1")]
     pure (checks.filter (!·.2) |>.map (·.1))
+
+-- An outline title keeps its markup and its glyphs' ids, without highlighted code's hover keys,
+-- which name entries of one page's hover data.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let code : Verso.Output.Html :=
+    .element "code" #[("class", "hl lean inline"), ("data-verso-hover", "3")] <| .seq #[
+      .element "span" #[("class", "const token"), ("data-binding", "const-Nat.succ"),
+        ("data-verso-hover", "0")] (.text "Nat.succ"),
+      .element "path" #[("id", "glyph-1")] .empty]
+  Lean.Html.render (Sidebar.withoutPageLocalAttributes code) ==
+    "<code class=\"hl lean inline\"><span class=\"const token\">Nat.succ</span>" ++
+      "<path id=\"glyph-1\"></path></code>"
 
 -- A site without parts: the sidebar's outline has the chapters at the top, each with its sections.
 
@@ -406,7 +425,8 @@ Another result.
         ("Results/", false, #["Results/First-Result/", "Results/Second-Result/"]),
         (Commands.statsPageFolder ++ "/", false, #[])]),
       ("no parts", !hasSubstr outline "\"part\""),
-      ("numbers", hasSubstr outline "\"number\":\"2.\"" && hasSubstr outline "\"number\":\"§2.2\"")]
+      ("numbers", hasSubstr outline "\"number\":\"2.\"" &&
+        hasSubstr outline "\"number\":\"§2.2\"")]
     pure (checks.filter (!·.2) |>.map (·.1))
 
 end Verso.VersoBlueprintTests.BlueprintReadingAids

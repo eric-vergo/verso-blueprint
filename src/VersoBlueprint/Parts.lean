@@ -84,7 +84,8 @@ def partMarker? (part : Part Manual) : Option PartMarker :=
   part.content.findSome? numberedMarker?
 
 /-- The block with its markers numbered `numeral`, for a part of `chapters` chapters. -/
-partial def numberMarkers (numeral : String) (chapters : Nat) : Doc.Block Manual → Doc.Block Manual
+partial def numberMarkers (numeral : String) (chapters : Nat) :
+    Doc.Block Manual → Doc.Block Manual
   | .other block contents =>
     if block.name == ``Block.part then .other (Block.part { numeral := some numeral, chapters }) #[]
     else .other block contents

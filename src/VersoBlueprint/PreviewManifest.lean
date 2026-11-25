@@ -2908,10 +2908,10 @@ private def emitBlueprintHtml
     Informal.DeclarationSource.setEnabled false
   if sidebar then
     -- the full outline for the sidebar's tree, beside the pages that show it
-    let depth := match mode with | .single => 0 | .multi => cfg.htmlDepth
+    let depth := match mode with | .single => 0 | .multi => prepared.config.htmlDepth
     withReader (fun _ => pageImpls) <|
-      Informal.Sidebar.writeOutline (outDirForMode prepared.config.toConfig mode) depth cfg
-        prepared.state prepared.text
+      Informal.Sidebar.writeOutline (outDirForMode prepared.config.toConfig mode) depth
+        prepared.config prepared.state prepared.text
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
   -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
