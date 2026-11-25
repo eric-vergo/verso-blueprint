@@ -68,6 +68,9 @@ structure BlockStatusMark where
   /-- Why the source of one of the node's Lean declarations is not known to be the text that was
   compiled (`Data.ExternalRef.sourceChange?`): nothing is shown as checked for the node. -/
   sourceChange? : Option String := none
+  /-- Whether the node has a Lean statement (`BlockCodeData.isLeanStatement`). A mark without one
+  is about the declarations attached to the proof, and its words say so. -/
+  hasStatement : Bool := true
 deriving Repr, Inhabited
 
 def BlockStatusMark.text (s : BlockStatusMark) : String :=

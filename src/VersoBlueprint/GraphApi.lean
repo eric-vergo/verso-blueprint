@@ -49,7 +49,9 @@ def nodeStateText (state : TraverseState) (replays : Informal.ReplayView.Index)
     (node : Informal.Graph.NodeData) : Option String :=
   if node.warnings.unknownRef then node.visual.tooltip? else
   let data? := Informal.TraversalIndex.Nodes.renderedData? state node.label
-  let mark? := data?.bind fun data => Informal.CodeSummary.statusMark? data.kind data.codeData
+  -- the heading's mark: the statement's Lean code lowered by the proof's (`RenderNode.mark?`)
+  let mark? := data?.bind fun data =>
+    (Informal.TraversalIndex.Nodes.node? state node.label).bind (·.mark? data.kind)
   let words := (Informal.statusGlyph mark? replays.replay?).2
   some (" | ".intercalate (words :: Informal.Graph.warningTooltipParts node.warnings))
 

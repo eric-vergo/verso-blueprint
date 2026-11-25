@@ -663,7 +663,7 @@
       }
     },
     "kindProgress": {
-      "description": "Nodes of one kind group. leanComplete: the node's Lean declarations, with everything they use, contain no sorry (nothing is said about axioms). leanCompleteWithDependencies: of those, the nodes whose dependencies in the graph are all Lean complete. informal: nodes that have an informal statement.",
+      "description": "Nodes of one kind group. leanComplete: the node has a Lean statement, and its Lean declarations, with everything they use, contain no sorry (nothing is said about axioms). leanCompleteWithDependencies: of those, the nodes whose dependencies in the graph are all Lean complete. informal: nodes that have an informal statement.",
       "type": "object",
       "required": ["total", "leanComplete", "leanCompleteWithDependencies", "informal"],
       "additionalProperties": false,

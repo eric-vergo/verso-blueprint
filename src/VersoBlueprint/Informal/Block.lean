@@ -81,16 +81,22 @@ private def replayOf? (state : TraverseState) : Option Informal.Replay.Result :=
 
 /-- The attribute that tells the stylesheets what the kernel replay establishes for the Lean
 code of a block: the success colours inside the block are drawn only under `accepted`
-(`StatusColors.replayScopeCss`), and only for a block whose mark is the check mark (an accepted
-replay of code the compiled files report an axiom under is not). A block without Lean code
-carries none. -/
+(`StatusColors.replayScopeCss`), and only when the node's mark is the check mark (an accepted
+replay of code the compiled files report an axiom under is not). The mark is about the node's
+statement and the declarations attached to its proof (`ReplayView.markCode?`), for the
+statement's block and the proof's alike. A block without Lean code carries none. -/
 private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array (String × String) :=
   match data.codeData with
   | some code =>
     let replay? := replayOf? state
-    let token := (Informal.ReplayView.standingOfCode replay? code).token
-    let checked := (Informal.statusGlyph (Informal.CodeSummary.statusMark? data.kind (some code))
-      replay?).1.modifier == Informal.StatusGlyphKind.proved.modifier
+    let node? := TraversalIndex.Nodes.node? state data.label
+    let markCode? := if data.isProof then node?.bind (·.markCode?) else
+      CodeSummary.markSource? data.kind (some code) (ReplayView.proofDecls state data.label)
+    let mark? := if data.isProof then node?.bind (·.mark? data.kind) else
+      CodeSummary.statusMark? data.kind (some code) (ReplayView.proofDecls state data.label)
+    let token := (Informal.ReplayView.standingOfCode replay? (markCode?.getD code)).token
+    let checked := (Informal.statusGlyph mark? replay?).1.modifier ==
+      Informal.StatusGlyphKind.proved.modifier
     #[(Informal.StatusColors.replayScopeAttr,
       if token == "accepted" && !checked then "none" else token)]
   | none => #[]
@@ -147,14 +153,17 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
             } getDeclHref (replayOf? s) (heading := data.displayTitle s)
               (meaningHref? := Commands.meaningHref? s)
+              (proofDecls := ReplayView.proofDecls s data.label)
           | true => none
         let formalColumn? : Option Output.Html ←
           if sideBySide && !data.isProof && !externalDecls.isEmpty then
             some <$> ExternalCode.renderDeclarationSourceColumn externalDecls getDeclHref getDeclAnchorAttrs
           else
             pure none
+        -- The side-by-side layout shows a statement's declarations in its Lean column and those
+        -- attached to a proof nowhere: they count towards the node's status and data only.
         let externalPanel : Output.Html ← do
-          if externalDecls.isEmpty || formalColumn?.isSome then
+          if externalDecls.isEmpty || sideBySide then
             pure .empty
           else
             let externalCdata : CodeSummary.ComputedData := {
@@ -202,7 +211,6 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
           sideBySideNode := sideBySide && !data.isProof
           statementSourceNote := !data.isProof && data.codeData.any (!·.isEmpty) &&
             (!blocks.isEmpty || selectedMarkupAndContent?.isSome)
-          meaningHref? := Commands.meaningHref? s
           claim := if data.isProof then .empty else
             ((claimFor? s data).map (·.render (Commands.meaningHref? s))).getD .empty
         }
@@ -220,7 +228,9 @@ block_extension Block.informal (data : BlockOccurrence) where
     | none =>
       pure none
     | some occurrence =>
-      registerTraversedBlock id occurrence _contents
+      -- the side-by-side layout shows no panel of a proof's declarations: no anchors for them
+      let sideBySide ← (DeclarationSource.enabled : IO Bool)
+      registerTraversedBlock id occurrence _contents (showsCode := !(sideBySide && occurrence.isProof))
       return none
   toTeX := some <| fun _goI goB _id data blocks => do
       let .ok occurrence := fromJson? (α := BlockOccurrence) data

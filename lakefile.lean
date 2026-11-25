@@ -126,6 +126,7 @@ lean_lib VersoBlueprintTests where
     `VersoBlueprintTests.BlueprintComparatorLayout,
     `VersoBlueprintTests.BlueprintKernelReplay,
     `VersoBlueprintTests.BlueprintReplayWording,
+    `VersoBlueprintTests.BlueprintProofMarks,
     `VersoBlueprintTests.BlueprintAttribute,
     `VersoBlueprintTests.BlueprintAttribute.OrderRoundtrip,
     `VersoBlueprintTests.BlueprintAttributeRendering,

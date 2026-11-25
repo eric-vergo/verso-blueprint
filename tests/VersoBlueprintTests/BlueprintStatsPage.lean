@@ -162,8 +162,8 @@ private def view (stats : ProjectStats) : StatsPageView := {
     !hasSubstr html headlineHintText &&
     -- progress: counts as text, a segment per non-empty status, the per-chapter table
     hasSubstr html "58 nodes: 48 theorems, 10 definitions</p>" &&
-    hasSubstr html "Lean complete (no sorry in a node's Lean code or in what that code uses): \
-      46 of 48 theorems, 10 of 10 definitions.</p>" &&
+    hasSubstr html "Lean complete (a Lean statement, and no sorry in a node's Lean code or in \
+      what that code uses): 46 of 48 theorems, 10 of 10 definitions.</p>" &&
     hasSubstr html "Informal statements: 57 of 58 nodes have one. No tool has checked any of \
       them against the Lean statements." &&
     !hasSubstr html "fully proved" && !hasSubstr html "Fully proved" &&
@@ -470,8 +470,8 @@ A theorem.
       hasSubstr out "class=\"bp_project_stats bp_replay_none\"" &&
       hasSubstr out s!"{countOf total "node"}: 1 theorem, 1 definition</p>" &&
       -- both nodes have a written statement, and neither has Lean code
-      hasSubstr out "Lean complete (no sorry in a node's Lean code or in what that code uses): \
-        0 of 1 theorem, 0 of 1 definition." &&
+      hasSubstr out "Lean complete (a Lean statement, and no sorry in a node's Lean code or in \
+        what that code uses): 0 of 1 theorem, 0 of 1 definition." &&
       hasSubstr out "Informal statements: 2 of 2 nodes have one." &&
       hasSubstr out "class=\"bp_stats_band bp_stats_trust\"" &&
       total ≥ 2)

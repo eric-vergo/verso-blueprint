@@ -237,15 +237,20 @@ private def summaryPreviewItems (cdata : ComputedData)
   inlineItems ++ externalDeclSummaryItems source.summaryExternalDecls hrefOf
 
 private def renderSummaryPreview (cdata : ComputedData)
-    (hrefOf : Name → Option String) : Output.Html :=
+    (hrefOf : Name → Option String) (proofDecls : Array Data.ExternalRef := #[]) : Output.Html :=
   let items := summaryPreviewItems cdata hrefOf
   let sectionTitle :=
     if items.isEmpty then "Lean status" else "Associated Lean declarations"
-  let sections := #[{
+  let sections : Array SummaryTooltipSection := #[{
     title := sectionTitle
     items
-    emptyText := "No associated Lean code or declarations."
+    emptyText := if proofDecls.isEmpty then "No associated Lean code or declarations."
+      else s!"{noLeanStatementText}."
   }]
+  -- what the mark also counts, with the statuses that lower it
+  let sections := if proofDecls.isEmpty then sections else sections.push {
+    title := Informal.Meaning.proofDeclsTitle
+    items := externalDeclSummaryItems (Data.ExternalRef.mergeSnapshots #[] proofDecls) hrefOf }
   let failures := externalRenderFailures (cdata.source.getD {}).externalDecls
   if failures.isEmpty then
     renderSummaryPreviewBody sections
@@ -267,8 +272,9 @@ deriving Inhabited
 
 /-- The symbol of the Lean link in a block's header. Code without `sorry` gets the check mark
 only when the kernel replay `replay?` accepted its declarations with everything they depend on
-and found no axiom outside Lean's standard three under them; otherwise the diamond (what the
-compiled files report), the warning mark, or the mark of a rejected replay. -/
+and neither the replay nor the compiled files found an axiom outside Lean's standard three under
+them; otherwise the diamond (what the compiled files report), the warning mark (such an axiom),
+or the mark of a rejected replay. -/
 private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
     (replay? : Option Replay.Result := none) : CodeEntryVisual :=
   if !hasSource then
@@ -280,11 +286,16 @@ private def codeEntryVisual (hasSource : Bool) (statusMark : BlockStatusMark)
       if !statusMark.status.isProved then (view.codeEntryClassSuffix, view.codeEntrySymbol)
       else match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
           statusMark.sourceChange? with
-        | .accepted => (view.codeEntryClassSuffix, view.codeEntrySymbol)
         | .rejected => ("rejected", "⊘")
-        | .notReplayed _ | .noVerdict _ => ("reported", "◇")
-        | .notChecked _ => ("warning", "⚠")
         | .sourceChanged _ => ("changed", "◌")
+        | .notChecked _ => ("warning", "⚠")
+        -- an axiom outside Lean's standard three that the compiled files report: the heading's
+        -- warning mark (`statusGlyph`), whatever the replay
+        | _ => if !statusMark.extraAxioms.isEmpty then ("warning", "⚠") else
+          match Replay.provedStanding replay? statusMark.declarations statusMark.unplaced
+              statusMark.sourceChange? with
+          | .accepted => (view.codeEntryClassSuffix, view.codeEntrySymbol)
+          | _ => ("reported", "◇")
     { classSuffix, symbol }
 
 private structure ExternalRenderHealth where
@@ -669,20 +680,86 @@ private def withMeaningLink (body : Output.Html) (meaningHref? : Option String) 
         (.text Informal.Meaning.linkText))]
   | none => body
 
-/-- Heading status and tooltip cover every association, independent of panel layout. The
-tooltip is headed `heading` (the statement's numbered title) and ends with a link to the
-explanation of the marks at `meaningHref?`. -/
+/-- The mark of Lean code `source` of a node of kind `kind`, whatever it is. Without a Lean
+statement (`hasStatement` false: `source` is the code attached to the proof) the mark says so
+(`BlockStatusMark.hasStatement`, whose words start "No Lean statement"), and its title drops the
+state of a Lean statement. -/
+private def markOfSource (kind : Data.NodeKind) (source : BlockCodeData)
+    (hasStatement : Bool := true) : BlockStatusMark :=
+  let mark := statusMarkFromHealth kind (extraAxiomsOf source)
+    (Informal.Graph.codeHealthOfBlockSource kind {} (some source)) (declarationsOf source)
+    (unplacedOf source) source.sourceChange?
+  if hasStatement then mark else
+    -- the second axis is about the code attached to the proof, not a proof of a Lean statement
+    let axes := (mark.title.splitOn "; ").drop 1 |>.map fun axis =>
+      if axis.startsWith "Lean proof: " || axis.startsWith "Lean body: " then
+        s!"{proofCodeNoun}: {(axis.splitOn ": ").drop 1 |> ": ".intercalate}"
+      else axis
+    { mark with title := "; ".intercalate axes, hasStatement }
+
+/--
+The Lean code a node's mark is about, from the Lean code of its statement (`statement?`) and the
+declarations attached to its proof (`proof`); every mark, chip, glyph, success colour and kernel
+replay standing of a node is derived from it.
+
+The proof's declarations can only lower the mark, never raise it. With Lean code on the
+statement, they join it, each declaration once with every observation of it merged
+conservatively (`Data.ExternalRef.mergeSnapshots`): a `sorry`, a missing declaration, an axiom
+outside Lean's standard three or a changed source in them shows in the mark. Without Lean code on
+the statement the mark is about the Lean statement, of which there is none: the result is `none`
+(no Lean declaration) however complete the proof's declarations are, unless they show one of those
+problems, and then it is their code.
+-/
+def markSource? (kind : Data.NodeKind) (statement? : Option BlockCodeData)
+    (proof : Array Data.ExternalRef) : Option BlockCodeData :=
+  let statement? := statement?.filter (·.isLeanStatement)
+  if proof.isEmpty then statement? else
+  -- each declaration once, its statuses merged conservatively and every axiom any observation
+  -- of it reports kept
+  let merge (refs : Array Data.ExternalRef) : Array Data.ExternalRef :=
+    (Data.ExternalRef.mergeSnapshots #[] refs).map fun ref =>
+      let canonical := ref.canonical
+      { ref with axioms := Data.sortAxioms <| refs.foldl (init := #[]) fun acc r =>
+          if r.canonical.eraseMacroScopes == canonical then
+            r.axioms.foldl (fun acc a => if acc.contains a then acc else acc.push a) acc
+          else acc }
+  match statement? with
+  | some statement =>
+    some { statement with externalDecls := merge (statement.externalDecls ++ proof) }
+  | none =>
+    let code : BlockCodeData := { externalDecls := merge proof }
+    let mark := markOfSource kind code
+    if mark.status.isProved && mark.extraAxioms.isEmpty && mark.sourceChange?.isNone then none
+    else some code
+
+/-- The heading status of a node of kind `kind` whose statement's Lean code is `source?` and whose
+proof has the declarations `proof` (`markSource?`); `none` when the mark is "no Lean
+declaration". -/
+def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData)
+    (proof : Array Data.ExternalRef := #[]) : Option BlockStatusMark :=
+  (markSource? kind source? proof).map
+    (markOfSource kind · (hasStatement := source?.any (·.isLeanStatement)))
+
+/-- Heading status and tooltip: the mark is about `markSource?` of the statement's code (`cdata`)
+and the declarations attached to the proof (`proofDecls`); the summary lists the statement's
+declarations and, under "Attached to the proof", the proof's, with their statuses, so that the
+page says what the mark counts. The tooltip is headed `heading` (the statement's numbered title)
+and ends with a link to the explanation of the marks at `meaningHref?`. -/
 def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Option String)
     (replay? : Option Replay.Result := none) (heading : String := toString data.label)
-    (meaningHref? : Option String := none) : RenderParts :=
+    (meaningHref? : Option String := none) (proofDecls : Array Data.ExternalRef := #[]) :
+    RenderParts :=
   if data.isProof then {} else
-  let source := cdata.source.getD {}
-  let health := Informal.Graph.codeHealthOfBlockSource data.kind {} cdata.source
-  let renderHealth := externalRenderHealth source.externalDecls
-  let statusMark := statusMarkFromHealth data.kind (extraAxiomsOf source) health
-    (declarationsOf source)
-    (unplacedOf source) source.sourceChange?
-  let title := if source.isEmpty then "No associated Lean declarations" else
+  let source? := markSource? data.kind cdata.source proofDecls
+  let source := source?.getD {}
+  let health := Informal.Graph.codeHealthOfBlockSource data.kind {} source?
+  let renderHealth := externalRenderHealth (cdata.source.getD {}).externalDecls
+  let statusMark := markOfSource data.kind source
+    (hasStatement := cdata.source.any (·.isLeanStatement))
+  let title := if source.isEmpty then
+      -- the proof's declarations are listed in the summary: what is absent is the statement
+      if proofDecls.isEmpty then "No associated Lean declarations" else noLeanStatementText
+    else
     -- the state first, in the words of the heading's mark, so that what a reader hears or sees
     -- on the link is the verdict, then what the declarations are
     s!"{(statusGlyph (some statusMark) replay?).2}. " ++ appendRenderHealthSummary
@@ -691,18 +768,9 @@ def renderParts (data : BlockData) (cdata : ComputedData) (hrefOf : Name → Opt
       renderHealth
   { statusMark := if source.isEmpty then none else some statusMark
     codeEntry := renderCodeEntryWrap cdata.codeHref title heading
-      (withMeaningLink (renderSummaryPreview cdata hrefOf) meaningHref?)
+      (withMeaningLink (renderSummaryPreview cdata hrefOf proofDecls) meaningHref?)
       (codeEntryVisual (!source.isEmpty) statusMark replay?)
       renderHealth }
-
-/-- The heading status of a statement of kind `kind` whose Lean side is `source?`, as
-`renderParts` computes it; `none` without associated Lean declarations. -/
-def statusMark? (kind : Data.NodeKind) (source? : Option BlockCodeData) : Option BlockStatusMark :=
-  let source := source?.getD {}
-  if source.isEmpty then none else
-    some (statusMarkFromHealth kind (extraAxiomsOf source)
-      (Informal.Graph.codeHealthOfBlockSource kind {} source?) (declarationsOf source)
-      (unplacedOf source) source.sourceChange?)
 
 end CodeSummary
 end Informal

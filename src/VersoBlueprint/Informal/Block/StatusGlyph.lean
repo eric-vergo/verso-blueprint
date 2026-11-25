@@ -92,6 +92,13 @@ def sourceChangedText (noun change : String) : String :=
     a kernel replay found are about the compiled modules as they were built, not the sources as \
     they read now"
 
+/-- What the words of a mark about the Lean code attached to a proof start with: there is no
+Lean statement. -/
+def noLeanStatementText : String := "No Lean statement"
+
+/-- The Lean code a mark without a Lean statement is about. -/
+def proofCodeNoun : String := "Lean code attached to the proof"
+
 /-- The status glyph of a node and its text (the glyph's meaning for this node, then the
 detailed status where it adds something). A node whose Lean code has no `sorry` but depends on
 an axiom outside Lean's standard three, as the compiled files report it or as the replay found
@@ -107,11 +114,18 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
   match mark? with
   | none => (.noLean, StatusGlyphKind.noLean.meaning)
   | some mark =>
+    let (kind, text) := statusGlyphOfMark mark replay?
+    if mark.hasStatement then (kind, text) else (kind, s!"{noLeanStatementText}; {text}")
+where
+  /-- The glyph and words of `mark`; a mark without a Lean statement is about the code attached
+  to the proof (`leanCodeNoun` gives way to "Lean code attached to the proof"). -/
+  statusGlyphOfMark (mark : BlockStatusMark) (replay? : Option Replay.Result) :
+      StatusGlyphKind × String :=
     let status := mark.status
+    let noun := if mark.hasStatement then leanCodeNoun mark.kind else proofCodeNoun
     if let some change := mark.sourceChange? then
-      (.sourceChanged, sourceChangedText (leanCodeNoun mark.kind) change)
+      (.sourceChanged, sourceChangedText noun change)
     else if status.isProved then
-      let noun := leanCodeNoun mark.kind
       let checker := (replay?.map (·.checkerName)).getD "the kernel checkers"
       let rejection := (replay?.map (·.rejectionText)).getD "a kernel checker rejected this build"
       let reported := mark.extraAxioms
@@ -140,8 +154,11 @@ def statusGlyph (mark? : Option BlockStatusMark) (replay? : Option Replay.Result
         let clause := standing.unreplayed?.getD "not replayed by a kernel"
         (if reported.isEmpty then .reported else .problem, s!"{resting base}; {clause}")
     else if status.isAxiomLike then
-      (.problem, "Declared without a proof or a body (an axiom or an opaque constant): \
-        assumed, not proved")
+      (.problem, if mark.hasStatement then
+          "Declared without a proof or a body (an axiom or an opaque constant): assumed, not \
+            proved"
+        else "a declaration attached to the proof is declared without a proof or a body (an \
+          axiom or an opaque constant): assumed, not proved")
     else
       let kind :=
         if status.isMissing then StatusGlyphKind.missing

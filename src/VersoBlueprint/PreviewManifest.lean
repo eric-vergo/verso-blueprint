@@ -2546,6 +2546,12 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
           if fragmentIsBlank html then none else some (.raw html)
       let decls := (entry.codeData.map (·.externalDecls)).getD #[]
+      -- the mark and the axioms are about the statement's code lowered by the proof's
+      -- (`CodeSummary.markSource?`), whose declarations the view lists by name and status
+      let kind := entry.kind.getD .theorem
+      let proofDecls := ((index.findEntry? (PreviewCache.key node.label .proof)).bind
+        (·.codeData) |>.map (·.externalDecls)).getD #[]
+      let markCode? := Informal.CodeSummary.markSource? kind entry.codeData proofDecls
       let (sourceParts, hoverState') ←
         Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
       hoverState := hoverState'
@@ -2558,12 +2564,13 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         title := node.title
         href? := node.href
         status := Informal.statusGlyph
-          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData) replay?
+          (Informal.CodeSummary.statusMark? kind entry.codeData proofDecls) replay?
         informal?
         proof?
         lean := sourceParts ++ inlineParts
         leanDecls := decls.map (·.canonical)
-        axioms? := nodeAxioms? entry.codeData
+        axioms? := nodeAxioms? markCode?
+        proofDecls := Data.ExternalRef.mergeSnapshots #[] proofDecls
         uses := nodeViewLinks entry.uses
         usedBy := nodeViewLinks entry.usedBy
         informalSource := informalSource node.label
@@ -2862,6 +2869,14 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
   | .single => emitHtmlSingle prepared.config prepared.text prepared.state
   | .multi => emitHtmlMulti prepared.config prepared.text prepared.state
 
+/-- The name of the layout a traversal registers destinations for. -/
+private def traversalLayoutName (sideBySide : Bool) : String :=
+  if sideBySide then "side-by-side" else "standard"
+
+/-- The file beside a saved traversal state that records its layout. -/
+private def traversalLayoutFile (path : System.FilePath) : System.FilePath :=
+  path.toString ++ ".layout"
+
 private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
@@ -2874,17 +2889,33 @@ private def emitBlueprintHtml
     (text : Part Manual) : EmitM Unit := do
   if let .no := how then return
   let modeDescription := htmlModeDescription mode
-  let document? ← match how with
-    | .resumeFrom path =>
-      withTimedBuildProgress cfg.verbose s!"loading {modeDescription} traversal state from {path}" <|
-        HtmlDocument.load mode cfg path
-    | _ =>
-      withTimedBuildProgress cfg.verbose s!"{modeDescription} HTML traversal" <|
-        HtmlDocument.traverse mode cfg text
+  -- traversal registers only the destinations the layout will emit (no code anchors for a
+  -- proof's declarations in the side-by-side layout), so a saved traversal state records its
+  -- layout and is resumed only in the same one
+  let layout := traversalLayoutName sideBySide
+  if let .resumeFrom path := how then
+    let recorded ← try some <$> IO.FS.readFile (traversalLayoutFile path) catch _ => pure none
+    if recorded.map (·.trimAscii.toString) != some layout then
+      Verso.reportError s!"The traversal state in {path} was saved for the \
+        {(recorded.map (·.trimAscii.toString)).getD "unrecorded"} layout, not the {layout} one: \
+        traverse the document again"
+      return
+  Informal.DeclarationSource.setEnabled sideBySide
+  let document? ← try
+      match how with
+      | .resumeFrom path =>
+        withTimedBuildProgress cfg.verbose s!"loading {modeDescription} traversal state from {path}" <|
+          HtmlDocument.load mode cfg path
+      | _ =>
+        withTimedBuildProgress cfg.verbose s!"{modeDescription} HTML traversal" <|
+          HtmlDocument.traverse mode cfg text
+    finally
+      Informal.DeclarationSource.setEnabled false
   let some document := document? | return
   if let .delay path := how then
     withTimedBuildProgress cfg.verbose s!"saving {modeDescription} traversal state to {path}" <|
       document.save path
+    IO.FS.writeFile (traversalLayoutFile path) layout
     return
   let prepared := PreparedRendererState.prepare document
   -- names in Lean code link to the site's Lean rows and to the repository's sources too

@@ -226,6 +226,8 @@ def helpText : String := String.intercalate "\n" [
   "  --with-tex | --without-tex",
   "  --with-html-single | --delay-html-single <file> | --resume-html-single <file> | --without-html-single",
   "  --with-html-multi | --delay-html-multi <file> | --resume-html-multi <file> | --without-html-multi",
+  "                     A saved traversal is resumed only in the layout it was saved for",
+  s!"                     (with or without {sideBySideFlag}).",
   "  --with-word-count <file> | --without-word-count",
   "  --draft",
   "  --verbose                  Show phase timing and progress diagnostics.",

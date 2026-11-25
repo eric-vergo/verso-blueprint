@@ -161,6 +161,13 @@ private def entryStatusJson (manifest : ManifestFile) (entry : Entry) : Json := 
   let facets := manifest.findBlockEntriesByLabel entry.authoredLabel
   let health := Informal.Graph.codeHealthOfBlockSources (entry.kind.getD .theorem) {}
     (facets.filterMap (·.codeData))
+  let hasLeanStatement := facets.any fun facet =>
+    facet.facet == .statement && facet.codeData.any (·.isLeanStatement)
+  -- a node without a Lean statement is complete nowhere: its declarations, attached to the proof,
+  -- keep their own evidence (`proofComplete`), and a verdict that would read "complete" names
+  -- the missing statement
+  let verdict := if !hasLeanStatement && health.verdict == "complete" then "no-lean-statement"
+    else health.verdict
   let mut declarations : Array Json := #[]
   for facet in facets do
     let code := facet.codeData.getD {}
@@ -178,9 +185,9 @@ private def entryStatusJson (manifest : ManifestFile) (entry : Entry) : Json := 
   return responseJson [
     ("label", nameJson entry.label),
     ("asOf", Json.str "generated-snapshot"),
-    ("verdict", Json.str health.verdict),
-    ("complete", toJson health.localProofFormalized),
-    ("statementComplete", toJson health.localStatementFormalized),
+    ("verdict", Json.str verdict),
+    ("complete", toJson (hasLeanStatement && health.localProofFormalized)),
+    ("statementComplete", toJson (hasLeanStatement && health.localStatementFormalized)),
     ("proofComplete", toJson health.localProofFormalized),
     ("declarations", Json.arr declarations)]
 

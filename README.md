@@ -473,23 +473,16 @@ reference projects publish on each Lean release line. Maintainers can inspect
 the current checkout's selected projects with
 `python3 -m scripts.blueprint_reference_harness projects`.
 
-Each external Blueprint is published only for its intended current release.
-[FLT](https://github.com/ejgallego/verso-flt) uses Lean `v4.35.0-rc3`, and
-[Sphere Packing](https://github.com/ejgallego/verso-sphere-packing) uses
-`v4.35.0-rc4`, both on `v4.35.0`. Their upstream
-Mathlib configurations determine each reference's exact toolchain and dependency pins.
-The `v4.36.0` line follows Lean 4.36.0 and Verso v4.36.0; its catalog has only the
-in-repo starter template until the references move to it.
-Further reference updates follow their upstream toolchains and validation.
-Noperthedron and Carleson are outside the published catalog while they require
-the retired 4.34 line; they can return after migration and validation on a
-maintained release. The in-repo starter template is a CI fixture rather than a
-public reference entry; it is validated on the maintained line.
-
-- [`ejgallego/verso-flt`](https://github.com/ejgallego/verso-flt),
-  [rendered site for v4.35.0](https://leanprover.github.io/verso-blueprint/reference-blueprints/v4.35.0/verso-flt/)
-- [`ejgallego/verso-sphere-packing`](https://github.com/ejgallego/verso-sphere-packing),
-  [rendered site for v4.35.0](https://leanprover.github.io/verso-blueprint/reference-blueprints/v4.35.0/spherepackingblueprint/)
+This repository develops on a single release line, `v4.36.0`, which follows
+Lean 4.36.0 and Verso v4.36.0 and has no maintenance lines to backport to. Its
+catalog has only the in-repo starter template, a CI fixture rather than a public
+reference entry. The external reference Blueprints
+([FLT](https://github.com/ejgallego/verso-flt),
+[Sphere Packing](https://github.com/ejgallego/verso-sphere-packing),
+Noperthedron and Carleson) are outside the catalog while they require older
+lines; they can return after migration and validation on `v4.36.0`, with their
+upstream Mathlib configurations determining each reference's exact toolchain and
+dependency pins.
 
 ## Rendered Test Blueprints
 

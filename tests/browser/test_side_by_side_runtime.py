@@ -805,38 +805,159 @@ class TestReadingAids:
         expect(panel.locator(".bp_code_summary_preview_title")).to_have_text(re.compile(r"^Theorem \d+\.1$"))
         expect(panel.locator("a.bp_meaning_link")).to_have_attribute("href", "Project-Stats/#bp-what-this-means")
 
-    def test_unchecked_notice_links_to_the_explanation(self, side_by_side_server: str, page: Page):
+    def test_statements_carry_no_unchecked_line(self, side_by_side_server: str, page: Page):
+        """A statement written in the Blueprint has no line about its source or what was checked;
+        the status legend and the Project Stats page still say what no mark is about."""
+        for path in ("/Reading-Aids/", "/Core-Previews/", "/Preview-Relationships/"):
+            page.goto(side_by_side_server + path)
+            expect(page.locator(".bp_sbs").first).to_be_attached()
+            expect(page.locator(".bp_statement_source")).to_have_count(0)
+            text = page.locator("main").inner_text()
+            assert "Informal statement from" not in text, path
+            assert "not checked against the Lean statement" not in text, path
         page.goto(side_by_side_server + "/Reading-Aids/")
-        link = page.locator(".bp_statement_source a.bp_meaning_link").first
-        expect(link).to_have_text("What this means")
-        link.click()
-        page.wait_for_url(re.compile(r"/Project-Stats/#bp-what-this-means$"))
+        legend = page.locator(".bp_status_legend_note")
+        expect(legend).to_contain_text("No tool checks that an informal statement says the same")
+        page.goto(side_by_side_server + "/Project-Stats/#bp-what-this-means")
         expect(page.locator("#bp-what-this-means")).to_be_visible()
 
-    def test_proof_declarations_match_the_lean_column(self, side_by_side_server: str, page: Page):
-        for width in (1440, 360):
-            page.set_viewport_size({"width": width, "height": 900})
-            page.goto(side_by_side_server + "/Reading-Aids/")
-            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
-            facts = page.evaluate(
+    def test_proof_declarations_have_no_panel(self, side_by_side_server: str, page: Page):
+        """A proof with attached Lean declarations shows no panel of them, on the page or in a
+        hover preview of the node, while the node's data and status still count them."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/")
+        page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+        proof = page.locator("[data-bp-facet='proof'][data-bp-node='aids_first']")
+        expect(proof).to_have_count(1)
+        assert "aidLongSignature" in (proof.get_attribute("data-lean-decls") or "")
+        expect(page.get_by_text("Lean declarations attached to this proof")).to_have_count(0)
+        expect(page.locator("[data-lean-decl$='aidLongSignature']")).to_have_count(0)
+        assert "theorem aidLongSignature" not in page.locator("main").inner_text()
+        # a node whose statement's declaration is complete and whose proof's declaration has a
+        # sorry is marked incomplete, and its page shows no panel either: the hidden declaration
+        # still counts
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        glyph = page.locator(".bp_sbs[data-bp-node='aids_sectioned'] .bp_status_glyph").first
+        expect(glyph).to_have_class(re.compile(r"\bbp_status_glyph_partial\b"))
+        expect(page.get_by_text("Lean declarations attached to this proof")).to_have_count(0)
+        expect(page.locator("[data-lean-decl$='aidOpen']")).to_have_count(0)
+        # the preview data keeps the proof facet's declarations
+        entry = page.evaluate(
+            """async () => {
+                const manifest = await (await fetch('-verso-data/blueprint-manifest.json')).json();
+                return manifest.previews.find((e) => e.key === 'aids_first--proof');
+            }"""
+        )
+        decls = [d["canonical"] for d in entry["codeData"]["externalDecls"]]
+        assert decls == ["PreviewRuntimeShowcase.ReadingAidDecls.aidLongSignature"], decls
+        # a hover preview of the node (from its graph node view and from a link to it)
+        page.goto(side_by_side_server + "/Dependency-Graph/#node=aids_first", wait_until="domcontentloaded")
+        page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+        view = page.locator(".bp_graph_preview .bp_node_view")
+        assert "Lean declarations attached to this proof" not in view.inner_text()
+
+    def test_every_surface_counts_the_open_proof_declaration(
+        self, side_by_side_server: str, page: Page
+    ):
+        """`aids_sectioned`: its statement's declaration is complete, its proof's has a sorry. The
+        heading, its Lean chip, the chip of a placement of the node, the graph's tooltip and
+        accessible name and the node view all show it incomplete, and the chip's summary and the
+        node view list the proof's declaration with its status."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        node = page.locator(".bp_sbs[data-bp-node='aids_sectioned']").first
+        expect(node.locator(".bp_status_glyph").first).to_have_class(
+            re.compile(r"\bbp_status_glyph_partial\b"))
+        chip = node.locator(".bp_code_link_status").first
+        expect(chip).to_have_class(re.compile(r"\bbp_code_link_status_warning\b"))
+        placement = page.locator("[data-bp-blueprint-node][data-bp-label='aids_sectioned']")
+        expect(placement.locator(".bp_code_link_status_warning")).to_have_count(1)
+        # the chip's summary: the statement's declaration, then the proof's with its status
+        node.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel).to_contain_text("aidSectioned")
+        expect(panel).to_contain_text("Attached to the proof")
+        row = panel.locator(".bp_code_decl_item", has_text="aidOpen")
+        expect(row).to_have_count(1)
+        expect(row.locator(".bp_code_decl_status")).to_contain_text("sorry")
+        # the graph's words and the node view
+        page.goto(side_by_side_server + "/Dependency-Graph/#node=aids_sectioned",
+                  wait_until="domcontentloaded")
+        graph_node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Fsectioned']")
+        expect(graph_node).to_have_count(1)
+        assert "Lean code incomplete" in (graph_node.get_attribute("aria-label") or "")
+        page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+        view = page.locator(".bp_graph_preview .bp_node_view")
+        expect(view.locator(".bp_node_view_header .bp_status_glyph_partial")).to_have_count(1)
+        expect(view.locator(".bp_node_view_proof_decls")).to_contain_text("Attached to the proof")
+        expect(view.locator(".bp_node_view_proof_decl", has_text="aidOpen")).to_have_count(1)
+
+    def test_a_statement_without_lean_code_is_not_complete(self, side_by_side_server: str, page: Page):
+        """`aids_proof_only`: its statement has no Lean declaration and its proof's declaration is
+        complete. Its heading shows no Lean declaration, its chip says there is no Lean statement
+        and lists the proof's declaration, the graph draws it as not formalized and says so, and
+        the summary's link to the declaration leads to the node."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        node = page.locator(".bp_sbs[data-bp-node='aids_proof_only']").first
+        expect(node.locator(".bp_status_glyph").first).to_have_class(
+            re.compile(r"\bbp_status_glyph_none\b"))
+        chip = node.locator(".bp_code_link_status").first
+        expect(chip).to_have_attribute("title", "No Lean statement")
+        node.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel).to_contain_text("No Lean statement.")
+        expect(panel).to_contain_text("Attached to the proof")
+        expect(panel.locator(".bp_code_decl_item", has_text="aidProofOnly")).to_have_count(1)
+        # the graph: neither its statement nor its proof is drawn as formalized
+        page.goto(side_by_side_server + "/Dependency-Graph/", wait_until="domcontentloaded")
+        graph_node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Fproof-005Fonly']")
+        expect(graph_node).to_have_count(1)
+        classes = graph_node.get_attribute("class") or ""
+        assert "formalized" not in classes, classes
+        assert (graph_node.get_attribute("aria-label") or "").endswith("No Lean declaration")
+        # the summary links the declaration to the node
+        page.goto(side_by_side_server + "/Blueprint-Summary/")
+        hrefs = page.locator("a").evaluate_all(
+            """anchors => [...new Set(anchors
+                .filter((a) => a.textContent.includes('aidProofOnly') && a.href.includes('#'))
+                .map((a) => a.href))]"""
+        )
+        assert hrefs, "the summary links the proof's declaration"
+        for href in hrefs:
+            page.goto(href)
+            target = page.evaluate(
                 """() => {
-                    const column = document.querySelector('.bp_sbs_formal code.hl.lean.block');
-                    const sig = [...document.querySelectorAll('pre.bp_external_decl_signature')]
-                        .find((p) => p.offsetParent && p.textContent.includes('aidLongSignature'));
-                    const name = sig && [...sig.querySelectorAll('.token')]
-                        .find((t) => t.textContent.includes('aidLongSignature'));
-                    const lines = name ? name.getClientRects().length : 0;
-                    return { column: column && getComputedStyle(column).fontSize,
-                             sig: sig && getComputedStyle(sig).fontSize,
-                             overflow: sig ? sig.scrollWidth - sig.clientWidth : null,
-                             nameLines: lines };
+                    const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+                    const node = el && (el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]'));
+                    return node ? node.getAttribute('data-bp-node') : null;
                 }"""
             )
-            assert facts["sig"] is not None and facts["sig"] == facts["column"], (width, facts)
-            assert facts["overflow"] <= 0, (width, facts)
-            if width == 1440:
-                # the declaration's name is not broken across lines where it fits on one
-                assert facts["nameLines"] == 1, (width, facts)
+            assert target == "aids_proof_only", (href, target)
+
+    def test_summary_leads_a_proof_declaration_to_its_node(self, side_by_side_server: str, page: Page):
+        """The summary's link to a declaration attached to a proof, which has no row of its own in
+        this layout, lands on an element of the page it names: the node."""
+        page.goto(side_by_side_server + "/Blueprint-Summary/")
+        hrefs = page.locator("a").evaluate_all(
+            """anchors => [...new Set(anchors
+                .filter((a) => a.textContent.includes('aidOpen'))
+                .map((a) => a.href))]"""
+        )
+        assert hrefs, "the summary links the open proof declaration"
+        for href in hrefs:
+            assert "#" in href, href
+            page.goto(href)
+            target = page.evaluate(
+                """() => {
+                    const el = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+                    const node = el && (el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]'));
+                    return node ? node.getAttribute('data-bp-node') : null;
+                }"""
+            )
+            assert target == "aids_sectioned", (href, target)
 
     def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})

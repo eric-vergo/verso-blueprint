@@ -36,17 +36,48 @@ def replay? (state : TraverseState) : Option Replay.Result := do
   let json ← TraversalIndex.RenderOverviews.field? state `stats "replay"
   (fromJson? (α := Replay.Result) json).toOption
 
-/-- What `replay?` establishes for the Lean code `code`: accepted only when every declaration's
-module is known, the replay checked each with everything it depends on and accepted them, and
-it found no axiom outside Lean's standard three under them. -/
+/-- What `replay?` establishes for the Lean code `code`: accepted only when every declaration is
+in the Lean environment and its module is known, the replay checked each with everything it
+depends on and accepted them, and it found no axiom outside Lean's standard three under them. A
+missing declaration was not checked: the code is not covered. -/
 def standingOfCode (replay? : Option Replay.Result) (code : BlockCodeData) : Replay.Standing :=
-  Replay.provedStanding replay? code.declarations code.unplaced code.sourceChange?
+  match Replay.provedStanding replay? code.declarations code.unplaced code.sourceChange?,
+      code.externalDecls.find? (!·.present) with
+  -- a missing declaration is not among what the replay checked: the code is not covered
+  | .accepted, some missing =>
+    .notReplayed s!"not part of the replay: {missing.written} is not in the Lean environment"
+  | standing, _ => standing
 
-/-- The standing of a node's Lean code, the code its heading's mark is about; `none` for a node
-without Lean code. -/
+/-- The Lean code of a node's statement, whichever facet its occurrence is. -/
+def _root_.Informal.RenderNode.statementCode? (node : RenderNode) : Option BlockCodeData :=
+  let code : BlockCodeData :=
+    { externalDecls := node.externalRefs, literateDeclarations := node.literateDeclarations }
+  if code.isLeanStatement then some code else none
+
+/-- The Lean code a node's mark is about: its statement's, lowered by the declarations attached
+to its proof (`CodeSummary.markSource?`); `none` when the mark is "no Lean declaration". -/
+def _root_.Informal.RenderNode.markCode? (node : RenderNode) : Option BlockCodeData :=
+  CodeSummary.markSource? node.kind node.statementCode? node.proofExternalRefs
+
+/-- The mark of a node (`CodeSummary.statusMark?`), from its statement's Lean code and the
+declarations attached to its proof. -/
+def _root_.Informal.RenderNode.mark? (node : RenderNode) (kind : Data.NodeKind := node.kind) :
+    Option BlockStatusMark :=
+  CodeSummary.statusMark? kind node.statementCode? node.proofExternalRefs
+
+/-- `RenderNode.markCode?` of node `label` of `state`. -/
+def markCode? (state : TraverseState) (label : Name) : Option BlockCodeData :=
+  (TraversalIndex.Nodes.node? state label).bind (·.markCode?)
+
+/-- The declarations attached to the proof of node `label` of `state`. -/
+def proofDecls (state : TraverseState) (label : Name) : Array Data.ExternalRef :=
+  ((TraversalIndex.Nodes.node? state label).map (·.proofExternalRefs)).getD #[]
+
+/-- The standing of a node's Lean code, the code its heading's mark is about
+(`RenderNode.markCode?`); `none` for a node whose mark is "no Lean declaration". -/
 def standingOfNode (replay? : Option Replay.Result) (node : RenderNode) :
     Option Replay.Standing :=
-  node.toBlockData.codeData.map (standingOfCode replay?)
+  node.markCode?.map (standingOfCode replay?)
 
 /-- The nodes of a site with what the replay establishes for each. -/
 structure Index where
@@ -59,6 +90,9 @@ structure Index where
   /-- The nodes whose Lean code the compiled files (or the site's data) report as having no
   `sorry`: they are counted as complete. -/
   reportedProved : NameHashSet := {}
+  /-- The nodes whose mark is the check mark under the replay: the replay accepted their Lean code
+  and their mark shows nothing that lowers it. -/
+  checked : NameHashSet := {}
 deriving Inhabited
 
 /-- The index of the captured nodes of `state` under the replay `replay?`. Nodes that do not
@@ -71,9 +105,11 @@ def Index.buildWith (state : TraverseState) (replay? : Option Replay.Result) : I
     let label : Name := node.label
     if let some standing := standingOfNode replay? node then
       index := { index with standings := index.standings.insert label standing }
-    let code := node.toBlockData.codeData
-    if (CodeSummary.statusMark? .theorem code).any (·.status.isProved) then
+    if (node.mark? .theorem).any (·.status.isProved) then
       index := { index with reportedProved := index.reportedProved.insert label }
+    let mark? := node.mark?
+    if (statusGlyph mark? replay?).1.modifier == StatusGlyphKind.proved.modifier then
+      index := { index with checked := index.checked.insert label }
     let uses := (node.statementUses ++ node.proofUses).map fun use => (use.label : Name)
     index := { index with uses := index.uses.insert label uses }
   return index
@@ -86,9 +122,10 @@ def Index.build (state : TraverseState) : Index :=
 def Index.standing? (index : Index) (label : Name) : Option Replay.Standing :=
   index.standings.get? label
 
-/-- Whether an accepted replay covers the Lean code of node `label`. -/
+/-- Whether an accepted replay covers the Lean code of node `label` and its mark is the check
+mark: a node whose mark shows something lower gets no success colour. -/
 def Index.accepted (index : Index) (label : Name) : Bool :=
-  (index.standing? label).any (·.isAccepted)
+  (index.standing? label).any (·.isAccepted) && index.checked.contains label
 
 /-- Whether an accepted replay covers the Lean code of node `label` and of every node it
 depends on, directly or not. A node without Lean code establishes nothing either way. -/
@@ -103,7 +140,7 @@ def Index.acceptedWithDependencies (index : Index) (label : Name) : Bool := Id.r
     todo := todo.pop
     if seen.contains next then continue
     seen := seen.insert next
-    if (index.standing? next).any (!·.isAccepted) then return false
+    if (index.standing? next).isSome && !index.accepted next then return false
     todo := todo ++ index.uses.getD next #[]
   return todo.all seen.contains
 
@@ -118,9 +155,11 @@ def Index.uncovered (index : Index) : Array Name :=
 
 /-- The nodes whose Lean code has no `sorry` but rests on an axiom outside Lean's standard three,
 as an accepted replay found by walking the terms, sorted: not exported and not checked, since
-both checkers decline an export that uses such an axiom. Only nodes the compiled files report as
-having no `sorry` are counted as complete, so only those are among them: not a node whose Lean
-code is the axiom itself (declared without a proof), nor one with a `sorry`. -/
+both checkers decline an export that uses such an axiom. Only nodes whose marked Lean code
+(`RenderNode.markCode?`) the compiled files report as having no `sorry` are among them: not a
+node whose Lean code is the axiom itself (declared without a proof), nor one with a `sorry`. A
+node without a Lean statement whose proof's declarations rest on such an axiom is among them:
+its mark warns of the axiom, and the site does not show the replay as covering everything. -/
 def Index.resting (index : Index) : Array Name :=
   (index.standings.toArray.filterMap fun (label, standing) =>
     match standing with

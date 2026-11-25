@@ -43,7 +43,8 @@ commit the site is built from is the only version-control data the page uses
 (`StatsPageView.resolveLinks`).
 
 Each sentence on the page says what was looked at and no more. A status is about Lean code: its
-words are "Lean complete" (no `sorry` in a node's declarations or in what they use), never
+words are "Lean complete" (a Lean statement, and no `sorry` in a node's declarations or in what
+they use), never
 "proved" for a definition and never a word about an informal statement. The headline's verdict
 is about the Lean statement, in the build the site was generated from; it says "proved" only
 when a kernel replay accepted the theorem with everything it depends on (`Informal.Replay`), and
@@ -1103,8 +1104,8 @@ def leanCompleteText (p : LeanProgress) : String :=
     (if p.definitions.total == 0 then [] else
       [ofKind p.definitions.leanComplete p.definitions "definition"])
   if parts.isEmpty then "No nodes."
-  else s!"{leanCompleteLabel} (no sorry in a node's Lean code or in what that code uses): \
-    {", ".intercalate parts}."
+  else s!"{leanCompleteLabel} (a Lean statement, and no sorry in a node's Lean code or in what \
+    that code uses): {", ".intercalate parts}."
 
 /-- The sentence that counts informal statements. It never calls one checked. -/
 def informalText (p : LeanProgress) : String :=
@@ -1288,7 +1289,8 @@ private def trustHtml (view : StatsPageView) : Output.Html :=
 meets them, ending with what no tool here checks. One short sentence each. -/
 def meaningItems : Array (String × String) := #[
   ("Lean complete",
-    "the node's Lean declarations, and everything they use, contain no sorry. The generator reads \
+    "the node has a Lean statement, and its Lean declarations (the statement's and those attached \
+      to the proof), and everything they use, contain no sorry. The generator reads \
       this from the compiled modules, which is not a check by a kernel. Code that rests on an \
       axiom beyond Lean's standard three gets the warning mark, with the axiom named."),
   ("Green",

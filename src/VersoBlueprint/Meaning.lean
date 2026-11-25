@@ -11,8 +11,9 @@ A site reports facts about Lean code: a declaration and what it uses contain no 
 depends on these axioms; the solution of a Comparator challenge states the same Lean terms as the
 challenge. It also shows informal text beside that code: a Blueprint statement, a docstring, an
 author's claim about a manuscript. No tool compares the two. The texts here keep the pages from
-saying more than that: a mark names what was looked at, informal text is shown with its source,
-and the one sentence about the gap between them is the same everywhere.
+saying more than that: a mark names what was looked at, informal text that is not the Blueprint's
+own is shown with its source, and the one sentence about the gap between them is the same
+everywhere.
 -/
 
 namespace Informal.Meaning
@@ -21,7 +22,7 @@ namespace Informal.Meaning
 def uncheckedNote : String :=
   "No tool has checked that this text says the same as the Lean statement."
 
-/-- The short form of `uncheckedNote`, for a line under a statement on a chapter page. -/
+/-- The short form of `uncheckedNote`, for a caption beside informal text. -/
 def uncheckedTag : String := "not checked against the Lean statement"
 
 /-- The text of links to the explanation (`anchor`). -/
@@ -30,18 +31,19 @@ def linkText : String := "What this means"
 /-- The id of the explanation of the marks, on the Project Stats page. -/
 def anchor : String := "bp-what-this-means"
 
-/-- Where an informal statement comes from, as a noun phrase: a statement written in the
-Blueprint is `none`; a site generated from code names the source in its data (`tex`,
-`attribute`, `docstring`, `blueprint`). -/
-def sourcePhrase : Option String → String
-  | none | some "blueprint" => "the blueprint"
-  | some "tex" => "the project's TeX blueprint"
-  | some "attribute" => "a blueprint attribute"
-  | some "docstring" => "the docstring"
-  | some _ => "the project"
+/-- The heading of the list of the Lean declarations attached to a node's proof, beside its mark:
+the mark counts them. -/
+def proofDeclsTitle : String := "Attached to the proof"
 
-/-- The line under an informal statement that has Lean code beside it. -/
-def sourceLine (source : Option String) : String :=
-  s!"Informal statement from {sourcePhrase source} · {uncheckedTag}"
+/-- The tag under an informal statement that a site generated from code took from somewhere
+other than a Blueprint, naming that source (`tex`, `attribute`, `docstring`): the reader knows
+whose words they are reading. A statement written in the Blueprint (`none`, `blueprint`) has
+no tag. -/
+def sourceTag? : Option String → Option String
+  | none | some "blueprint" => none
+  | some "tex" => some "From the project's TeX blueprint"
+  | some "attribute" => some "From a blueprint attribute"
+  | some "docstring" => some "From the docstring"
+  | some _ => some "From the project"
 
 end Informal.Meaning

@@ -17,6 +17,13 @@ theorem aidLongSignature (first second third fourth : Nat) (hFirst : first ≤ s
 
 theorem aidSectioned (n : Nat) : n + 0 = n := Nat.add_zero n
 
+/-- A lemma attached to the proof of a statement that has no Lean declaration. -/
+theorem aidProofOnly (n : Nat) : n * 1 = n := Nat.mul_one n
+
+/-- A lemma attached to a proof and still open. -/
+theorem aidOpen (n : Nat) : 0 + n = n := by
+  sorry
+
 /-- A bound that no statement of the Blueprint names: the text below uses it. -/
 def aidSlack : Nat := 2
 
@@ -39,6 +46,22 @@ Chain the inequalities.
 
 :::lemma_ "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidSectioned")
 Adding zero changes nothing.
+:::
+
+:::proof "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidOpen")
+The attached lemma is still open, so the node is incomplete.
+:::
+
+A placement of the node carries the same mark.
+
+{blueprint_node "aids_sectioned"}
+
+:::theorem "aids_proof_only"
+A statement with no Lean declaration of its own.
+:::
+
+:::proof "aids_proof_only" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidProofOnly")
+The lemma attached here is complete, but there is no Lean statement to prove.
 :::
 
 The prose of a section reads in one centred column, and its headings share that column's axis.

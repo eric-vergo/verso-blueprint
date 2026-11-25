@@ -994,15 +994,60 @@ The proof is associated with the referenced Lean declarations.
 ```
 
 These declarations appear in a **Lean declarations attached to this proof** panel,
-with their own signatures, status, source links, and hover previews. The proof
-facet retains them in generated data; `lake exe vbp query node addition_assoc`
-returns that facet under `proof`.
+with their own signatures, status, source links, and hover previews. A site in
+the side-by-side layout shows no such panel: there the declarations count
+towards the node's status, summaries, and generated data, and a summary's link to
+one of them leads to the node. The proof facet retains them in generated data either way;
+`lake exe vbp query node addition_assoc` returns that facet under `proof`.
 
 Statement and proof attachments both contribute to the node's associated
 declarations, declaration lookup, summaries, and progress. A declaration mentioned
 on both facets is counted once; its observed status evidence is merged
 conservatively. An incomplete or missing proof attachment cannot be ignored
 when computing the node's formalization status.
+
+A node's mark is about the Lean code of its statement, and the declarations
+attached to its proof can only lower it:
+
+- The mark counts the statement's declarations and code blocks together with
+  the proof's declarations, each declaration once with every observation of it
+  merged conservatively. A `sorry`, a missing declaration, an axiom outside
+  Lean's standard three or a changed source in a proof declaration therefore
+  shows in the mark (◐, ✗, ⚠, ◌) exactly as it would on the statement, and
+  keeps the check mark and the success colours away under an accepted kernel
+  replay.
+- A node whose statement has no Lean declaration keeps the mark "No Lean
+  declaration" (○) however complete its proof's declarations are: the mark speaks
+  about the Lean statement, and there is none. Only a problem in the proof's
+  declarations (a `sorry`, a missing declaration, such an axiom, a changed
+  source) gives it a mark, the mark of that problem, and its title says "no Lean
+  statement".
+- Nothing counts such a node as formalized: the graph draws its statement and its
+  proof as not formalized (the border "ready to formalize" or "blocked", the fill
+  "ready to formalize", "not ready" or "Lean code incomplete"), the Blueprint
+  Summary and the Project Stats counts ("Lean complete", "Lean complete with
+  dependencies") leave it out, the work queue lists it, and a node that depends on
+  it is not "complete with its dependencies". `vbp query status` reports
+  `complete: false` and `statementComplete: false` for it, and the verdict
+  `no-lean-statement` where its declarations would otherwise be complete;
+  `proofComplete` keeps describing the declarations attached to its proof.
+- A Lean statement is at least one declaration: a Lean declaration attached to
+  the statement (present or missing) or a named definition or theorem of a code
+  block. A code block that defines no named declaration (only `example`s or
+  commands) is no Lean statement.
+- A missing declaration, on the statement or the proof, was not checked by a
+  kernel replay: a node with one is never covered by an accepted replay and keeps
+  the site's replay state from "accepted".
+- The same mark appears everywhere a node's state is shown: the heading's glyph
+  and Lean chip, the chip of a `{blueprint_node}` placement, the graph's node
+  view, tooltip and accessible name, the success colours of the node's blocks and
+  graph node, and the kernel replay's lists of covered nodes and of nodes that
+  rest on an axiom.
+- The reader sees what the mark counts: the Lean chip's summary lists the
+  statement's declarations and, under "Attached to the proof", the proof's, each
+  with its status; the graph's node view lists them under the same heading. On a
+  side-by-side page, which shows no panel for the proof's declarations, these lists
+  are where they appear.
 
 With `autoDeps := true`, dependencies inferred from declarations attached to a
 proof contribute to the proof-side dependency track. Authored dependencies can
@@ -1478,13 +1523,11 @@ shows an associated Rust code panel below the statement body.
 
 The Lean status link of a statement header (`L∃∀N`) opens a summary of the
 statement's Lean declarations, headed by the statement's numbered title
-(`Lemma 6.2`). The summary and the line under an informal statement that stands
-beside Lean code ("Informal statement from the blueprint · not checked against
-the Lean statement") end with a "What this means" link to the explanation of the
-marks on the Project Stats page, when the site has that page. Lean declarations
-attached to a proof are set in the code size of the side-by-side Lean column, and
-their signatures take Verso's narrow layout, one binder a line, whenever the
-panel is narrower than the wide layout needs.
+(`Lemma 6.2`). The summary ends with a "What this means" link to the
+explanation of the marks on the Project Stats page, when the site has that page.
+Declarations in a Lean code panel are set in the code size of the side-by-side
+Lean column, and their signatures take Verso's narrow layout, one binder a line,
+whenever the panel is narrower than the wide layout needs.
 
 Popovers (relation panels, Lean summaries, inline previews) open on hover and
 on keyboard focus. Opening one closes any other, except one that holds the new
@@ -1641,9 +1684,10 @@ layout on:
   the glyphs and ends with what no mark is about: "No tool checks that an
   informal statement says the same as the Lean statement." It sits in the
   sidebar foot when the site has a sidebar, otherwise at the end of the page.
-- Under a statement that has Lean declarations a small line names where the
-  text comes from and says the same in short: "Informal statement from the
-  blueprint · not checked against the Lean statement".
+- A statement written in the Blueprint carries no line about its source. On a
+  site generated from code, a statement with Lean declarations whose text was
+  taken from elsewhere carries a small tag naming that source ("From the
+  docstring", "From the project's TeX blueprint").
 - The relation and Lean chips of the title row (`uses N`, `used by N`,
   `✓ L∃∀N`) are shown small and muted at the right of the title; counts of
   zero are hidden.
@@ -2173,7 +2217,8 @@ Read the proof fill states as:
 
 - `Not ready`: the proof still depends on unfinished prerequisites
 - `Ready to formalize`: prerequisites are done, but there is no associated Lean
-  proof code yet
+  proof code yet, or there are only declarations attached to the proof of a node
+  without a Lean statement
 - `Lean code incomplete`: associated Lean code exists, but still has gaps such
   as `sorry`
 - `Locally formalized`: the node's own Lean code is complete, but some
@@ -2383,8 +2428,9 @@ form is described in `doc/schemas/project-stats.schema.json`.
 - **Progress**: nodes by the dependency graph's fill status, for the whole
   project and per chapter (the first directory of the nodes' page addresses);
   and by kind group (`leanProgress`): for theorem-like nodes and for
-  definitions, how many there are, how many are *Lean complete* (the node's
-  Lean declarations, with everything they use, contain no `sorry`), how many of
+  definitions, how many there are, how many are *Lean complete* (the node has a
+  Lean statement, and its Lean declarations, with everything they use, contain no
+  `sorry`), how many of
   those have only Lean-complete dependencies, and how many have an informal
   statement (a statement with a body).
 - **Trust**: declarations with a `sorry` of their own or through a dependency,
@@ -3911,8 +3957,8 @@ The site is an ordinary Blueprint site:
   accepted then), its proof below it (folded in the node view); the statement's
   Markdown is read with raw HTML shown as text and link
   targets other than web, mail and site-relative ones dropped. Under the
-  statement a line names its `source` ("Informal statement from the docstring ·
-  not checked against the Lean statement"). A node without
+  statement a small tag names its `source` ("From the docstring"); a statement
+  whose `source` is `blueprint` has none. A node without
   one shows the Lean side alone. The Lean side is an API entry: the signature
   and the source excerpt read from `--root`,
   highlighted (`Informal.CodeSite.Highlight`: a lexer for the token classes,
