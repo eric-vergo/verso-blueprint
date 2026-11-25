@@ -1962,8 +1962,9 @@ where the last one does not name the declaration on its own (a number, or a
 component that starts with `_`), and where it would read the same as the name
 shown on another node of the graph or as another declaration of the same
 statement (`Real.foo` and `Complex.foo`); the prefix of a private declaration is
-left out. A name longer than 30 characters is shortened with an ellipsis, first
-at the namespace side, then in the middle. A node without a Lean statement shows
+left out. A name longer than 30 characters is shortened with an ellipsis in the
+middle of its last component, keeping the namespaces that tell it apart while
+they take at most half of it (`PNT.not_exists_a…i4_sub_mul_le`). A node without a Lean statement shows
 its number (`Theorem 7.2`), however complete the declarations attached to its
 proof are: a name there would suggest a Lean statement that does not exist.
 
