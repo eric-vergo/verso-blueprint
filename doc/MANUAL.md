@@ -2587,9 +2587,18 @@ nothing:
 
 Everything is checked before the first change, in both modes: the project has
 the single-challenge layout, the folder does not exist yet, every file to be
-rewritten is a regular file, and, in a Git work tree, no file the command moves
-with Git or rewrites has changes that are not committed (it refuses and names
-them: commit or stash them first). The changes are made all or nothing: when
+rewritten is a regular file, the project as the move would leave it follows
+the layout (the new folder's files as they would be written, every rule read
+from their texts, and the rest of the project, rule K1 aside), and, in a Git
+work tree, no file the command moves with Git or rewrites has changes that are
+not committed (it refuses and names them: commit or stash them first). A key of
+the root's `comparator.json` that rule J2 does not allow, `enable_nanoda` among
+them, is never dropped from the file: the command refuses, names the key, says
+why the layout leaves it out, and asks for it to be removed by hand ("…
+Remove the key from comparator.json by hand (and name the checker in
+"external_kernels" to keep it), then run comparator-migrate again; nothing was
+changed"). Any other rule the moved files would break is refused the same way,
+with the violations as the layout check gives them. The changes are made all or nothing: when
 one fails, every change made before it is undone, in reverse order, and the
 command says so and exits with status 1.
 
@@ -3001,7 +3010,11 @@ complete.
   complete ones; an accepted replay then does not make the counts green, and
   the sentences about the site add "the Lean source of C nodes changed since
   the build or is not known to match it". The replay band on the Project Stats
-  page names the modules, each with why, and lists the nodes. The statistics
+  page names the modules, each with why, and lists the nodes; its first
+  sentence says that the checkers accepted the compiled build, not the sources
+  shown, with no check mark and not in the success colour (see "What each
+  state says"), also when only a challenge's comparison rests on such a
+  module. The statistics
   carry the modules (`sourceChanged`) and, for a Blueprint, what was recorded
   when its data was captured (`builtSources`).
 - **Modules a module imports**: a compiled module is built against the
@@ -3153,7 +3166,33 @@ checkers disagree on this build: C1 accepted it and C2 rejected it. Nothing on
 this site counts as checked by a kernel." after a disagreement; "No verdict of
 a kernel replay: WHY. The marks on this site say what the compiled files
 report." and "Not replayed by a kernel: WHY. The marks on this site say what the
-compiled files report." otherwise. Below it the band lists each checker's
+compiled files report." otherwise. An acceptance is about the compiled build.
+When a project module the site's marks or a headline rest on is not known to
+be the text that was compiled ("Source text and the build"), the band does not
+start with "Accepted:", carries no check mark and is never in the success
+colour: after a source that changed since the build it reads "Accepted for the
+compiled build, not for the sources shown: C each checked … and both accepted
+them. The sources changed since that build (M in F); build it again after an
+edit.", and after a source that is only not known to match it "Accepted for
+the compiled build, which is not known to match the sources shown: C each
+checked … and both accepted them. The sources shown are not known to be the
+text that was compiled (M in F, which is not known to match the build: WHY);
+build it again to compare them." It names at most three modules, or
+challenges not compared for that reason ("the challenge Main: a module the
+proof uses changed since the build (M in F)"), separated by semicolons, then
+"and N more"; the modules are listed in full below it, and the list of
+declarations reads "Declarations checked in the compiled build, each with
+everything it depends on". Its element has the class
+`bp_stats_replay_changed` (with the mark ◌) in place of
+`bp_stats_replay_accepted`, `data-bp-replay="changed"`, and
+`data-bp-replay-sources` set to `changed` or `unknown`; an accepted replay of
+sources as built keeps `bp_stats_replay_accepted bp_replay_accepted` and
+`data-bp-replay="accepted"`, and has no `data-bp-replay-sources`. The
+generator's last line about the replay says the same ("Kernel replay: both
+checkers accepted the compiled build (N constants), not the sources: they
+changed since that build (M in F); build it again after an edit"). A
+rejection, a disagreement and a replay without a verdict are said as above,
+whatever the sources. Below it the band lists each checker's
 answer ("con-leche (Lean 4.35.0) accepted the export (N declaration records)
 (12 s, at most 410 MiB of memory); its file's SHA-256 begins …", "con-ron (Lean 4.35.0) rejected the export:
 …"), without the time and memory in a reproducible build.
