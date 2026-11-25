@@ -2664,20 +2664,34 @@ graph. It shows the project statistics on one page, in this order:
 
 1. **Identity**: the README's heading (or the document's title; a heading that
    names no project, such as "Readme", is passed over for the package's name)
-   and first paragraph, the license (or "No license file"), the Lean version,
-   the packages the project requires directly with the revision it asked for
-   and the locked commit, the sentence that the page reports on this one build
-   ("No other toolchain or revision was checked."), and the generator's sidebar
-   links.
+   and first paragraph; then, as labelled rows of chips, the licence (or "No
+   license file"), the Lean version, the packages the project requires
+   directly with the revision it asked for and the locked commit, and the
+   generator's sidebar links; and the sentence that the page reports on this
+   one build ("No other toolchain or revision was checked."). A chip is a link
+   when its fact has a known address, and a plain chip otherwise: the licence
+   to its file in the project's repository at the commit the site is built
+   from (a GitHub checkout that tracks the file); the Lean version to its
+   release page on GitHub (a release or release candidate of
+   `leanprover/lean4`; a nightly or a custom toolchain has none); a package to
+   its repository's tree at the locked commit (a `git` package from GitHub
+   locked to a full commit; a `path` package or another host has none).
 2. **Headline result**: a band per Comparator challenge (titled with the
    challenge's name when there are several), with a link to its page, and in it
-   a card per judged theorem: the
+   a card per judged theorem: its name, linked to the challenge file on the
+   challenge's page; the
    verdict, worded about the Lean statement ("Lean statement proved", "Same
    Lean statement as the challenge; the proof uses sorry", "…; the proof rests
    on an axiom …", "Lean statement differs from the challenge", "Not in the
-   solution"); the Lean statement as the challenge writes it; the axioms of the
-   solution's proof; then, under their own captions, the challenge's docstring
-   and the author's claim. Under the cards: what the comparison is and is not.
+   solution"), as a pill that links to the entry of the explanation of the
+   marks that explains it (and to nothing else); the node of the theorem on
+   this site; the Lean statement as the challenge writes it, highlighted (with
+   hovers when the challenge module's highlighted build has the same text);
+   the axioms of the solution's proof, each of Lean's standard three linked to
+   its account in the Lean Language Reference; then, under their own captions,
+   the challenge's docstring and the author's claim. Under the cards: the
+   challenge's two files, each linked to its text on the challenge's page, and
+   what the comparison is and is not.
    A project without a challenge gets one line saying that a challenge would
    add a headline. "Lean statement proved" is said only when the kernel replay
    accepted the solution's theorem with every constant it depends on; when the replay
@@ -2730,7 +2744,9 @@ graph. It shows the project statistics on one page, in this order:
 It ends with a link to the summary page for the detailed breakdown. The page
 is plain HTML and CSS: the bars use the shared status colour tokens, each
 status with its own pattern, and their counts are written out, so colour is
-never the only signal. It needs no script and holds no version-control data.
+never the only signal. It needs no script. The only version-control data it
+uses is the address of the licence file at the commit the site is built from;
+every link that leaves the site is marked with "↗".
 
 To place the page elsewhere in the document, write the command where it
 should go; the generator then does not add a second one:

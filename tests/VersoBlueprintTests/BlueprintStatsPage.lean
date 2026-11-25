@@ -135,7 +135,8 @@ private def view (stats : ProjectStats) : StatsPageView := {
   let html := (statsPageHtml (view rokickiLike)).render
   hasSubstr html "class=\"bp_project_stats bp_replay_accepted\"" &&
     hasSubstr html "Rokicki's constant is irrational</p>" && hasSubstr html "class=\"bp_stats_name\"" &&
-    hasSubstr html "License: Apache-2.0" && hasSubstr html "Lean v4.35.0" &&
+    hasSubstr html "<dt class=\"bp_stats_fact_label\">Licence</dt>" &&
+    hasSubstr html ">Apache-2.0</span>" && hasSubstr html "Lean v4.35.0" &&
     -- direct dependencies only, with the revision asked for and the locked commit
     hasSubstr html "data-bp-package=\"mathlib\"" && hasSubstr html "v4.35.0 · 56a0058" &&
     !hasSubstr html "data-bp-package=\"batteries\"" &&
@@ -193,6 +194,113 @@ private def view (stats : ProjectStats) : StatsPageView := {
     appearsBefore html "bp_stats_size" "bp_stats_build" &&
     appearsBefore html "bp_stats_build" "bp_stats_trust" &&
     appearsBefore html "bp_stats_trust" "bp_stats_summary_link"
+
+-- Addresses of the identity's facts: a package's tree at its locked commit on GitHub, in each
+-- spelling of a GitHub remote, and nothing for a path package, another host or a revision that
+-- is not a full commit.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let rev := "fc4f59e577feb1a4956671bc04ac18aaaf8cd842"
+  let tree := s!"https://github.com/leanprover-community/mathlib4/tree/{rev}"
+  let git (url : String) (rev : String := rev) : ManifestPackage :=
+    { name := "mathlib", source := "git", url := some url, rev := some rev }
+  (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4")) == some tree &&
+    (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4.git")) == some tree &&
+    (packageTreeHref? (git "https://github.com/leanprover-community/mathlib4/")) == some tree &&
+    (packageTreeHref? (git "http://github.com/leanprover-community/mathlib4")) == some tree &&
+    (packageTreeHref? (git "git@github.com:leanprover-community/mathlib4.git")) == some tree &&
+    (packageTreeHref? (git "ssh://git@github.com/leanprover-community/mathlib4")) == some tree &&
+    -- another host, a path beyond the repository, a revision that is not a commit
+    (packageTreeHref? (git "https://gitlab.com/group/project")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b/c")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b\"onclick")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b" "v4.36.0")) == none &&
+    (packageTreeHref? (git "https://github.com/a/b" "fc4f59e")) == none &&
+    -- a path package
+    (packageTreeHref? { name := "local", source := "path", dir := some "../local" }) == none &&
+    (packageTreeHref? { git "https://github.com/a/b" with source := "path" }) == none &&
+    -- a name quoted in the manifest is shown as written
+    shownPackageName "«pilean-verso»" == "pilean-verso" && shownPackageName "mathlib" == "mathlib"
+
+-- The release page of a toolchain: a release or release candidate of `leanprover/lean4` only.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let release (v : String) := some s!"https://github.com/leanprover/lean4/releases/tag/{v}"
+  leanReleaseHref? "leanprover/lean4:v4.36.0\n" == release "v4.36.0" &&
+    leanReleaseHref? "v4.36.0" == release "v4.36.0" &&
+    leanReleaseHref? "leanprover/lean4:v4.36.0-rc1" == release "v4.36.0-rc1" &&
+    leanReleaseHref? "leanprover/lean4-nightly:nightly-2026-11-01" == none &&
+    leanReleaseHref? "leanprover/lean4:nightly-2026-11-01" == none &&
+    leanReleaseHref? "leanprover/lean4:stable" == none &&
+    leanReleaseHref? "someone/lean4:v4.36.0" == none &&
+    leanReleaseHref? "leanprover/lean4:v4.36" == none &&
+    leanReleaseHref? "leanprover/lean4:v4.36.0-rc" == none &&
+    leanReleaseHref? "leanprover/lean4:4.36.0" == none &&
+    leanReleaseHref? "../my-toolchain" == none
+
+-- Lean's standard axioms link to the Lean Language Reference; no other axiom has an address.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let reference := "https://lean-lang.org/doc/reference/latest"
+  axiomDocHref? ``propext == some s!"{reference}/The-Type-System/Propositions/#propext" &&
+    axiomDocHref? ``Quot.sound == some s!"{reference}/The-Type-System/Quotients/#Quot___sound" &&
+    axiomDocHref? ``Classical.choice == some s!"{reference}/Axioms/#standard-axioms" &&
+    axiomDocHref? ``sorryAx == none && axiomDocHref? `My.axiom == none
+
+-- Every chip with an address is a link that leaves the site safely, and every chip without one is
+-- not a link; the verdict links to the entry of the explanation that explains it, an entry the
+-- page has; the theorem's name and the files link to the challenge's page.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let rev := "56a0058500000000000000000000000000000000"
+  let identity := { rokickiLike.identity with
+    toolchain := some "leanprover/lean4:v4.35.0"
+    packages := #[
+      { name := "mathlib", source := "git", rev := some rev, inputRev := some "v4.35.0",
+        url := some "https://github.com/leanprover-community/mathlib4.git" },
+      { name := "local", source := "path", dir := some "../local" }] }
+  let v := { (view { rokickiLike with identity }) with
+    licenseHref := some "https://github.com/o/p/blob/abc/LICENSE"
+    challengeHrefs := #[("Main", "Comparator/Main/#Main")] }
+  let html := (statsPageHtml v).render
+  hasSubstr html s!"<a class=\"bp_stats_chip bp_stats_chip_package bp_stats_external\" \
+      href=\"https://github.com/leanprover-community/mathlib4/tree/{rev}\" rel=\"noopener\" \
+      data-bp-package=\"mathlib\">" &&
+    hasSubstr html "<span class=\"bp_stats_chip bp_stats_chip_package\" data-bp-package=\"local\">" &&
+    hasSubstr html "<a class=\"bp_stats_chip bp_stats_chip_license bp_stats_external\" \
+      href=\"https://github.com/o/p/blob/abc/LICENSE\" rel=\"noopener\"" &&
+    hasSubstr html "href=\"https://github.com/leanprover/lean4/releases/tag/v4.35.0\" rel=\"noopener\"" &&
+    hasSubstr html "<a class=\"bp_stats_axiom bp_stats_axiom_standard bp_stats_external\" \
+      href=\"https://lean-lang.org/doc/reference/latest/The-Type-System/Propositions/#propext\" \
+      rel=\"noopener\"" &&
+    -- the verdict's entry, on the page that has the explanation
+    hasSubstr html "<a class=\"bp_stats_verdict_link bp_stats_verdict_link_proved\" \
+      href=\"Project-Stats/#bp-meaning-lean-statement-proved\"><span class=\"bp_stats_verdict \
+      bp_stats_verdict_proved\">Lean statement proved</span></a>" &&
+    hasSubstr html "<dt id=\"bp-meaning-lean-statement-proved\">" &&
+    ["proved", "rejected", "not-replayed", "axioms", "sorry", "open", "differs", "missing", "hole",
+      "not-compared", "not-theorem"].all (fun token =>
+        hasSubstr html s!"<dt id=\"{meaningEntryId (verdictMeaningTitle token)}\">") &&
+    -- the theorem's name and the files go to the challenge's page
+    hasSubstr html "<a class=\"bp_stats_theorem_name_link\" href=\"Comparator/Main/#challenge-file\">" &&
+    hasSubstr html "<a class=\"bp_stats_file_link\" href=\"Comparator/Main/#solution-file\">\
+      <code>Comparator/Main/Solution.lean</code></a>" &&
+    -- the method sentence quotes the word it is about
+    hasSubstr html "a verdict says “proved” only when" && !hasSubstr html "\"proved\" only"
+
+-- Without the explanation on the site, a verdict is a plain pill; without a license address, the
+-- license is a plain chip.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let v := { (view rokickiLike) with page := { (view rokickiLike).page with meaningHref := none } }
+  let html := (statsPageHtml v).render
+  !hasSubstr html "bp_stats_verdict_link" &&
+    hasSubstr html "<span class=\"bp_stats_chip bp_stats_chip_license\" data-bp-license-file=\"LICENSE\">Apache-2.0</span>"
 
 -- Without a Comparator challenge there is no card, only the one-line hint; no license file shows.
 /-- info: true -/

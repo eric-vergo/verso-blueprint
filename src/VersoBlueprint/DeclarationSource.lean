@@ -256,6 +256,23 @@ def splitStatement? (ls : Array Highlighted) : Option (Array Highlighted × Arra
         return some (ls.extract 0 cut, rest)
   return none
 
+/--
+The highlighted statement of the theorem `name` in the loaded module `moduleName`: its defining
+command without its doc comment, cut before its top-level `:=`. `none` when the module is not
+loaded or the command has no such `:=`.
+-/
+def statementCode? (moduleName name : Name) : IO (Option Highlighted) := do
+  let st ← stateRef.get
+  if st.excluded.contains moduleName then return none
+  let some (some mod) := st.modules[moduleName]? | return none
+  let some decl := mod.findDecl? name | return none
+  let some (statement, _) := splitStatement? (presentation decl.code) | return none
+  -- drop the `:=` and a `by` after it, with the white space around them
+  let mut ls := trimEnd statement
+  if ls.back?.bind tokenText? == some "by" then ls := trimEnd ls.pop
+  if ls.back?.bind tokenText? == some ":=" then ls := trimEnd ls.pop
+  return some (.seq ls)
+
 /-- The indentation of a source line: its number of leading spaces. -/
 def lineIndent (line : Array Highlighted) : Nat :=
   ((Highlighted.seq line).toString.toList.takeWhile (· == ' ')).length

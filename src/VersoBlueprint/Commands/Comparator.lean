@@ -113,25 +113,6 @@ def sourceLinkText : String := "source at the commit this site is built from"
 
 /-! ## Reading the files -/
 
-/-- The address of `path` (relative to the project root `root`) in the project's repository at the
-commit the site is built from, when `root` is in a Git checkout with a GitHub `origin` and the
-repository tracks the file. -/
-def repositoryHref? (root : System.FilePath) (path : String) : IO (Option String) := do
-  let some top ← Informal.Git.toplevelAt? root | return none
-  let realRoot ← (try IO.FS.realPath root catch _ => pure root)
-  let realTop ← (try IO.FS.realPath top catch _ => pure top)
-  let rootText := realRoot.toString
-  let topText := realTop.toString
-  let repoPath ← if rootText == topText then pure path
-    else if rootText.startsWith (topText ++ "/") then
-      pure ((rootText.drop (topText.length + 1)).toString ++ "/" ++ path)
-    else return none
-  -- a file the repository does not track has no address there
-  let tracked ← Informal.Process.runTrimmedCommand? "git"
-    #["-C", topText, "ls-files", "--error-unmatch", "--", repoPath]
-  if tracked.isNone then return none
-  Informal.RepoFile.href? root repoPath
-
 /-- The continuous-integration run that is building the site: in GitHub Actions, from
 `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and `GITHUB_RUN_ID`, when all three are there and
 well-formed (an `https://` server without anything but a host, a repository `owner/name` of
@@ -152,7 +133,7 @@ def ciRunHref? : IO (Option String) := do
 
 /-- A file of the project as a page shows it, read with `limit`. -/
 def comparatorFile (root : System.FilePath) (path : String) (limit : Nat) : IO ComparatorFile := do
-  let href ← repositoryHref? root path
+  let href ← Informal.RepoFile.projectFileHref? root path
   match ← ComparatorLayout.readLimited (root / path) limit with
   | .ok content => return { path, text := content, href }
   | .error why => return { path, missing := some why, href }
@@ -277,9 +258,9 @@ def challengePageHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (data : Ch
           el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)])]
     | Option.none => el "p" "bp_stats_headline_unavailable" (txt challengeWithoutResultText)
   let challenge ← fileSectionHtml "Challenge" data.challenge
-    (some (data.challengeModule, data.challengeCode)) "challenge-file"
+    (some (data.challengeModule, data.challengeCode)) challengeFileId
   let solution ← fileSectionHtml "Solution" data.solution
-    (some (data.solutionModule, data.solutionCode)) "solution-file"
+    (some (data.solutionModule, data.solutionCode)) solutionFileId
   let config ← fileSectionHtml "Configuration" data.config none "comparator-config"
   let links := match view.stats.challenges.find? (·.name == data.name) with
     | some h => challengeLinksHtml state h data.ciRun
@@ -306,7 +287,7 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
           let (token, words) := headlineVerdict t standing view.stats.replay
           el "li" s!"bp_comparator_verdict {standing.scopeClass}" (.seq #[
             el "code" "bp_stats_theorem_name" (txt t.name.toString), txt " ",
-            el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt words)])
+            verdictPill view.page.meaningHref token words])
             #[("data-bp-theorem", t.name.toString), ("data-bp-verdict", token)]))
     el "section" "bp_comparator_index_item" (.seq #[
       el "h2" "bp_comparator_index_title" title,
@@ -334,7 +315,7 @@ private def statsView? :
     | .ok graph => pure (some graph)
     | .error message => Verso.reportError message; pure none
   let (some stats, some graph) := (stats, graph) | pure none
-  pure (some (StatsPageView.build s stats graph { meaningHref := meaningHref? s }))
+  pure (some (← (StatsPageView.build s stats graph { meaningHref := meaningHref? s }).resolveLinks))
 
 block_extension Block.comparatorIndex (data : ComparatorIndexData) where
   data := toJson data

@@ -28,6 +28,8 @@ from playwright.sync_api import Page
 
 from scripts.blueprint_harness_paths import canonical_test_blueprint_output_dir
 from support import PACKAGE_ROOT, find_free_port, wait_for_server
+from test_dark_theme_runtime import COLOR_HELPERS, MIN_CONTRAST
+from test_project_stats_runtime import CHIP_REPORTS, check_chips, check_one_face
 
 FIXTURE = Path(__file__).parent / "comparator_site_fixture"
 SCHEMES = ("light", "dark")
@@ -247,3 +249,84 @@ def test_project_off_the_layout_is_not_generated(tmp_path_factory):
             "holds only Challenge.lean, Solution.lean, comparator.json; move or remove notes.md") \
         in result.stderr
     assert not (root / "_out" / "html-multi").exists()
+
+
+@pytest.mark.parametrize("path", ["/Project-Stats/", "/Comparator/Double/"])
+@pytest.mark.parametrize("width", [1280, 360])
+def test_badges_are_aligned_links_in_one_face(page: Page, comparator_urls, path, width):
+    url = comparator_urls["accepted"]
+    seen = watch(page, url)
+    page.set_viewport_size({"width": width, "height": 900})
+    page.goto(url + path, wait_until="load")
+    check_chips(page.evaluate(CHIP_REPORTS))
+    check_one_face(page)
+    # every standard axiom of the judged theorem's proof links to the Lean Language Reference
+    axioms = page.eval_on_selector_all(
+        ".bp_stats_axiom", "els => els.map(e => [e.tagName, e.dataset.bpAxiomClass, e.textContent])")
+    for tag, cls, _ in axioms:
+        assert (tag == "A") == (cls == "standard"), axioms
+    sideways = page.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+    assert sideways <= 1
+    # nothing is fetched from outside the site: the links only point there
+    assert seen == {"errors": [], "outside": []}
+
+
+@pytest.mark.parametrize("path", ["/Project-Stats/", "/Comparator/", "/Comparator/Double/"])
+def test_verdicts_link_to_their_explanation(page: Page, comparator_urls, path):
+    url = comparator_urls["accepted"]
+    page.goto(url + path, wait_until="load")
+    links = page.eval_on_selector_all(
+        ".bp_stats_verdict_link", "els => els.map(e => [e.href, e.querySelector('.bp_stats_verdict').textContent])")
+    assert links
+    for href, words in links:
+        target, fragment = href.split("#")
+        assert target.rstrip("/").endswith("/Project-Stats"), href
+        page.goto(href, wait_until="load")
+        entry = page.evaluate(
+            "(id) => { const e = document.getElementById(id);"
+            " return e && e.closest('.bp_stats_meaning_list') ? [e.tagName, e.textContent] : null; }",
+            fragment)
+        assert entry and entry[0] == "DT", (href, words, entry)
+        page.goto(url + path, wait_until="load")
+
+
+def test_names_and_files_link_to_the_challenge_page(page: Page, comparator_urls):
+    url = comparator_urls["accepted"]
+    page.goto(url + "/Project-Stats/", wait_until="load")
+    hrefs = page.eval_on_selector_all(
+        '[data-bp-challenge="Double"] :is(.bp_stats_theorem_name_link, .bp_stats_file_link)',
+        "els => els.map(e => e.href)")
+    assert len(hrefs) == 3, hrefs
+    for href in hrefs:
+        target, fragment = href.split("#")
+        assert target.rstrip("/").endswith("/Comparator/Double"), href
+        assert fragment in ("challenge-file", "solution-file"), href
+        page.goto(href, wait_until="load")
+        assert page.locator(f"section#{fragment}").count() == 1, href
+    # the statement is highlighted, and reads as the challenge states it
+    page.goto(url + "/Project-Stats/", wait_until="load")
+    code = page.locator('[data-bp-challenge="Double"] .bp_stats_statement_code code.hl.lean')
+    assert code.count() == 1
+    assert code.locator(".keyword.token").count() > 0
+    assert " ".join(code.inner_text().split()) == "theorem double_even (n : Nat) : double n % 2 = 0"
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+def test_badges_are_readable(page: Page, comparator_urls, scheme):
+    url = comparator_urls["accepted"]
+    page.emulate_media(color_scheme=scheme)
+    for path in ("/Project-Stats/", "/Comparator/Double/"):
+        page.goto(url + path, wait_until="load")
+        reports = page.evaluate(
+            """(sels) => {""" + COLOR_HELPERS + """
+              const out = [];
+              for (const el of document.querySelectorAll(sels)) {
+                if (!el.textContent.trim()) continue;
+                out.push(Object.assign({ text: el.textContent.trim().slice(0, 40) }, report(el)));
+              }
+              return out; }""",
+            ".bp_stats_chip, .bp_stats_axiom, .bp_stats_verdict, .bp_stats_caption, "
+            ".bp_stats_fact_label, .bp_stats_theorem_node a, .bp_stats_challenge_link, .bp_stats_axioms_note")
+        assert reports
+        failing = [r for r in reports if r["ratio"] < MIN_CONTRAST]
+        assert not failing, (path, failing)
