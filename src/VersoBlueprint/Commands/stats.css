@@ -4,11 +4,14 @@
 
 .bp_project_stats {
   --bp-stats-pattern-ink: color-mix(in srgb, var(--bp-color-status-fill-text) 38%, transparent);
-  /* One face for structure (titles, captions, labels, chips and pills), the site's text face for
-     sentences, and one reading measure for every sentence in a band. */
+  /* One face for structure (titles, captions, labels, chips, pills, notes and controls), the
+     site's text face for sentences, and one reading measure for every sentence, in the em of the
+     sentence's own size; one colour for links and one focus ring. */
   --bp-stats-ui-font: var(--verso-structure-font-family, system-ui, sans-serif);
   --bp-stats-text-font: var(--verso-text-font-family, serif);
-  --bp-stats-measure: var(--bp-sbs-measure, 48rem);
+  --bp-stats-measure: 40em;
+  --bp-stats-link: var(--bp-color-link, #1d4ed8);
+  --bp-stats-focus: var(--bp-color-link, #1d4ed8);
   margin-top: 0.6rem;
   color: var(--bp-color-text);
   max-width: 100%;
@@ -26,7 +29,9 @@
 
 /* A band's content sits in a body of its own, out of reach of the rules a site sets for the
    paragraphs and lists of its sections; these rules set what the band needs instead. */
-.bp_project_stats .bp_stats_band p {
+.bp_project_stats .bp_stats_band p,
+.bp_stats_meaning_list dd,
+.bp_stats_replay_checkers > li {
   font-family: var(--bp-stats-text-font);
   max-width: var(--bp-stats-measure);
   line-height: 1.5;
@@ -40,19 +45,48 @@
   max-width: none;
 }
 
-.bp_stats_band_title {
-  margin: 0 0 0.5rem;
-  font-size: 0.78rem;
+/* One label style for the bands' titles and the identity's labels. The id in `:is()` matches
+   nothing; it lifts the rule above the side-by-side style's rule for headings. */
+.bp_project_stats :is(.bp_stats_band_title, .bp_stats_fact_label, #bp-stats-label) {
+  font-family: var(--bp-stats-ui-font);
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
+  line-height: 1.35;
   text-transform: uppercase;
   color: var(--bp-color-text-subtle);
 }
 
+.bp_stats_band_title {
+  margin: 0 0 0.55rem;
+}
+
+/* A band's first sentence: the text face at reading size, set apart by colour, not by weight. */
 .bp_stats_lead {
-  margin: 0 0 0.45rem;
-  font-weight: 600;
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.45;
   color: var(--bp-color-text-strong);
+}
+
+/* Links inside the bands: one quiet treatment, with a thin underline as the cue at rest. */
+.bp_project_stats a:not(.bp_stats_chip, .bp_stats_axiom, .bp_stats_verdict_link, .bp_stats_links a) {
+  color: var(--bp-stats-link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.bp_project_stats a:not(.bp_stats_chip, .bp_stats_axiom, .bp_stats_verdict_link, .bp_stats_links a):hover {
+  text-decoration-color: currentColor;
+}
+
+.bp_project_stats a:focus-visible {
+  outline: 2px solid var(--bp-stats-focus);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
 }
 
 .bp_stats_caption,
@@ -95,16 +129,6 @@
 
 .bp_stats_fact {
   display: contents;
-}
-
-.bp_stats_fact_label {
-  font-family: var(--bp-stats-ui-font);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  line-height: 1.35;
-  color: var(--bp-color-text-subtle);
 }
 
 .bp_stats_fact_value {
@@ -177,30 +201,43 @@
   color: inherit;
 }
 
-/* A chip that is a link shows it on hover and focus; a link that leaves the site says so. */
-a.bp_stats_chip:hover,
-.bp_stats_links a:hover,
-a.bp_stats_axiom:hover {
-  border-color: var(--bp-color-border-strong);
-  background: var(--bp-color-surface-subtle);
+/* A chip that is a link shows it on hover and focus, and so does the mark of a link that leaves
+   the site, set in the chip's corner so that nothing moves; its title names the site. */
+a.bp_stats_chip,
+.bp_stats_links a,
+a.bp_stats_axiom {
+  position: relative;
 }
 
+a.bp_stats_chip:hover,
+.bp_stats_links a:hover,
+a.bp_stats_axiom:hover,
 a.bp_stats_chip:focus-visible,
 .bp_stats_links a:focus-visible,
-a.bp_stats_axiom:focus-visible,
-.bp_stats_verdict_link:focus-visible,
-.bp_stats_theorem_name_link:focus-visible,
-.bp_stats_file_link:focus-visible {
-  outline: 2px solid var(--bp-color-accent, currentColor);
-  outline-offset: 2px;
+a.bp_stats_axiom:focus-visible {
+  border-color: var(--bp-stats-link);
+  background: var(--bp-color-surface-subtle);
 }
 
 .bp_stats_external::after,
 .bp_stats_links a[href^="http"]::after {
   content: "\2197";
-  margin-left: 0.3em;
-  font-size: 0.85em;
-  color: var(--bp-color-text-subtle);
+  position: absolute;
+  top: -0.55rem;
+  right: -0.35rem;
+  padding: 0 0.15rem;
+  border-radius: var(--bp-radius-pill);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  background: var(--bp-color-surface);
+  color: var(--bp-stats-link);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bp_stats_external:is(:hover, :focus-visible)::after,
+.bp_stats_links a[href^="http"]:is(:hover, :focus-visible)::after {
+  opacity: 1;
 }
 
 /* Headline */
@@ -237,48 +274,49 @@ a.bp_stats_axiom:focus-visible,
   border-left-color: var(--bp-color-status-unresolved-border);
 }
 
-/* The card's head: the theorem's name, its verdict, and, quieter, its node on this site. */
+/* The card's head: the theorem's name and its verdict beside it, the verdict on a line of its own
+   when they do not fit side by side; then, quieter, the theorem's node on this site. A name breaks
+   only after a dot (`<wbr>`), and only when it cannot fit. */
 .bp_stats_theorem_head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.2rem 0.75rem;
+  gap: 0.25rem 0.6rem;
+}
+
+.bp_stats_theorem_head > * {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .bp_stats_theorem_node {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   font-size: 0.8rem;
-}
-
-.bp_stats_theorem_node a {
-  color: var(--bp-color-text-muted);
 }
 
 .bp_stats_theorem_name {
   font-weight: 700;
   font-size: 0.95rem;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
-.bp_stats_theorem_name_link,
+.bp_project_stats .bp_stats_theorem_name_link code {
+  color: inherit;
+}
+
+/* A verdict is a link to its explanation: a pill with a chevron, and a ring on hover. */
 .bp_stats_verdict_link {
-  justify-self: start;
-  color: var(--bp-color-text-strong);
-  text-decoration: none;
-  min-width: 0;
-}
-
-.bp_stats_theorem_name_link:hover .bp_stats_theorem_name {
-  text-decoration: underline;
-}
-
-.bp_stats_verdict_link {
-  justify-self: end;
   border-radius: var(--bp-radius-pill);
+  text-decoration: none;
+}
+
+.bp_stats_verdict_link .bp_stats_verdict::after {
+  content: "\00a0\203A";
+  font-weight: 700;
 }
 
 .bp_stats_verdict_link:hover .bp_stats_verdict {
-  box-shadow: 0 0 0 2px var(--bp-color-border-strong);
+  box-shadow: 0 0 0 2px var(--bp-stats-link);
 }
 
 .bp_stats_verdict {
@@ -354,13 +392,18 @@ a.bp_stats_axiom:focus-visible,
   text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
 }
 
-/* A row of the card: a caption, then its values on the same baseline grid. */
+/* A row of the card: its caption above, as for the statement and the docstring, then the chips
+   with the note beside them. */
 .bp_stats_axioms {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0.5rem;
-  margin-top: 0.5rem;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.45rem;
+}
+
+.bp_stats_axioms > .bp_stats_caption {
+  flex-basis: 100%;
 }
 
 .bp_stats_axiom_sorry,
@@ -502,11 +545,6 @@ html[data-lean-links] .bp_stats_meaning_more {
   margin-right: 0.35rem;
 }
 
-.bp_stats_file_link {
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.15em;
-}
-
 /* The way to the challenge's page, set apart from the sentences above it. */
 .bp_project_stats .bp_stats_band p.bp_stats_challenge_page {
   margin: 0.65rem 0 0;
@@ -519,8 +557,16 @@ html[data-lean-links] .bp_stats_meaning_more {
   content: "\00a0\2192";
 }
 
+/* The entry a link lands on: its term and its explanation as one marked row. */
 .bp_stats_meaning_list dt {
   scroll-margin-top: 1.5rem;
+}
+
+.bp_stats_meaning_list dt:target,
+.bp_stats_meaning_list dt:target + dd {
+  background: var(--bp-color-selection-surface-soft);
+  box-shadow: -0.45rem 0 0 0 var(--bp-color-selection-surface-soft),
+    0.45rem 0 0 0 var(--bp-color-selection-surface-soft);
 }
 
 .bp_stats_headline_unavailable {
@@ -754,8 +800,7 @@ html[data-lean-links] .bp_stats_meaning_more {
     padding: 0.6rem 0.65rem;
   }
 
-  .bp_stats_facts,
-  .bp_stats_theorem_head {
+  .bp_stats_facts {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -763,9 +808,6 @@ html[data-lean-links] .bp_stats_meaning_more {
     margin-top: 0.2rem;
   }
 
-  .bp_stats_verdict_link {
-    justify-self: start;
-  }
 
   .bp_stats_chapter_bar {
     width: 25%;
@@ -795,12 +837,6 @@ html[data-lean-links] .bp_stats_meaning_more {
 .bp_stats_verdict_not-replayed {
   border-radius: var(--bp-radius-md);
   font-weight: 600;
-}
-
-/* A long verdict takes the head's whole width, under the name. */
-.bp_stats_theorem_head > :is(.bp_stats_verdict_not-replayed, .bp_stats_verdict_link_not-replayed) {
-  grid-column: 1 / -1;
-  justify-self: stretch;
 }
 
 .bp_stats_verdict_not-replayed::before {

@@ -91,6 +91,7 @@ info: (some "Demo",
      inputRev := some "v4.35.0",
      url := some "https://github.com/leanprover-community/mathlib4",
      dir := none,
+     subDir := none,
      inherited := false },
    { name := "Local",
      source := "path",
@@ -98,6 +99,7 @@ info: (some "Demo",
      inputRev := none,
      url := none,
      dir := some "./Local",
+     subDir := none,
      inherited := false },
    { name := "plausible",
      source := "git",
@@ -105,6 +107,7 @@ info: (some "Demo",
      inputRev := none,
      url := some "https://github.com/leanprover-community/plausible",
      dir := none,
+     subDir := some "sub",
      inherited := true }])
 -/
 #guard_msgs in
@@ -114,7 +117,7 @@ info: (some "Demo",
      "name": "mathlib", "inputRev": "v4.35.0", "inherited": false},
     {"type": "path", "name": "Local", "dir": "./Local", "inherited": false},
     {"url": "https://github.com/leanprover-community/plausible", "type": "git", "rev": "dfa4",
-     "name": "plausible", "inputRev": "", "inherited": true}]}"#
+     "name": "plausible", "inputRev": "", "subDir": "sub", "inherited": true}]}"#
 
 /-- info: (none, #[]) -/
 #guard_msgs in

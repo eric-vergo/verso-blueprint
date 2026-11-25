@@ -162,7 +162,7 @@ CHIP_REPORTS = """
     fill: list.classList.contains('bp_stats_chips'),
     margins: [s.marginTop, s.marginBottom, ls.marginTop, ls.marginBottom],
     tag: chip.tagName, cls: chip.className, href: chip.getAttribute('href'),
-    rel: chip.getAttribute('rel'), toolchain: chip.dataset.bpToolchain || null,
+    title: chip.getAttribute('title'), toolchain: chip.dataset.bpToolchain || null,
     font: s.fontFamily, text: chip.textContent.trim(),
   };
 })
@@ -175,14 +175,15 @@ HREF_FORMS = {
     "bp_stats_chip_license": re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+/blob/[0-9a-f]{40}/\S+$"),
     "bp_stats_chip_toolchain": re.compile(
         r"^https://github\.com/leanprover/lean4/releases/tag/v\d+\.\d+\.\d+(-rc\d+)?$"),
-    "bp_stats_axiom": re.compile(r"^https://lean-lang\.org/doc/reference/latest/\S+#\S+$"),
+    "bp_stats_axiom": re.compile(
+        r"^https://lean-lang\.org/doc/reference/(latest|4\.\d+\.0)/\S+#\S+$"),
 }
 
 
 def check_chips(chips: list[dict]) -> None:
     """Chips of one row share one top and one bottom, have no margins, and fill a list as wide as
-    what holds it before they wrap; a chip with an address is a link of the expected form that
-    leaves the site safely, and a chip without one is not a link."""
+    what holds it before they wrap; a chip with an address is a link of the expected form with a
+    title, and a chip without one is not a link."""
     assert chips
     for c in chips:
         assert all(m == "0px" for m in c["margins"]), c
@@ -212,7 +213,8 @@ def check_chips(chips: list[dict]) -> None:
         if c["tag"] == "A":
             assert kind, c
             assert HREF_FORMS[kind].match(c["href"]), c
-            assert c["rel"] == "noopener", c
+            # a link that leaves the site says where it goes
+            assert c["title"], c
         if "bp_stats_chip_missing" in c["cls"]:
             assert c["tag"] != "A", c
         if kind == "bp_stats_chip_toolchain":
@@ -251,3 +253,69 @@ class TestProjectStatsCraft:
         assert marked == [], marked
         background = page.evaluate("getComputedStyle(document.querySelector('main h1')).backgroundColor")
         assert background in ("rgba(0, 0, 0, 0)", "transparent"), background
+
+
+# Focus each kind of link of the bands and report its outline.
+FOCUS_RINGS = """
+(selectors) => selectors.flatMap((sel) => [...document.querySelectorAll(sel)].slice(0, 1).map((el) => {
+  el.focus();
+  const s = getComputedStyle(el);
+  return { sel, style: s.outlineStyle, color: s.outlineColor, width: s.outlineWidth };
+}))
+"""
+
+LINK_KINDS = [
+    ".bp_stats_band a.bp_stats_chip", ".bp_stats_links a", ".bp_stats_axiom",
+    ".bp_stats_verdict_link", ".bp_stats_theorem_name_link", ".bp_stats_file_link",
+    ".bp_stats_challenge_link", ".bp_meaning_link", ".bp_stats_theorem_node a",
+    ".bp_stats_summary_link a",
+]
+
+
+def check_focus_rings(page: Page) -> None:
+    """Every kind of link on the page shows the same visible focus ring."""
+    page.keyboard.press("Tab")
+    rings = page.evaluate(FOCUS_RINGS, LINK_KINDS)
+    assert rings
+    assert all(r["style"] == "solid" and r["width"] == "2px" for r in rings), rings
+    assert len({r["color"] for r in rings}) == 1, rings
+
+
+class TestProjectStatsLanding:
+    def test_a_hash_change_to_a_heading_clears_the_mark(self, server: str, page: Page):
+        open_stats(page, server, "light")
+        page.evaluate("""() => { const probe = document.createElement('span'); probe.id = 'bp-probe';
+            probe.textContent = 'probe'; document.querySelector('.bp_stats_lead').appendChild(probe); }""")
+        page.evaluate("() => { location.hash = 'bp-probe'; }")
+        page.wait_for_function("() => document.querySelector('#bp-probe.bp_decl_target')", timeout=5000)
+        heading = page.evaluate("() => document.querySelector('main h1').id")
+        page.evaluate("(id) => { location.hash = id; }", heading)
+        page.wait_for_timeout(300)
+        marked = page.evaluate("() => [...document.querySelectorAll('.bp_decl_target')].map((e) => e.id)")
+        assert marked == [], marked
+
+    def test_an_entry_of_the_explanation_is_marked_as_a_row(self, server: str, page: Page):
+        page.goto(server + STATS_PATH + "#bp-meaning-axioms", wait_until="load", timeout=60000)
+        page.wait_for_timeout(300)
+        found = page.evaluate("""() => {
+            const dt = document.getElementById('bp-meaning-axioms');
+            const dd = dt.nextElementSibling;
+            return { marked: document.querySelectorAll('.bp_decl_target, .bp_decl_target_block').length,
+                     dt: getComputedStyle(dt).backgroundColor, dd: getComputedStyle(dd).backgroundColor,
+                     section: getComputedStyle(dt.closest('section')).backgroundColor };
+        }""")
+        assert found["marked"] == 0, found
+        assert found["dt"] == found["dd"] and found["dt"] not in ("rgba(0, 0, 0, 0)", found["section"]), found
+
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_links_share_one_focus_ring(self, server: str, page: Page, scheme: str):
+        open_stats(page, server, scheme)
+        check_focus_rings(page)
+
+    def test_explanations_keep_a_reading_measure(self, server: str, page: Page):
+        open_stats(page, server, "light")
+        over = page.evaluate("""() => [...document.querySelectorAll(
+                '.bp_stats_meaning_list dd, .bp_stats_band p, .bp_stats_replay_checkers > li')]
+            .filter((e) => e.getBoundingClientRect().width > 40 * parseFloat(getComputedStyle(e).fontSize) + 1)
+            .map((e) => e.className || e.tagName)""")
+        assert not over, over

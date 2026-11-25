@@ -23,6 +23,7 @@ import VersoBlueprint.Meaning
 import VersoBlueprint.RepoFile
 import VersoBlueprint.ReplayView
 import VersoBlueprint.Stats.Claims
+import VersoBlueprint.Stats.Collect
 import VersoBlueprint.Stats.Data
 import VersoBlueprint.StatusColors
 import VersoBlueprint.TraversalIndex
@@ -259,20 +260,27 @@ private def commaList (items : Array Output.Html) : Output.Html :=
 
 /-- A band: its title, then its content in a body of its own, so that the rules a site sets for the
 paragraphs and lists of a page's sections (a reading measure, list-item spacing) stay out of it. -/
-private def bandWith (cls title : String) (content : Array Output.Html)
+private def band (cls title : String) (content : Array Output.Html)
     (attrs : Array (String × String) := #[]) : Output.Html :=
   el "section" s!"bp_stats_band {cls}" (.seq #[el "h2" "bp_stats_band_title" (txt title),
     el "div" "bp_stats_band_body" (.seq content)]) attrs
 
-private def band (cls title : String) (content : Array Output.Html) : Output.Html :=
-  bandWith cls title content
+/-- The host of an `https://` address: `https://github.com/o/r` gives `github.com`. -/
+def hostOf (href : String) : String :=
+  ((href.drop "https://".length).toString.splitOn "/").head!
 
-/-- A link that leaves the site: marked as such for the stylesheet, and without access to the
-page that opened it. -/
+/-- A link that leaves the site, marked as such for the stylesheet and named by its host when it
+has no title of its own. -/
 private def externalLink (cls href : String) (content : Output.Html)
     (attrs : Array (String × String) := #[]) : Output.Html :=
-  .element "a" (#[("class", s!"{cls} bp_stats_external"), ("href", href), ("rel", "noopener")] ++ attrs)
-    content
+  let title := if attrs.any (·.1 == "title") then #[] else #[("title", hostOf href)]
+  .element "a" (#[("class", s!"{cls} bp_stats_external"), ("href", href)] ++ title ++ attrs) content
+
+/-- A Lean name as code that, when it cannot fit on its line, breaks only after one of its dots. -/
+def theoremNameHtml (n : Name) : Output.Html :=
+  let parts := (n.toString.splitOn ".").toArray
+  el "code" "bp_stats_theorem_name" (.seq <| parts.mapIdx fun i part =>
+    if i == 0 then txt part else .seq #[txt ".", .element "wbr" #[] .empty, txt part])
 
 /-! ## Addresses of the identity's facts and the axioms -/
 
@@ -294,15 +302,23 @@ def githubRepository? (url : String) : Option String := do
 def isFullCommit (rev : String) : Bool :=
   rev.length == 40 && rev.all Char.isHexDigit
 
-/-- The tree of a locked package at its locked commit, `https://github.com/<owner>/<name>/tree/<rev>`:
-only for a `git` package from GitHub locked to a full commit. A `path` package, a repository on
-another host and a revision that is not a commit have no address. -/
+/-- The tree of a locked package at its locked commit, `https://github.com/<owner>/<name>/tree/<rev>`,
+and in it the package's folder when the package is not the repository's root (`subDir`): only for
+a `git` package from GitHub locked to a full commit, with a folder of plain path segments. A
+`path` package, a repository on another host and a revision that is not a commit have no
+address. -/
 def packageTreeHref? (pkg : ManifestPackage) : Option String := do
   guard (pkg.source == "git")
   let repo ← githubRepository? (← pkg.url)
   let rev ← pkg.rev
   guard (isFullCommit rev)
-  return s!"{repo}/tree/{rev}"
+  match pkg.subDir with
+  | Option.none => return s!"{repo}/tree/{rev}"
+  | some dir =>
+    let segments := (dir.splitOn "/").filter (!·.isEmpty)
+    guard (!segments.isEmpty && segments.all fun s => s != "." && s != ".." &&
+      s.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.')
+    return s!"{repo}/tree/{rev}/{"/".intercalate segments}"
 
 /-- Whether `v` is a Lean release or release candidate tag: `v4.36.0`, `v4.36.0-rc1`. -/
 def isLeanReleaseTag (v : String) : Bool :=
@@ -329,11 +345,32 @@ def leanReleaseHref? (toolchain : String) : Option String :=
   version?.bind fun v =>
     if isLeanReleaseTag v then some s!"https://github.com/leanprover/lean4/releases/tag/{v}" else none
 
-/-- The Lean Language Reference's account of one of Lean's standard axioms: `propext` and
-`Quot.sound` where they are documented, `Classical.choice` in the section on the standard axioms,
-which states it. Any other axiom has no address here. -/
-def axiomDocHref? (a : Name) : Option String :=
-  let reference := "https://lean-lang.org/doc/reference/latest"
+/-- The Lean releases whose Language Reference is published under its version
+(`https://lean-lang.org/doc/reference/4.<minor>.0`) with the sections `axiomDocHref?` links to:
+4.19.0 to 4.36.0, each checked. -/
+def versionedReferenceMinors : List Nat := (List.range 18).map (· + 19)
+
+/-- The Lean Language Reference of the version a `lean-toolchain` names, when it is a release of
+`versionedReferenceMinors`, and the latest reference otherwise (a release candidate, a nightly, a
+custom toolchain, an unknown version or no toolchain). Decided from the toolchain's form alone. -/
+def leanReferenceBase (toolchain : Option String) : String :=
+  let latest := "https://lean-lang.org/doc/reference/latest"
+  match toolchain with
+  | some t =>
+    if (leanReleaseHref? t).isNone then latest else
+    match (toolchainVersion t).splitOn "." with
+    | ["v4", minor, "0"] =>
+      if (minor.toNat?.any fun n => versionedReferenceMinors.contains n && toString n == minor) then
+        s!"https://lean-lang.org/doc/reference/4.{minor}.0"
+      else latest
+    | _ => latest
+  | Option.none => latest
+
+/-- The Lean Language Reference's account of one of Lean's standard axioms, in the reference at
+`reference` (`leanReferenceBase`): `propext` and `Quot.sound` where they are documented,
+`Classical.choice` in the section on the standard axioms, which states it. Any other axiom has no
+address here. -/
+def axiomDocHref? (reference : String) (a : Name) : Option String :=
   if a == ``propext then some s!"{reference}/The-Type-System/Propositions/#propext"
   else if a == ``Quot.sound then some s!"{reference}/The-Type-System/Quotients/#Quot___sound"
   else if a == ``Classical.choice then some s!"{reference}/Axioms/#standard-axioms"
@@ -377,9 +414,9 @@ private def identityHtml (view : StatsPageView) : Output.Html :=
         .element "li" #[] v)))]) #[("data-bp-fact", key)]
   let license : Output.Html := match identity.license with
     | some info =>
-      fact "license" "Licence" #[chip "bp_stats_chip_license" view.licenseHref
+      fact "license" "License" #[chip "bp_stats_chip_license" view.licenseHref
         (txt (info.spdx.getD info.file)) #[("data-bp-license-file", info.file)]]
-    | Option.none => fact "license" "Licence" #[
+    | Option.none => fact "license" "License" #[
         chip "bp_stats_chip_license bp_stats_chip_missing" Option.none (txt "No license file")]
   let toolchain : Output.Html := match identity.toolchain with
     | some t => fact "lean" "Lean" #[chip "bp_stats_chip_toolchain" (leanReleaseHref? t)
@@ -505,24 +542,27 @@ def meaningEntryId (title : String) : String :=
   let slug := String.ofList (clause.toList.map fun c => if c.isAlphanum then c else '-')
   s!"bp-meaning-{slug}"
 
-/-- The entry of the explanation of the marks that explains a verdict (`headlineVerdict`'s token):
-the replay's entry for a verdict a kernel replay decided or did not reach, the axioms' entry for a
-verdict about axioms, and the headline's entry, which says what the comparison requires, for the
-rest. -/
-def verdictMeaningTitle (token : String) : String :=
-  if token == "rejected" || token == "not-replayed" then "Kernel replay, and the check mark on a node"
+/-- The entry of the explanation of the marks that explains a verdict (`headlineVerdict`'s token,
+and whether the comparison's conditions were met): the replay's entry for a verdict a kernel replay
+decided or did not reach, among them the theorem the replay did not check because it rests on an
+axiom outside the standard three; the axioms' entry for a proof that rests on an axiom the verdict
+does not allow; and the headline's entry, which says what the comparison requires, for the rest. -/
+def verdictMeaningTitle (token : String) (conditionsMet : Bool := false) : String :=
+  if token == "rejected" || token == "not-replayed" || (token == "axioms" && conditionsMet) then
+    "Kernel replay, and the check mark on a node"
   else if token == "axioms" then "Axioms"
   else "Lean statement proved, in the headline"
 
 /-- A verdict as a pill. With the explanation of the marks on the site (`meaningHref`), the pill is
 a link to the entry that explains it, and to nothing else. -/
-def verdictPill (meaningHref : Option String) (token words : String) : Output.Html :=
+def verdictPill (meaningHref : Option String) (token words : String) (conditionsMet : Bool) :
+    Output.Html :=
   let pill := el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt words)
   match meaningHref with
   | some href =>
     let page := (href.splitOn "#").head!
     .element "a" #[("class", s!"bp_stats_verdict_link bp_stats_verdict_link_{token}"),
-      ("href", s!"{page}#{meaningEntryId (verdictMeaningTitle token)}")] pill
+      ("href", s!"{page}#{meaningEntryId (verdictMeaningTitle token conditionsMet)}")] pill
   | Option.none => pill
 
 /-- How the solution declares a definition of the challenge, in a few words. -/
@@ -564,11 +604,11 @@ def notComparedText (u : Unavailable) (detail? : Option String := none) : String
   let advice := if advice.isEmpty then "" else s!"; {advice}"
   s!"Not compared: {reason}{detail}{advice}."
 
-private def axiomChip (a : Name) : Output.Html :=
+private def axiomChip (reference : String) (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
   let attrs := #[("data-bp-axiom-class", cls.token), ("title", cls.description)]
   -- each of Lean's standard axioms links to the Lean Language Reference; no other axiom does
-  .element "li" #[] <| match axiomDocHref? a with
+  .element "li" #[] <| match axiomDocHref? reference a with
     | some href => externalLink s!"bp_stats_axiom bp_stats_axiom_{cls.token}" href (code a.toString) attrs
     | Option.none => el "span" s!"bp_stats_axiom bp_stats_axiom_{cls.token}" (code a.toString) attrs
 
@@ -590,7 +630,7 @@ def axiomsNoteText (axioms : Array Name) (proved : Bool) : String :=
     else "only the standard axioms of Lean's logic reported"
   else ""
 
-private def axiomsHtml (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
+private def axiomsHtml (reference : String) (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
   if t.solution == .missing || t.solution == .notCompared || t.solution == .notTheorem then .empty
   else
   let note := axiomsNoteText t.axioms proved
@@ -600,7 +640,7 @@ private def axiomsHtml (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
       (txt s!"uses {notAllowedText t}")
   el "div" "bp_stats_axioms" (.seq #[
     el "span" "bp_stats_caption" (txt (axiomsCaption proved)),
-    el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map axiomChip)),
+    el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map (axiomChip reference))),
     if note.isEmpty then .empty else el "span" "bp_stats_axioms_note" (txt note),
     permitted])
 
@@ -697,7 +737,7 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
   -- the theorem is proved is in the accepted scope
   let scope := if standing.isAccepted && token != "proved" then StatusColors.replayNoneClass
     else standing.scopeClass
-  let name := el "code" "bp_stats_theorem_name" (txt t.name.toString)
+  let name := theoremNameHtml t.name
   let statement : Output.Html :=
     match view.statementCode.find? (·.1 == (h.name, t.name)) with
     | some (_, html) => el "div" "bp_stats_statement bp_stats_statement_code" html
@@ -707,14 +747,14 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
       match challengeSectionHref? view h.name challengeFileId with
       | some href => .element "a" #[("class", "bp_stats_theorem_name_link"), ("href", href)] name
       | Option.none => name,
-      verdictPill view.page.meaningHref token verdict,
+      verdictPill view.page.meaningHref token verdict t.conditionsMet,
       theoremNodeHtml view t]),
     replayNote,
     if t.statement.isEmpty then .empty
     else .seq #[
       el "p" "bp_stats_caption bp_stats_statement_caption" (txt "Lean statement, from the challenge"),
       statement],
-    axiomsHtml t (token == "proved"),
+    axiomsHtml (leanReferenceBase view.stats.identity.toolchain) t (token == "proved"),
     match t.docstring with
     | some d => el "div" "bp_stats_theorem_informal" (.seq #[
         el "p" "bp_stats_caption bp_stats_doc_caption" (txt challengeDocCaption),
@@ -760,7 +800,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
     let page : Output.Html := match view.challengeHrefs.find? (·.1 == h.name) with
       | some (_, href) => if !pageLink then .empty else el "p" "bp_stats_challenge_page" (.seq #[
           .element "a" #[("href", href), ("class", "bp_stats_challenge_link")]
-            (txt s!"The challenge {h.name}: its files in full, its configuration and its verdict")])
+            (txt s!"Challenge {h.name}: files, configuration and verdict")])
       | Option.none => .empty
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
@@ -785,7 +825,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
         el "ul" "bp_stats_files" (.seq (h.unjudged.map fun (n, why) =>
           .element "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
     let title := if several then s!"Headline result: {h.name}" else "Headline result"
-    bandWith "bp_stats_headline" title #[unavailable, theorems, unjudged, definitions, source, page]
+    band "bp_stats_headline" title #[unavailable, theorems, unjudged, definitions, source, page]
       #[("data-bp-challenge", h.name)]
 
 /-- The headline results: a band for each Comparator challenge, or the hint that a challenge would
@@ -942,7 +982,7 @@ private def claimsHtml (view : StatsPageView) : Output.Html :=
     if rest.isEmpty && claims.error.isNone then .empty else
     let items := rest.filterMap fun c => (claims.view? c.declaration).map fun v =>
       el "div" "bp_stats_claim_item" (.seq #[
-        el "code" "bp_stats_theorem_name" (txt c.declaration.toString),
+        theoremNameHtml c.declaration,
         v.render view.page.meaningHref]) #[("data-bp-claim-declaration", c.declaration.toString)]
     band "bp_stats_claims" "Author's claims" (#[error] ++ items)
 
@@ -1230,12 +1270,13 @@ def meaningViewerHref : String := "lean:help/marks"
 private def meaningHtml : Output.Html :=
   el "section" "bp_stats_band bp_stats_meaning" (.seq #[
     el "h2" "bp_stats_band_title" (txt "What this page reports, and what it does not"),
+    -- a link to an entry lands on its term, and the stylesheet marks the term and its explanation
     el "dl" "bp_stats_meaning_list" (.seq <| meaningItems.map fun item =>
       .seq #[.element "dt" #[("id", meaningEntryId item.1)] (txt item.1),
         .element "dd" #[] (txt item.2)]),
     el "p" "bp_stats_meaning_more" (.element "a" #[("href", meaningViewerHref)]
       (txt "More in the viewer's guide"))])
-    #[("id", Informal.Meaning.anchor)]
+    #[("id", Informal.Meaning.anchor), ("data-bp-own-target", "")]
 
 /-! ## The page -/
 
@@ -1311,36 +1352,40 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
       (challengePageSection? sections h.name).map fun s => (h.name, s.link.relativeLink)
   }
 
-/-- Collapse runs of white space into single spaces and trim the ends. -/
-private def collapseSpaces (s : String) : String :=
-  " ".intercalate ((s.split Char.isWhitespace).toList.map (·.copy) |>.filter (!·.isEmpty))
+/-- The highlighted code of each challenge module of the site being generated, as the Comparator
+pages show it (`registerChallengeCode`); the headline cards cut their statements from it. -/
+initialize challengeCodeRef : IO.Ref (Array (Name × SubVerso.Highlighting.Highlighted)) ←
+  IO.mkRef #[]
 
-/-- The view with what the page takes from outside the statistics: the license file's address in
-the project's repository (the project being the directory the site is generated from), and each
-judged theorem's highlighted statement, with its hovers in the page's hover table. A statement is
-the challenge module's highlighted build when that reads as the text the challenge states, and
-otherwise that text with syntax colours only. -/
+/-- Record the highlighted code of a challenge module, the text of its file exactly. -/
+def registerChallengeCode (mod : Name) (code : SubVerso.Highlighting.Highlighted) : IO Unit :=
+  challengeCodeRef.modify fun codes => (codes.filter (·.1 != mod)).push (mod, code)
+
+/-- The license file's address in the project's repository at the commit the site is built from:
+the project being the root the statistics were collected from (`Informal.Stats.projectRoot`,
+which the option `verso.blueprint.projectRoot` may set apart from the working directory). -/
+def licenseHref? (stats : ProjectStats) : IO (Option String) := do
+  let some info := stats.identity.license | return Option.none
+  let root ← Informal.Stats.projectRoot stats.layout.projectRoot
+  Informal.RepoFile.projectFileHref? root info.file
+
+/-- The view with what the page takes from outside the statistics: the license file's address
+(`licenseHref?`), and each judged theorem's highlighted statement, with its hovers in the page's
+hover table. A statement is cut from the challenge module's highlighted code
+(`registerChallengeCode`) when that code has its text, and is otherwise that text with syntax
+colours only. -/
 def StatsPageView.resolveLinks {m : Type → Type} [Monad m] [MonadLiftT IO m] (view : StatsPageView) :
     HtmlT Manual m StatsPageView := do
-  let root ← (IO.currentDir : IO _)
-  let licenseHref ← match view.stats.identity.license with
-    | some info => (Informal.RepoFile.projectFileHref? root info.file : IO _)
-    | Option.none => pure Option.none
+  let licenseHref ← (licenseHref? view.stats : IO _)
+  let codes ← (challengeCodeRef.get : IO _)
   let mut statementCode := #[]
   for h in view.stats.challenges do
     for t in h.theorems do
       if t.statement.isEmpty then continue
-      let built ← (Informal.DeclarationSource.statementCode? h.challengeModule t.name : IO _)
-      let code := match built with
-        | some c => if collapseSpaces c.toString == collapseSpaces t.statement then c
-          else Informal.CodeSite.Highlight.highlightPlain t.statement
-        | Option.none => Informal.CodeSite.Highlight.highlightPlain t.statement
+      let built := (codes.find? (·.1 == h.challengeModule)).bind fun (_, code) =>
+        Informal.DeclarationSource.sliceByText? code t.statement
+      let code := built.getD (Informal.CodeSite.Highlight.highlightPlain t.statement)
       let rendered ← Informal.ExternalCode.renderSourceWithPageHovers code "bp_stats_statement_source"
-      -- every token with a hover is reachable by the keyboard: the page's hovers open on focus
-      let rendered := match rendered with
-        | .raw html =>
-          .raw (html.replace " data-verso-hover=\"" " tabindex=\"0\" data-verso-hover=\"")
-        | other => other
       statementCode := statementCode.push ((h.name, t.name), rendered)
   return { view with licenseHref, statementCode }
 

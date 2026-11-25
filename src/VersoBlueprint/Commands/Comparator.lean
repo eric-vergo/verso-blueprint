@@ -138,8 +138,16 @@ def comparatorFile (root : System.FilePath) (path : String) (limit : Nat) : IO C
   | .ok content => return { path, text := content, href }
   | .error why => return { path, missing := some why, href }
 
+/-- Whether highlighted code is the file's text exactly, line endings and trailing white space
+aside. -/
+def codeMatches (code : SubVerso.Highlighting.Highlighted) (text : String) : Bool :=
+  let norm := fun (t : String) => (t.replace "\r\n" "\n").trimAsciiEnd.toString
+  norm code.toString == norm text
+
 /-- The pages of the challenges of `stats`, the files read under the project root `root`.
 `codeOf` gives a module's highlighted code from its text when the generator highlights it itself.
+The challenge module's code, when it is the file's text, is recorded for the headline cards
+(`registerChallengeCode`), which cut each judged theorem's statement from it.
 -/
 def challengePages (stats : ProjectStats) (root : System.FilePath)
     (codeOf : Name → String → Option SubVerso.Highlighting.Highlighted := fun _ _ => none) :
@@ -153,10 +161,17 @@ def challengePages (stats : ProjectStats) (root : System.FilePath)
       ComparatorLayout.leanFileLimit
     let config ← comparatorFile root (h.config.getD s!"{folder}/{comparatorConfigFile}")
       ComparatorLayout.configLimit
+    -- the challenge's code as its page shows it, for the statements of the headline cards
+    let challengeCode := codeOf h.challengeModule challenge.text
+    match challengeCode.filter (codeMatches · challenge.text) with
+    | some code => registerChallengeCode h.challengeModule code
+    | Option.none =>
+      if let some code ← Informal.DeclarationSource.moduleCode? h.challengeModule then
+        if codeMatches code challenge.text then registerChallengeCode h.challengeModule code
     return {
       name := h.name, challenge, solution, config
       challengeModule := h.challengeModule, solutionModule := h.solutionModule
-      challengeCode := codeOf h.challengeModule challenge.text
+      challengeCode
       solutionCode := codeOf h.solutionModule solution.text
       ciRun }
 
@@ -176,12 +191,6 @@ def percentEncode (s : String) : String :=
     let c := Char.ofNat b
     if b < 128 && (c.isAlphanum || c == '-' || c == '_' || c == '.' || c == '~') then c.toString
     else String.ofList ['%', hex[b / 16]!, hex[b % 16]!]
-
-/-- Whether highlighted code is the file's text exactly, line endings and trailing white space
-aside. -/
-def codeMatches (code : SubVerso.Highlighting.Highlighted) (text : String) : Bool :=
-  let norm := fun (t : String) => (t.replace "\r\n" "\n").trimAsciiEnd.toString
-  norm code.toString == norm text
 
 /-- The highlighted code of a challenge's file: the generator's, else the module's highlighted
 build when it matches the file, else the file with syntax colours only (and the caption that says
@@ -222,7 +231,7 @@ def fileSectionHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (title : Str
   pure <| el "section" "bp_comparator_file" (.seq #[
       el "h2" "bp_comparator_file_title" (txt title),
       el "p" "bp_comparator_file_path" pathHtml,
-      body]) #[("id", id)]
+      body]) #[("id", id), ("data-bp-own-target", "")]
 
 /-- The links of a challenge's page: the dependency graph's node of each judged theorem, the
 Project Stats page, and the run that built the site. -/
@@ -255,7 +264,9 @@ def challengePageHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (data : Ch
     | some h => .seq #[challengeBandHtml view h (several := false) (pageLink := false),
         el "section" "bp_comparator_trusted" (.seq #[
           el "h2" "bp_comparator_file_title" (txt challengeTrustedCaption),
-          el "p" "bp_stats_replay_trusted" (txt Replay.trustedText)])]
+          -- in a body of its own, as the bands' sentences, so that it takes their measure
+          el "div" "bp_comparator_trusted_body"
+            (el "p" "bp_stats_replay_trusted" (txt Replay.trustedText))])]
     | Option.none => el "p" "bp_stats_headline_unavailable" (txt challengeWithoutResultText)
   let challenge ← fileSectionHtml "Challenge" data.challenge
     (some (data.challengeModule, data.challengeCode)) challengeFileId
@@ -269,6 +280,18 @@ def challengePageHtml {m : Type → Type} [Monad m] [MonadLiftT IO m] (data : Ch
       el "p" "bp_comparator_intro" (txt (challengePageIntroText data.name)),
       verdict, challenge, solution, config, links])
     #[("data-bp-challenge", data.name), ("data-bp-replay-state", view.site.token)]
+
+/-- `text` with each occurrence of `spans` set as code, its words unchanged. -/
+def withCode (text : String) (spans : Array String) : Output.Html := Id.run do
+  let mut parts : Array Output.Html := #[txt text]
+  for span in spans do
+    parts := parts.flatMap fun
+      | .text s =>
+        let pieces := s.splitOn span
+        (pieces.toArray.mapIdx fun i piece =>
+          if i == 0 then #[txt piece] else #[.element "code" #[] (txt span), txt piece]).flatten
+      | other => #[other]
+  return .seq parts
 
 /-- The index page body: each challenge with a link to its page and the verdict of each judged
 theorem, in the words of the Project Stats page. -/
@@ -285,9 +308,13 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
         el "ul" "bp_comparator_verdicts" (.seq (h.theorems.map fun t =>
           let standing := headlineStanding view.stats.replay h t
           let (token, words) := headlineVerdict t standing view.stats.replay
+          let name := theoremNameHtml t.name
           el "li" s!"bp_comparator_verdict {standing.scopeClass}" (.seq #[
-            el "code" "bp_stats_theorem_name" (txt t.name.toString), txt " ",
-            verdictPill view.page.meaningHref token words])
+            match challengeSectionHref? view h.name challengeFileId with
+            | some href => .element "a" #[("class", "bp_stats_theorem_name_link"), ("href", href)] name
+            | Option.none => name,
+            txt " ",
+            verdictPill view.page.meaningHref token words t.conditionsMet])
             #[("data-bp-theorem", t.name.toString), ("data-bp-verdict", token)]))
     el "section" "bp_comparator_index_item" (.seq #[
       el "h2" "bp_comparator_index_title" title,
@@ -296,7 +323,9 @@ def comparatorIndexHtml (view : StatsPageView) : Output.Html :=
         .element "code" #[] (txt h.solutionModule.toString)]),
       verdicts]) #[("data-bp-challenge", h.name)]
   el "div" s!"bp_comparator_index bp_project_stats {view.site.scopeClass}" (.seq (#[
-    el "p" "bp_comparator_intro" (txt comparatorIndexIntroText)] ++ rows))
+    el "p" "bp_comparator_intro"
+      (withCode comparatorIndexIntroText #["lake comparator", "--config Comparator/<Name>/comparator.json"])]
+      ++ rows))
     #[("data-bp-replay-state", view.site.token)]
 
 /-! ## The blocks and the pages -/

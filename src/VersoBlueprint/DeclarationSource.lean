@@ -257,21 +257,37 @@ def splitStatement? (ls : Array Highlighted) : Option (Array Highlighted × Arra
   return none
 
 /--
-The highlighted statement of the theorem `name` in the loaded module `moduleName`: its defining
-command without its doc comment, cut before its top-level `:=`. `none` when the module is not
-loaded or the command has no such `:=`.
+The part of highlighted code whose text is exactly `text`: the first run of leaves, starting at a
+leaf, that reads as `text`, with the white space at its end cut to fit. `none` when no such run
+exists, or when `text` would end inside a token. Tokens keep their hovers.
 -/
-def statementCode? (moduleName name : Name) : IO (Option Highlighted) := do
-  let st ← stateRef.get
-  if st.excluded.contains moduleName then return none
-  let some (some mod) := st.modules[moduleName]? | return none
-  let some decl := mod.findDecl? name | return none
-  let some (statement, _) := splitStatement? (presentation decl.code) | return none
-  -- drop the `:=` and a `by` after it, with the white space around them
-  let mut ls := trimEnd statement
-  if ls.back?.bind tokenText? == some "by" then ls := trimEnd ls.pop
-  if ls.back?.bind tokenText? == some ":=" then ls := trimEnd ls.pop
-  return some (.seq ls)
+def sliceByText? (code : Highlighted) (text : String) : Option Highlighted := Id.run do
+  if text.isEmpty then return none
+  let ls := leaves code
+  let textOf : Highlighted → String
+    | .token tok => tok.content
+    | .text s => s
+    | other => other.toString
+  for i in [0:ls.size] do
+    let mut acc := ""
+    let mut out : Array Highlighted := #[]
+    let mut j := i
+    while j < ls.size && acc.length < text.length && text.startsWith acc do
+      let leaf := ls[j]!
+      let s := textOf leaf
+      if acc.length + s.length ≤ text.length then
+        acc := acc ++ s
+        out := out.push leaf
+      else
+        match leaf with
+        | .text s =>
+          let part := (s.take (text.length - acc.length)).toString
+          acc := acc ++ part
+          out := out.push (.text part)
+        | _ => break
+      j := j + 1
+    if acc == text then return some (.seq out)
+  return none
 
 /-- The indentation of a source line: its number of leading spaces. -/
 def lineIndent (line : Array Highlighted) : Nat :=

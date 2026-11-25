@@ -2603,9 +2603,9 @@ end of its table of contents, and below it one page per challenge, titled with
 the challenge's name. The Project Stats page links each headline to its
 challenge's page.
 
-The page "Comparator" lists every challenge: a link to its page, its two
-modules, and the verdict of each judged theorem, or "Not compared: …" with the
-reason.
+The page "Comparator" lists every challenge as a card: a link to its page, its
+two modules, and each judged theorem, its name linked to the challenge file,
+with its verdict, or "Not compared: …" with the reason.
 
 A challenge's page shows:
 
@@ -2664,18 +2664,20 @@ graph. It shows the project statistics on one page, in this order:
 
 1. **Identity**: the README's heading (or the document's title; a heading that
    names no project, such as "Readme", is passed over for the package's name)
-   and first paragraph; then, as labelled rows of chips, the licence (or "No
+   and first paragraph; then, as labelled rows of chips, the license (or "No
    license file"), the Lean version, the packages the project requires
    directly with the revision it asked for and the locked commit, and the
    generator's sidebar links; and the sentence that the page reports on this
    one build ("No other toolchain or revision was checked."). A chip is a link
-   when its fact has a known address, and a plain chip otherwise: the licence
+   when its fact has a known address, and a plain chip otherwise: the license
    to its file in the project's repository at the commit the site is built
-   from (a GitHub checkout that tracks the file); the Lean version to its
+   from (a GitHub checkout that tracks the file; the project is the root the
+   statistics describe, `verso.blueprint.projectRoot` included); the Lean version to its
    release page on GitHub (a release or release candidate of
    `leanprover/lean4`; a nightly or a custom toolchain has none); a package to
-   its repository's tree at the locked commit (a `git` package from GitHub
-   locked to a full commit; a `path` package or another host has none).
+   its repository's tree at the locked commit, and in it the package's folder
+   when the manifest names one (`subDir`) (a `git` package from GitHub locked
+   to a full commit; a `path` package or another host has none).
 2. **Headline result**: a band per Comparator challenge (titled with the
    challenge's name when there are several), with a link to its page, and in it
    a card per judged theorem: its name, linked to the challenge file on the
@@ -2683,12 +2685,18 @@ graph. It shows the project statistics on one page, in this order:
    verdict, worded about the Lean statement ("Lean statement proved", "Same
    Lean statement as the challenge; the proof uses sorry", "…; the proof rests
    on an axiom …", "Lean statement differs from the challenge", "Not in the
-   solution"), as a pill that links to the entry of the explanation of the
-   marks that explains it (and to nothing else); the node of the theorem on
-   this site; the Lean statement as the challenge writes it, highlighted (with
-   hovers when the challenge module's highlighted build has the same text);
+   solution"), as a pill beside the name that links to the entry of the
+   explanation of the marks that explains it (and to nothing else: a verdict
+   the kernel replay decided, or did not check because of an axiom, to the
+   replay's entry; one about an axiom the proof may not use to the axioms'
+   entry; the others to the headline's entry); the node of the theorem on
+   this site; the Lean statement as the challenge writes it, highlighted with
+   hovers when it is cut from the challenge's code as the challenge's page
+   shows it, and with syntax colours only when that code is not at hand;
    the axioms of the solution's proof, each of Lean's standard three linked to
-   its account in the Lean Language Reference; then, under their own captions,
+   its account in the Lean Language Reference of the build's Lean release
+   when that reference is published under its version (4.19.0 to 4.36.0), and
+   in the latest reference otherwise; then, under their own captions,
    the challenge's docstring and the author's claim. Under the cards: the
    challenge's two files, each linked to its text on the challenge's page, and
    what the comparison is and is not.
@@ -2745,8 +2753,9 @@ It ends with a link to the summary page for the detailed breakdown. The page
 is plain HTML and CSS: the bars use the shared status colour tokens, each
 status with its own pattern, and their counts are written out, so colour is
 never the only signal. It needs no script. The only version-control data it
-uses is the address of the licence file at the commit the site is built from;
-every link that leaves the site is marked with "↗".
+uses is the address of the license file at the commit the site is built from.
+A link that leaves the site has its site's name as its title and shows "↗" on
+hover and focus.
 
 To place the page elsewhere in the document, write the command where it
 should go; the generator then does not add a second one:
