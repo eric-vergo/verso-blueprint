@@ -9,7 +9,7 @@
     "claims", "replay", "builtSources", "sourceChanged"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 10 },
+    "schemaVersion": { "const": 11 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",

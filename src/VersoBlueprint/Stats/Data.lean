@@ -16,7 +16,8 @@ big it is, how far along it is, whether it builds and what its proofs rest on.
 
 `ProjectStats` is captured with the render model and serialised as JSON. The JSON shape is
 written down in `doc/schemas/project-stats.schema.json`; `projectStatsSchemaVersion` changes
-whenever it does. Every path in it is relative to the project root and every list has a fixed
+whenever the shape does and whenever the meaning of a field does, so that a consumer comparing
+numbers across versions is warned. Every path in it is relative to the project root and every list has a fixed
 order, so the same project gives the same bytes. It holds no version-control data.
 -/
 
@@ -24,8 +25,8 @@ namespace Informal.Stats
 
 open Lean
 
-/-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 10
+/-- The version of the JSON shape and of the meaning of the fields of `ProjectStats`. -/
+def projectStatsSchemaVersion : Nat := 11
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
