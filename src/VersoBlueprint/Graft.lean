@@ -154,6 +154,10 @@ private def renderManualGraftNode
         }
         pure <| Informal.Graft.renderNodeWithContent
           { manualManifestRenderConfig with
+            -- the statement's chip counts the declarations attached to the proof
+            blockRenderConfig := { manualBlockRenderConfig with
+              proofDeclsOf := fun e =>
+                ((Informal.TraversalIndex.Nodes.node? state e.label).map (·.proofExternalRefs)).getD #[] }
             nodeAttrs := fun node => state.htmlId id ++ manualNodeAttrs node }
           node
           entry

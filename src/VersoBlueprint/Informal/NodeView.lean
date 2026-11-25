@@ -81,6 +81,9 @@ structure NodeView where
   /-- Axioms the node's declarations depend on, when the generator knows them (`none`: unknown,
   no row; `some #[]`: the row says none). -/
   axioms? : Option (Array Lean.Name) := none
+  /-- The Lean declarations attached to the node's proof, which its mark counts: listed by name
+  with their statuses ("Attached to the proof"). -/
+  proofDecls : Array Data.ExternalRef := #[]
   /-- Nodes this node uses (statement and proof). -/
   uses : Array Link := #[]
   /-- Nodes that use this node. -/
@@ -150,6 +153,22 @@ private def axiomsRow : Option (Array Lean.Name) → Verso.Output.Html
       </div>
     }
 
+/-- The declarations attached to the proof, each with its status. -/
+private def proofDeclsRow (decls : Array Data.ExternalRef) : Verso.Output.Html :=
+  if decls.isEmpty then .empty else
+  let items : Array Verso.Output.Html := decls.map fun ref =>
+    let view := ref.provedStatus.presentation (present := ref.present)
+    .element "li" #[("class", "bp_node_view_proof_decl"), ("data-lean-decl", ref.canonical.toString)]
+      (.seq #[.element "code" #[] (.text ref.written.toString),
+        .element "span" #[("class", s!"bp_code_decl_status {view.codeDeclClass}")]
+          (.text s!" [{view.summaryText}]")])
+  html%{
+    <div class="bp_node_view_relation bp_node_view_proof_decls">
+      <span class="bp_node_view_relation_caption">{.text Informal.Meaning.proofDeclsTitle}</span>
+      <ul>{items}</ul>
+    </div>
+  }
+
 /--
 Render a node view. `isBlank` decides whether the informal statement counts as
 prose (generators pass their own blank test for rendered fragments).
@@ -206,11 +225,12 @@ def NodeView.render (v : NodeView) (isBlank : Verso.Output.Html → Bool := fun 
   let declAttrs := if names.isEmpty then #[] else
     #[("data-lean-decls", String.intercalate " " names.toList)]
   let footer :=
-    if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone then .empty
+    if v.uses.isEmpty && v.usedBy.isEmpty && v.axioms?.isNone && v.proofDecls.isEmpty then .empty
     else html%{
       <div class="bp_node_view_relations">
         {relationRow "Uses" v.uses}
         {relationRow "Used by" v.usedBy}
+        {proofDeclsRow v.proofDecls}
         {axiomsRow v.axioms?}
       </div>
     }

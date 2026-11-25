@@ -2535,6 +2535,12 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         (bodies.get? (PreviewCache.key node.label .proof)).bind fun html =>
           if fragmentIsBlank html then none else some (.raw html)
       let decls := (entry.codeData.map (·.externalDecls)).getD #[]
+      -- the mark and the axioms are about the statement's code lowered by the proof's
+      -- (`CodeSummary.markSource?`), whose declarations the view lists by name and status
+      let kind := entry.kind.getD .theorem
+      let proofDecls := ((index.findEntry? (PreviewCache.key node.label .proof)).bind
+        (·.codeData) |>.map (·.externalDecls)).getD #[]
+      let markCode? := Informal.CodeSummary.markSource? kind entry.codeData proofDecls
       let (sourceParts, hoverState') ←
         Informal.ExternalCode.renderDeclarationSourcePartsWithCacheHovers decls hoverState
       hoverState := hoverState'
@@ -2547,12 +2553,13 @@ private def buildNodeViews (manifest : File) (htmlEntries : Array HtmlCache.Entr
         title := node.title
         href? := node.href
         status := Informal.statusGlyph
-          (Informal.CodeSummary.statusMark? (entry.kind.getD .theorem) entry.codeData) replay?
+          (markCode?.bind fun code => Informal.CodeSummary.statusMark? kind (some code)) replay?
         informal?
         proof?
         lean := sourceParts ++ inlineParts
         leanDecls := decls.map (·.canonical)
-        axioms? := nodeAxioms? entry.codeData
+        axioms? := nodeAxioms? markCode?
+        proofDecls := Data.ExternalRef.mergeSnapshots #[] proofDecls
         uses := nodeViewLinks entry.uses
         usedBy := nodeViewLinks entry.usedBy
         informalSource := informalSource node.label

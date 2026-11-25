@@ -31,6 +31,10 @@ def linkText : String := "What this means"
 /-- The id of the explanation of the marks, on the Project Stats page. -/
 def anchor : String := "bp-what-this-means"
 
+/-- The heading of the list of the Lean declarations attached to a node's proof, beside its mark:
+the mark counts them. -/
+def proofDeclsTitle : String := "Attached to the proof"
+
 /-- The tag under an informal statement that a site generated from code took from somewhere
 other than a Blueprint, naming that source (`tex`, `attribute`, `docstring`): the reader knows
 whose words they are reading. A statement written in the Blueprint (`none`, `blueprint`) has

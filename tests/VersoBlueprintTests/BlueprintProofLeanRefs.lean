@@ -312,13 +312,14 @@ run_meta do
       !hasSubstr html "data-lean-decl=\"Nat.add_left_comm\"" &&
       hasSubstr html "data-lean-decls=\"Nat.add_comm Nat.add_left_comm\"" do
     throw <| IO.userError "A side-by-side page showed a proof's declarations"
-  -- the mark of a node counts its proof's declarations: one with `sorry` is incomplete
+  -- the mark of a node counts its proof's declarations: one with `sorry` is incomplete; complete
+  -- ones do not give a statement without Lean code a mark
   let glyphOf (label : String) : String :=
     let marker := "data-bp-node=\"«" ++ label ++ "»\""
     let after := marker.intercalate ((html.splitOn marker).drop 1)
     toString (((after.splitOn "bp_status_glyph bp_status_glyph_").getD 1 "").takeWhile (· != '"'))
   unless glyphOf "proof.attachments.admitted" == "partial" &&
-      glyphOf "proof.attachments.only" == "reported" do
+      glyphOf "proof.attachments.only" == "none" do
     throw <| IO.userError s!"A side-by-side mark ignored the proof's declarations: \
       {glyphOf "proof.attachments.admitted"} / {glyphOf "proof.attachments.only"}"
   let build (state : TraverseState) := PreviewManifest.buildPreviewDataFiles extension_impls%

@@ -119,6 +119,11 @@ public def renderNodeFromManifestCache
         | none =>
             pure <| cfg.renderMissingNode node "Blueprint HTML cache entry not found" entry.key
         | some content =>
+            -- the statement's chip counts the declarations attached to the proof
+            let proofDeclsOf (e : Informal.PreviewManifest.Entry) : Array Data.ExternalRef :=
+              ((index.findEntry? (Informal.PreviewCache.key e.label .proof)).bind (·.codeData)
+                |>.map (·.externalDecls)).getD #[]
+            let cfg := { cfg with blockRenderConfig := { cfg.blockRenderConfig with proofDeclsOf } }
             pure <| renderNodeWithContent cfg node entry content (index.groupForEntry? entry)
 
 public def readBlueprintManifest (path : System.FilePath) :

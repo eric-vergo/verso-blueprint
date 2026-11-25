@@ -1003,6 +1003,32 @@ on both facets is counted once; its observed status evidence is merged
 conservatively. An incomplete or missing proof attachment cannot be ignored
 when computing the node's formalization status.
 
+A node's mark is about the Lean code of its statement, and the declarations
+attached to its proof can only lower it:
+
+- The mark counts the statement's declarations and code blocks together with
+  the proof's declarations, each declaration once with every observation of it
+  merged conservatively. A `sorry`, a missing declaration, an axiom outside
+  Lean's standard three or a changed source in a proof declaration therefore
+  shows in the mark (◐, ✗, ⚠, ◌) exactly as it would on the statement, and
+  keeps the check mark and the success colours away under an accepted kernel
+  replay.
+- A node whose statement has no Lean declaration keeps the mark "No Lean
+  declaration" (○) however complete its proof's declarations are: the mark speaks
+  about the Lean statement, and there is none. Only a problem in the proof's
+  declarations (a `sorry`, a missing declaration, such an axiom, a changed
+  source) gives it a mark, the mark of that problem.
+- The same mark appears everywhere a node's state is shown: the heading's glyph
+  and Lean chip, the chip of a `{blueprint_node}` placement, the graph's node
+  view, tooltip and accessible name, the success colours of the node's blocks and
+  graph node, and the kernel replay's lists of covered nodes and of nodes that
+  rest on an axiom.
+- The reader sees what the mark counts: the Lean chip's summary lists the
+  statement's declarations and, under "Attached to the proof", the proof's, each
+  with its status; the graph's node view lists them under the same heading. On a
+  side-by-side page, which shows no panel for the proof's declarations, these lists
+  are where they appear.
+
 With `autoDeps := true`, dependencies inferred from declarations attached to a
 proof contribute to the proof-side dependency track. Authored dependencies can
 also be supplied with proof-side `uses`. `lake exe vbp query code <decl>` finds

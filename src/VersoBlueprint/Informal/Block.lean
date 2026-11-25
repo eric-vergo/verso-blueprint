@@ -81,26 +81,22 @@ private def replayOf? (state : TraverseState) : Option Informal.Replay.Result :=
 
 /-- The attribute that tells the stylesheets what the kernel replay establishes for the Lean
 code of a block: the success colours inside the block are drawn only under `accepted`
-(`StatusColors.replayScopeCss`), and only for a block whose mark is the check mark (an accepted
-replay of code the compiled files report an axiom under is not). A block without Lean code
-carries none. -/
+(`StatusColors.replayScopeCss`), and only when the node's mark is the check mark (an accepted
+replay of code the compiled files report an axiom under is not). The mark is about the node's
+statement and the declarations attached to its proof (`ReplayView.markCode?`), for the
+statement's block and the proof's alike. A block without Lean code carries none. -/
 private def replayScopeAttrs (state : TraverseState) (data : BlockData) : Array (String × String) :=
   match data.codeData with
   | some code =>
     let replay? := replayOf? state
-    let token := (Informal.ReplayView.standingOfCode replay? code).token
-    let checked := (Informal.statusGlyph (Informal.CodeSummary.statusMark? data.kind (some code))
+    let mark? := if data.isProof then ReplayView.markCode? state data.label else
+      CodeSummary.markSource? data.kind (some code) (ReplayView.proofDecls state data.label)
+    let token := (Informal.ReplayView.standingOfCode replay? (mark?.getD code)).token
+    let checked := (Informal.statusGlyph (mark?.bind (CodeSummary.statusMark? data.kind <| some ·))
       replay?).1.modifier == Informal.StatusGlyphKind.proved.modifier
     #[(Informal.StatusColors.replayScopeAttr,
       if token == "accepted" && !checked then "none" else token)]
   | none => #[]
-
-/-- The Lean declarations attached to the proof of `data`'s node and not to its statement: they
-count towards the statement's mark. -/
-private def proofSourceOf (s : TraverseState) (data : BlockData) : BlockCodeData :=
-  let statement := (data.codeData.map (·.externalDecls)).getD #[]
-  { externalDecls := ((TraversalIndex.Nodes.node? s data.label).map (·.proofExternalRefs)).getD #[]
-      |>.filter fun ref => !statement.any (·.canonical == ref.canonical) }
 
 open Verso.Doc.Html in
 /-- Render this occurrence with relation previews restricted to the resources
@@ -154,7 +150,7 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
               inlineBlocks := Informal.TraversalIndex.InlineCode.blocks s data.label
             } getDeclHref (replayOf? s) (heading := data.displayTitle s)
               (meaningHref? := Commands.meaningHref? s)
-              (proofSource := proofSourceOf s data)
+              (proofDecls := ReplayView.proofDecls s data.label)
           | true => none
         let formalColumn? : Option Output.Html ←
           if sideBySide && !data.isProof && !externalDecls.isEmpty then

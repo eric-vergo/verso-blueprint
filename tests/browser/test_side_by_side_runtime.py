@@ -881,6 +881,43 @@ class TestReadingAids:
         view = page.locator(".bp_graph_preview .bp_node_view")
         assert "Lean declarations attached to this proof" not in view.inner_text()
 
+    def test_every_surface_counts_the_open_proof_declaration(
+        self, side_by_side_server: str, page: Page
+    ):
+        """`aids_sectioned`: its statement's declaration is complete, its proof's has a sorry. The
+        heading, its Lean chip, the chip of a placement of the node, the graph's tooltip and
+        accessible name and the node view all show it incomplete, and the chip's summary and the
+        node view list the proof's declaration with its status."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        node = page.locator(".bp_sbs[data-bp-node='aids_sectioned']").first
+        expect(node.locator(".bp_status_glyph").first).to_have_class(
+            re.compile(r"\bbp_status_glyph_partial\b"))
+        chip = node.locator(".bp_code_link_status").first
+        expect(chip).to_have_class(re.compile(r"\bbp_code_link_status_warning\b"))
+        placement = page.locator("[data-bp-blueprint-node][data-bp-label='aids_sectioned']")
+        expect(placement.locator(".bp_code_link_status_warning")).to_have_count(1)
+        # the chip's summary: the statement's declaration, then the proof's with its status
+        node.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        expect(panel).to_contain_text("aidSectioned")
+        expect(panel).to_contain_text("Attached to the proof")
+        row = panel.locator(".bp_code_decl_item", has_text="aidOpen")
+        expect(row).to_have_count(1)
+        expect(row.locator(".bp_code_decl_status")).to_contain_text("sorry")
+        # the graph's words and the node view
+        page.goto(side_by_side_server + "/Dependency-Graph/#node=aids_sectioned",
+                  wait_until="domcontentloaded")
+        graph_node = page.locator(".bp_graph_canvas svg g.node[id='bp-node-aids-005Fsectioned']")
+        expect(graph_node).to_have_count(1)
+        assert "Lean code incomplete" in (graph_node.get_attribute("aria-label") or "")
+        page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+        view = page.locator(".bp_graph_preview .bp_node_view")
+        expect(view.locator(".bp_node_view_header .bp_status_glyph_partial")).to_have_count(1)
+        expect(view.locator(".bp_node_view_proof_decls")).to_contain_text("Attached to the proof")
+        expect(view.locator(".bp_node_view_proof_decl", has_text="aidOpen")).to_have_count(1)
+
     def test_summary_leads_a_proof_declaration_to_its_node(self, side_by_side_server: str, page: Page):
         """The summary's link to a declaration attached to a proof, which has no row of its own in
         this layout, lands on an element of the page it names: the node."""

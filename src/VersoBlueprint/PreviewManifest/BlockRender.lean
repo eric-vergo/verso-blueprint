@@ -65,6 +65,9 @@ structure RenderConfig where
   titleRowAttrs? :
     Entry → Option (Array (String × String)) := fun _ => none
   relationPanels : RelationPanelsConfig := {}
+  /-- The Lean declarations attached to the proof of an entry's node: the statement's Lean chip
+  counts them (`CodeSummary.markSource?`) and its summary lists them. -/
+  proofDeclsOf : Entry → Array Data.ExternalRef := fun _ => #[]
 
 /-- Per-node render options for a preview-data-backed Blueprint block. -/
 structure RenderOptions where
@@ -114,10 +117,10 @@ private def renderUsesExtra (cfg : RelationPanelsConfig) (entry : Entry) :
     (Informal.RelatedPanel.usesPanelConfigForBlock entry.blockData)
     entry.usesForFacet entry Name.anonymous
 
-private def renderCodeExtra (entry : Entry) (blockData : Informal.BlockData) :
-    Informal.HeaderExtra :=
+private def renderCodeExtra (entry : Entry) (blockData : Informal.BlockData)
+    (proofDecls : Array Data.ExternalRef) : Informal.HeaderExtra :=
   let parts := Informal.CodeSummary.renderParts
-    blockData { source := entry.codeData } (fun _ => none)
+    blockData { source := entry.codeData } (fun _ => none) (proofDecls := proofDecls)
   Informal.HeaderExtra.code parts.codeEntry
 
 private def renderUsedByExtra (cfg : RelationPanelsConfig) (entry : Entry) :
@@ -130,11 +133,12 @@ private def renderHeaderExtras
     (cfg : RelationPanelsConfig)
     (entry : Entry)
     (blockData : Informal.BlockData)
-    (group? : Option GroupRelation) :
+    (group? : Option GroupRelation)
+    (proofDecls : Array Data.ExternalRef := #[]) :
     Informal.HeaderExtras :=
   Informal.HeaderExtras.forFacet blockData.isProof (renderUsesExtra cfg entry) fun _ => {
     group? := renderGroupExtra? cfg entry group?
-    code? := some (renderCodeExtra entry blockData)
+    code? := some (renderCodeExtra entry blockData proofDecls)
     usedBy? := some (renderUsedByExtra cfg entry)
     markup? := Informal.renderExternalMarkupHeaderExtra? entry.externalMarkup
   }
@@ -187,7 +191,8 @@ def renderWithRenderedContent
         (proofCaption? := some entry.title)
         (attrs := LeanSourceAnchor.rootAttrs ((entry.codeData.map (·.externalDecls)).getD #[]))
         (titleRowAttrs? := cfg.titleRowAttrs? entry)
-        (headerExtras := renderHeaderExtras cfg.relationPanels entry blockData group?)
+        (headerExtras := renderHeaderExtras cfg.relationPanels entry blockData group?
+          (cfg.proofDeclsOf entry))
         (sourceRefs := entry.sources)
         (folded := blockData.foldInformalShell)
       content := #[content.body]

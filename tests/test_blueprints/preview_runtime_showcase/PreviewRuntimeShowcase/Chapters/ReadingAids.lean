@@ -45,3 +45,7 @@ Adding zero changes nothing.
 :::proof "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidOpen")
 The attached lemma is still open, so the node is incomplete.
 :::
+
+A placement of the node carries the same mark.
+
+{blueprint_node "aids_sectioned"}
