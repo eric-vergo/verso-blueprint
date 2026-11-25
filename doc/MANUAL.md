@@ -1898,12 +1898,13 @@ such motion off, on every page at once, and respects the operating system's
 "reduce motion" setting.
 
 A page has motion when it contains an element with the attribute
-`data-bp-motion` (or the class `pilean-motion`). Only such a page shows the
-switch, an "Animations: On | Off" control right under the theme control at the
-foot of the table of contents (with or without the sidebar); a site without
-animations looks as it would without this feature. The two choices are radio
-buttons in a group named "Animations": Tab reaches the chosen one and the arrow
-keys choose the other.
+`data-bp-motion`. Only such a page shows the switch: the label "Animations"
+and a box with the choices "On" and "Off", right under the theme control at the
+foot of the table of contents (with or without the sidebar). Content with motion
+added to a page after it has loaded, such as a preview, makes the switch appear
+too. A site without animations looks as it would without this feature. The two
+choices are radio buttons in a group named "Animations": Tab reaches the chosen
+one and the arrow keys choose the other.
 
 The choice is the root element's `data-motion` attribute, the contract between
 the site and any figure producer:
@@ -1922,14 +1923,26 @@ open.
 key `verso-blueprint-motion`; "On" removes both. As with the theme, an inline
 script in `<head>` applies a stored choice before the page is drawn, so an
 animation turned off is never seen moving, and a choice made in another tab of
-the site is followed. Without storage the choice lasts for the page.
+the site is followed. Like the theme's, the stored choice belongs to the site's
+origin, so sites served from one host and port share it. Without storage the
+choice lasts for the page. Without JavaScript there is no switch, and
+animations follow only the system setting, through the stylesheet.
 
-The site's stylesheet provides two hook classes for figure producers:
+The site's stylesheet provides hook classes for figure producers:
 
 - An element with class `bp_motion_live` (the animation) is hidden while motion
-  is off, by `data-motion="reduce"` or by the system's setting.
+  is off, by `data-motion="reduce"` or by the system's setting, and left out of
+  printed pages.
 - An element with class `bp_motion_stills` (a still picture to show instead) is
-  shown, as a block, only while motion is off.
+  hidden only while motion is on, on screen; otherwise, including in print, it
+  keeps the display its producer gives it (a grid or a flex box, say).
+- A link with class `bp_motion_link` and the address `#bp-motion` leads to the
+  switch: following it moves the focus to the switch, opening the table of
+  contents first where it is collapsed (on narrow screens). The link is shown
+  only when scripts run, since without them there is no switch. A figure's
+  caption can carry one so that readers on a phone find the switch:
+  `<a class="bp_motion_link" href="#bp-motion">Animations can be turned off in
+  the page menu.</a>`
 
 The animation is hidden with `visibility: hidden; position: absolute;
 pointer-events: none` rather than `display: none`: a browser may stop the clock
@@ -1951,6 +1964,9 @@ A figure written for this looks like:
 <figure data-bp-motion="">
   <div class="bp_motion_live"><svg>...<animateTransform .../>...</svg></div>
   <div class="bp_motion_stills"><svg>...</svg></div>
+  <figcaption>...
+    <a class="bp_motion_link" href="#bp-motion">Animations can be turned off in the page menu.</a>
+  </figcaption>
 </figure>
 ```
 
@@ -3922,7 +3938,8 @@ generates, such as "What this means") that names a place on a page of the site
 `<base href>` as a browser resolves it. A dead link fails the build with an error
 that names the page and the link. Links written in the document's text are the
 author's and are not checked; a fragment with `=` (`#node=…`, `#ego=…`) is state
-a page's script reads, not a place, and is not checked either.
+a page's script reads, not a place, and is not checked either, nor is `#bp-motion`,
+the animations switch that a page's script creates on the page itself.
 
 Pages are written with a viewport that lets the reader zoom
 (`width=device-width, initial-scale=1`).

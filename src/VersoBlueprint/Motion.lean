@@ -16,10 +16,11 @@ are not; without it (or with `"auto"`) the reader's system setting (`prefers-red
 decides. The inline script applies a stored choice before the page is drawn, the way the theme's
 does, so that an animation never plays for a moment before it is hidden.
 
-A page has motion when it contains an element with the attribute `data-bp-motion` (or the class
-`pilean-motion`); only such a page shows the switch, beside the theme control. The stylesheet gives
-figure producers two hook classes: an element with class `bp_motion_live` is hidden and one with
-class `bp_motion_stills` shown while motion is off.
+A page has motion when it contains an element with the attribute `data-bp-motion`; only such a
+page shows the switch, beside the theme control. The stylesheet gives figure producers two hook
+classes: an element with class `bp_motion_live` is hidden and one with class `bp_motion_stills`
+shown while motion is off (and when the page is printed), and a link with class `bp_motion_link`
+to `#bp-motion` moves the focus to the switch.
 -/
 
 namespace Informal.Motion
@@ -29,11 +30,19 @@ open Verso.Genre.Manual
 /-- The `localStorage` key that holds the reader's choice: `"reduce"`, or nothing. -/
 def storageKey : String := "verso-blueprint-motion"
 
+/-- The id of the switch, which a link written as `#bp-motion` leads to. The site check knows
+that the page's script creates it (`Informal.LinkCheck.scriptPlaces`). -/
+def controlId : String := "bp-motion"
+
 /-- The attribute of the root element that says whether animations are shown. -/
 def rootAttribute : String := "data-motion"
 
+/-- The hook classes `bp_motion_live`, `bp_motion_stills` and `bp_motion_link`, and the switch's
+look. -/
 def css : String := include_str "Motion/motion.css"
 
+/-- The switch: shown on a page with motion, beside the theme control; it sets and stores the
+choice. -/
 def js : String := include_str "Motion/motion.js"
 
 /--

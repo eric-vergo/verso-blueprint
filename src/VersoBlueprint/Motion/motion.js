@@ -2,10 +2,13 @@
  * The animations switch.
  *
  * A page has motion when it contains an element with the attribute
- * data-bp-motion (or the class pilean-motion). Such a page shows a control
- * "Animations: On | Off" beside the theme control (after the element with the
- * data-verso-theme-toggle attribute, else at the foot of the table of
- * contents); a page without motion shows nothing.
+ * data-bp-motion. Such a page shows a control "Animations [On | Off]" beside
+ * the theme control (after the element with the data-verso-theme-toggle
+ * attribute, else at the foot of the table of contents, else at the top of the
+ * page's main content); a page without motion shows nothing. The control is
+ * inserted when the page has been parsed, in the same frame as the theme
+ * control is shown, and also when content with motion is added to the page
+ * later (a preview, for example).
  *
  * "Off" sets data-motion="reduce" on the root element and stores "reduce" in
  * localStorage under "verso-blueprint-motion"; "On" removes both, so that the
@@ -17,15 +20,30 @@
  *
  * The two choices are radio buttons in a radio group: Tab reaches the chosen
  * one, and the arrow keys move to the other and choose it.
+ *
+ * A link to "#bp-motion" (a figure's caption may carry one) moves the focus to
+ * the control, opening the collapsed table of contents on narrow screens. Such
+ * a link with class bp_motion_link is shown only when this script runs (the
+ * root element gets the class bp-motion-scripted), since without scripts there
+ * is no control to go to.
  */
 (function () {
+  document.documentElement.classList.add("bp-motion-scripted");
+
   const storageKey = "verso-blueprint-motion";
   const attribute = "data-motion";
   const systemQuery = "(prefers-reduced-motion: reduce)";
-  const motionSelector = "[data-bp-motion], .pilean-motion";
+  const motionSelector = "[data-bp-motion]";
+  const themeSelector = "[data-verso-theme-toggle]";
+  const controlId = "bp-motion";
+
+  function systemQueryList() {
+    return window.matchMedia ? window.matchMedia(systemQuery) : null;
+  }
 
   function systemReduces() {
-    return !!(window.matchMedia && window.matchMedia(systemQuery).matches);
+    const query = systemQueryList();
+    return !!(query && query.matches);
   }
 
   function chosenOff() {
@@ -57,14 +75,14 @@
 
   function build() {
     const wrap = element("div", "bp_motion");
-    const group = element("div", "bp_motion_toggle");
-    group.setAttribute("role", "radiogroup");
+    wrap.id = controlId;
     const label = element("span", "bp_motion_label", "Animations");
     label.id = "bp-motion-label";
+    const group = element("div", "bp_motion_toggle");
+    group.setAttribute("role", "radiogroup");
     group.setAttribute("aria-labelledby", label.id);
     const note = element("p", "bp_motion_note", "Off because your system settings ask for reduced motion.");
     note.id = "bp-motion-note";
-    group.setAttribute("aria-describedby", note.id);
     const on = element("button", "", "On");
     const off = element("button", "", "Off");
     on.setAttribute("data-motion-choice", "on");
@@ -84,9 +102,13 @@
       if (system) {
         on.setAttribute("aria-disabled", "true");
         on.title = "Your system settings ask for reduced motion";
+        // The note describes the group only while it applies: a hidden note that is still
+        // referenced would be read out all the same.
+        group.setAttribute("aria-describedby", note.id);
       } else {
         on.removeAttribute("aria-disabled");
         on.title = "Show animations";
+        group.removeAttribute("aria-describedby");
       }
       // Only the chosen one is a Tab stop; the arrow keys move between the two.
       on.tabIndex = isOff ? -1 : 0;
@@ -96,6 +118,8 @@
 
     function pick(button) {
       if (button.getAttribute("aria-disabled") === "true") return;
+      // Choosing what is already shown changes nothing, and stores nothing.
+      if (button.getAttribute("aria-checked") === "true") return;
       choose(button === off);
       sync();
     }
@@ -114,9 +138,10 @@
       });
     });
 
-    if (window.matchMedia) {
-      const query = window.matchMedia(systemQuery);
+    const query = systemQueryList();
+    if (query) {
       if (query.addEventListener) query.addEventListener("change", sync);
+      else if (query.addListener) query.addListener(sync);
     }
     // Stay in step with a choice made in another tab of the site.
     new MutationObserver(sync).observe(document.documentElement, {
@@ -125,17 +150,19 @@
     });
 
     sync();
-    group.appendChild(label);
     group.appendChild(on);
     group.appendChild(off);
-    wrap.appendChild(group);
+    const row = element("div", "bp_motion_row");
+    row.appendChild(label);
+    row.appendChild(group);
+    wrap.appendChild(row);
     wrap.appendChild(note);
     return wrap;
   }
 
   // Beside the theme control, wherever the page has it.
   function place(control) {
-    const theme = document.querySelector("[data-verso-theme-toggle]");
+    const theme = document.querySelector(themeSelector);
     if (theme && theme.parentNode) {
       theme.parentNode.insertBefore(control, theme.nextSibling);
       return;
@@ -149,10 +176,71 @@
     main.insertBefore(control, main.firstChild);
   }
 
-  function init() {
-    if (!document.querySelector(motionSelector) || document.querySelector(".bp_motion")) return;
-    place(build());
+  function installed() {
+    return document.getElementById(controlId) !== null;
   }
+
+  // Insert the control if the page has motion. True once the control is there.
+  function install() {
+    if (installed()) return true;
+    if (!document.querySelector(motionSelector)) return false;
+    place(build());
+    return true;
+  }
+
+  function hasMotion(node) {
+    return node.nodeType === 1 && (node.matches(motionSelector) || node.querySelector(motionSelector) !== null);
+  }
+
+  // After the page has loaded, watch for content with motion added to it.
+  function watch() {
+    const watcher = new MutationObserver(function (records) {
+      const found = records.some(function (record) {
+        return Array.prototype.some.call(record.addedNodes, hasMotion);
+      });
+      if (found && install()) watcher.disconnect();
+    });
+    watcher.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // Move the focus to the control, opening the collapsed table of contents first.
+  function reveal() {
+    const control = document.getElementById(controlId);
+    if (!control) return;
+    const toggle = document.getElementById("toggle-toc");
+    if (toggle && !toggle.checked && window.matchMedia && window.matchMedia("(max-width: 700px)").matches) {
+      toggle.checked = true;
+    }
+    const target = control.querySelector('[role="radio"][tabindex="0"]');
+    if (target) target.focus({ preventScroll: true });
+    control.scrollIntoView({ block: "nearest" });
+  }
+
+  // The page's <base> may point elsewhere, so a bare "#bp-motion" is taken as this page's.
+  function linksToControl(link) {
+    if (link.getAttribute("href") === "#" + controlId) return true;
+    return link.hash === "#" + controlId && link.pathname === window.location.pathname;
+  }
+
+  document.addEventListener("click", function (event) {
+    const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!link || !linksToControl(link) || !installed()) return;
+    event.preventDefault();
+    reveal();
+  });
+  window.addEventListener("hashchange", function () {
+    if (window.location.hash === "#" + controlId) reveal();
+  });
+
+  function init() {
+    if (!install()) watch();
+  }
+
+  // An address naming the switch: once the page has loaded, when the browser has done its own
+  // scrolling to the address.
+  window.addEventListener("load", function () {
+    if (window.location.hash === "#" + controlId) reveal();
+  });
 
   window.addEventListener("storage", function (event) {
     if (event.key !== storageKey && event.key !== null) return;
