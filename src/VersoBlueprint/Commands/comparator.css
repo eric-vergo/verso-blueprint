@@ -56,14 +56,33 @@
   color: var(--bp-color-text-muted);
 }
 
+/* A challenge of the index: a card with its name, its modules and a row per judged theorem, the
+   theorem's name beside its verdict. */
+.bp_comparator_index_item {
+  border: 1px solid var(--bp-color-border-muted);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.9rem 0.8rem;
+  background: var(--bp-color-surface);
+}
+
+.bp_comparator_index .bp_comparator_index_modules {
+  margin: 0 0 0.45rem;
+  font-size: 0.88rem;
+  color: var(--bp-color-text-muted);
+}
+
 .bp_comparator_verdicts {
   list-style: none;
   padding: 0;
   margin: 0.3rem 0 0;
 }
 
-.bp_comparator_verdict {
-  margin: 0.25rem 0;
+.bp_comparator_index .bp_comparator_verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 0.3rem 0 0;
 }
 
 .bp_comparator_link_list {
