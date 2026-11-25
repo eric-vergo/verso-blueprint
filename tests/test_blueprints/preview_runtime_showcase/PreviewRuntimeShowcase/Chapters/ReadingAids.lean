@@ -41,6 +41,30 @@ Chain the inequalities.
 Adding zero changes nothing.
 :::
 
+The prose of a section reads in one centred column, and its headings share that column's axis.
+
+## A Subsection Whose Heading Is Long Enough to Wrap Onto a Second Line of the Column
+
+A paragraph long enough to fill several lines of the reading column, so that its left edge, its
+right edge and the centre between them can be compared with the headings above and below it. The
+text inside the column stays aligned to its start.
+
+* A list in the reading column keeps its markers inside the column.
+* Its items wrap within the same measure as the paragraphs around it.
+
+> A quotation sits in the reading column, indented from both of its edges.
+
+$$`\sum_{i = 0}^{n} i = \frac{n (n + 1)}{2}`
+
+```
+-- a code block in the prose
+theorem add_zero' (n : Nat) : n + 0 = n := rfl
+```
+
+### A Third-Level Heading
+
+The last paragraph of the section.
+
 # Lean in the Text
 
 Lean code in the running text is highlighted as in the Lean column: the bound

@@ -172,6 +172,76 @@ def gitChanged (root : FilePath) (files : Array String) : IO (Array String) := d
   return (out.stdout.splitOn "\n").toArray.filterMap fun line =>
     if line.length < 4 then none else some (line.drop 3).toString
 
+/-- The message for a key of the root's `comparator.json` that the layout does not allow (rule
+`J2`). A migration does not drop it on its own: the file is the author's. -/
+def disallowedKeyText (key : String) : String :=
+  let allowed := ", ".intercalate (requiredKeys ++ optionalKeys)
+  let nanoda := key == "enable_nanoda"
+  let why := if nanoda then
+      "; lake comparator still accepts \"enable_nanoda\", but the layout names a checker to run \
+        besides Lean's kernel in \"external_kernels\" instead"
+    else ""
+  let keep := if nanoda then " (and name the checker in \"external_kernels\" to keep it)" else ""
+  s!"{comparatorConfigFile} has the key \"{key}\", which the layout of challenge folders does \
+    not allow (rule J2: a challenge's {comparatorConfigFile} has only the keys {allowed}{why}). \
+    Remove the key from {comparatorConfigFile} by hand{keep}, then run comparator-migrate \
+    again; nothing was changed"
+
+/-- Why the project at `root` would not follow the layout after `changes`, the migration into
+`Comparator/<name>/`, or nothing when it would. The new challenge's files are checked as the
+changes would leave them, by the rules read from their texts (`checkChallengeTexts`) and their
+sizes, and every other violation `check` reports now counts except the single-challenge layout
+itself, which the move removes (other entries of `Comparator/`, other challenges, a
+`comparator.json` elsewhere), as does the number of challenges with the new one. A key of
+`comparator.json` that the layout does not allow gets a message of its own
+(`disallowedKeyText`). -/
+def movedViolations (root : FilePath) (name : String) (changes : Array Change) :
+    IO (Option String) := do
+  let after (file text : String) : String := changes.foldl (init := text) fun t c =>
+    match c with
+    | .rename f old new _ => if f == file then (replaceWord t old new).1 else t
+    | _ => t
+  let target := folderOf name
+  let configText := changes.findSome? fun
+    | .write file text => if file == s!"{target}/{comparatorConfigFile}" then some text else none
+    | _ => none
+  -- a key the layout does not allow is the author's to remove: say which, and why
+  if let some text := configText then
+    if let .ok (.obj fields) := Lean.Json.parse text then
+      for (key, _) in fields.toArray do
+        unless requiredKeys.contains key || optionalKeys.contains key do
+          return some (disallowedKeyText (shown key))
+  let mut out : Array Violation := #[]
+  let mut texts : Array (Option String) := #[]
+  for file in #[challengeFileName, solutionFileName] do
+    let source := s!"{folder}/{file}"
+    match ← readLimited (root / source) leanFileLimit with
+    | .ok text =>
+      let text := after source text
+      if text.utf8ByteSize > leanFileLimit then
+        out := out.push { file := s!"{target}/{file}", rule := .leanFile
+                          message := s!"it would have {text.utf8ByteSize} bytes after the \
+                            renames, more than the {leanFileLimit} allowed" }
+      texts := texts.push (some text)
+    | .error why =>
+      out := out.push { file := source, rule := .leanFile, message := why }
+      texts := texts.push none
+  out := out ++ (checkChallengeTexts name configText texts[0]! texts[1]!).2
+  out := out ++ (← check root).violations.filter (·.rule != .legacy)
+  let mut challenges := 1
+  for entry in ← namesIn (root / folder) do
+    if isChallengeName entry && (← entryAt (root / folder / entry)) == .dir then
+      challenges := challenges + 1
+  if challenges > challengeLimit then
+    out := out.push { file := folder, rule := .challengeCount
+                      message := s!"there would be {challenges} challenges, more than the \
+                        {challengeLimit} allowed" }
+  if out.isEmpty then return none
+  return some (s!"after the move the project would not follow the layout (see the chapter \
+    \"Comparator challenges\" of the Verso Blueprint manual), so nothing was changed; \
+    {out.size} {if out.size == 1 then "problem" else "problems"}:\n" ++
+    "\n".intercalate (out.toList.map (s!"  {·.render}")))
+
 /-- The changes that move the single-challenge layout of the project at `root` into
 `Comparator/<name>/`: the two files moved, the root's `comparator.json` moved and given the new
 module names (or written, judging every theorem the challenge declares and permitting Lean's
@@ -239,6 +309,9 @@ def migrationPlan (root : FilePath) (name : String) : IO (Except String (Array C
     for (old, new) in renames do
       let (_, count) := replaceWord text old new
       if count > 0 then changes := changes.push (.rename file old new count)
+  -- the project as the move would leave it must follow the layout: what the check after the move
+  -- would refuse is refused before it, and nothing is changed
+  if let some why ← movedViolations root name changes then return .error why
   -- everything is checked before the first change: no file it moves or rewrites has changes Git
   -- has not committed (an undo would have to keep them apart), and every file it rewrites can be
   -- read and written

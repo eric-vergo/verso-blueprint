@@ -56,25 +56,65 @@
   color: var(--bp-color-text-muted);
 }
 
+/* A challenge of the index: a card with its name, its modules and a row per judged theorem, the
+   theorem's name beside its verdict. */
+.bp_comparator_index_item {
+  border: 1px solid var(--bp-color-border-muted);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.9rem 0.8rem;
+  background: var(--bp-color-surface);
+}
+
+.bp_comparator_index .bp_comparator_index_modules {
+  margin: 0 0 0.45rem;
+  font-size: 0.88rem;
+  color: var(--bp-color-text-muted);
+}
+
 .bp_comparator_verdicts {
   list-style: none;
   padding: 0;
   margin: 0.3rem 0 0;
 }
 
-.bp_comparator_verdict {
-  margin: 0.25rem 0;
+.bp_comparator_index .bp_comparator_verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 0.3rem 0 0;
 }
 
 .bp_comparator_link_list {
   padding-left: 1.2rem;
 }
 
-.bp_comparator_link_list a:focus-visible,
-.bp_comparator_index_link:focus-visible,
-.bp_stats_challenge_link:focus-visible {
-  outline: 2px solid var(--bp-color-accent, #0f766e);
-  outline-offset: 2px;
+/* The sentence of what a replay leaves trusted reads as the bands' sentences do. */
+.bp_comparator_trusted_body p {
+  margin: 0;
+  font-family: var(--bp-stats-text-font);
+  max-width: var(--bp-stats-measure);
+  line-height: 1.5;
+}
+
+/* The index: a card's title is the challenge's name, a link in the structure face; the code in
+   the first paragraph does not break; Verso's list of the pages below repeats the cards and is
+   left out. The id in `:is()` matches nothing; it lifts the rule above the side-by-side style's
+   rule for headings. */
+.bp_comparator_index :is(.bp_comparator_index_title, #bp-comparator-title) {
+  font-family: var(--bp-stats-ui-font);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.bp_comparator_intro code {
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+
+section:has(> .bp_comparator_index) > .section-toc {
+  display: none;
 }
 
 /* A file in full: one block per source line, wrapped lines with a hanging indent of four columns
@@ -95,4 +135,11 @@
   min-height: 1.6em;
   padding-left: calc((var(--bp-indent, 0) + 4) * 1ch);
   text-indent: calc((var(--bp-indent, 0) + 4) * -1ch);
+}
+
+@media (max-width: 520px) {
+  .bp_comparator_intro code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }

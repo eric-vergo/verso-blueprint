@@ -888,7 +888,15 @@ def test_navigation_links_find_their_places(side_by_side_site_dir: Path):
 
 def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
     index = (side_by_side_site_dir / "index.html").read_text(encoding="utf-8")
-    assert "Part I — Relations" in index and "Part II — Reading" in index
+    # the label "Part I — " is marked up so that a stylesheet can set it apart
+    for numeral, title in (("I", "Relations"), ("II", "Reading")):
+        label = (
+            f'<span class="bp_part_label"><span class="bp_part_number">Part {numeral}</span>'
+            '<span class="bp_part_separator"> — </span></span>'
+        )
+        assert label + title in index, title
+    part_page = (side_by_side_site_dir / "Part-I" / "index.html").read_text(encoding="utf-8")
+    assert "<title>Part I — Relations</title>" in part_page
     # chapters stay where they were, numbered on across the parts
     for number, title in ((5, "Group Previews"), (6, "Preview Relationships"), (9, "Reading Aids")):
         assert f'<span class="number">{number}.</span> {title}' in index, title
@@ -902,6 +910,282 @@ def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
     assert ">9.1.1</span>" in aids
     assert re.search(r">§9\.1[ \u00a0]A Numbered Section", aids), "section sign"
     assert not re.search(r"9\.1\.[ \u00a0]A Numbered Section", aids)
+
+
+_AXIS_JS = r"""(sel) => {
+    const centre = (b) => (b.left + b.right) / 2;
+    const area = document.querySelector('main .content-wrapper > section');
+    const axis = centre(area.getBoundingClientRect());
+    // the centre of each line of a heading's text, without its permalink marker
+    const lines = (h) => {
+        const parts = [...h.childNodes].filter((n) => !(n.classList && n.classList.contains('permalink-widget')));
+        const range = document.createRange();
+        range.setStartBefore(parts[0]);
+        range.setEndAfter(parts[parts.length - 1]);
+        const rows = {};
+        for (const r of range.getClientRects()) {
+            if (r.width === 0) continue;
+            const row = (rows[Math.round(r.bottom)] ||= { left: r.left, right: r.right });
+            row.left = Math.min(row.left, r.left);
+            row.right = Math.max(row.right, r.right);
+        }
+        return Object.values(rows).map(centre);
+    };
+    const h = document.querySelector(sel);
+    return { axis, area: area.getBoundingClientRect().width, lines: h ? lines(h) : null };
+}"""
+
+
+class TestReadingAxis:
+    """Every page reads about one centred axis: its title, its headings and its reading column."""
+
+    @pytest.mark.parametrize("width", (1024, 1440))
+    @pytest.mark.parametrize(
+        "path", ("/Side-by-Side-Runs/", "/Part-II/", "/Project-Stats/", "/Dependency-Graph/")
+    )
+    def test_page_title_is_centred_on_the_content_area(
+        self, side_by_side_server: str, page: Page, path: str, width: int
+    ):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(side_by_side_server + path)
+        page.wait_for_load_state("networkidle")
+        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
+        assert facts["lines"], facts
+        for line in facts["lines"]:
+            assert abs(line - facts["axis"]) <= 1, (path, facts)
+
+    def test_headings_column_and_figures_share_the_axis(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        page.wait_for_load_state("networkidle")
+        # a figure narrower than the content area, as a site's own figure block would make it
+        page.evaluate(
+            """() => {
+                const f = document.createElement('figure');
+                f.id = 'axis-probe';
+                f.style.width = '20rem';
+                f.textContent = 'A figure';
+                document.querySelector('main section section > h2').after(f);
+            }"""
+        )
+        title = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1")
+        axis = title["axis"]
+        for line in title["lines"]:
+            assert abs(line - axis) <= 1, title
+        heading = page.evaluate(_AXIS_JS, "main section section > h2")
+        # the long section heading wraps within the column, each line centred
+        assert len(heading["lines"]) >= 2, heading
+        for line in heading["lines"]:
+            assert abs(line - axis) <= 1, heading
+        sub = page.evaluate(_AXIS_JS, "main section section section > h3")
+        for line in sub["lines"]:
+            assert abs(line - axis) <= 1, sub
+        boxes = page.evaluate(
+            """() => [...document.querySelectorAll(
+                    'main section section > :is(p, ul, blockquote, pre), #axis-probe, main section section > h2')]
+                .map((e) => { const b = e.getBoundingClientRect();
+                              return { tag: e.tagName, centre: (b.left + b.right) / 2, width: b.width,
+                                       align: getComputedStyle(e).textAlign }; })"""
+        )
+        measure = page.evaluate(
+            "() => document.querySelector('main section section > p').getBoundingClientRect().width"
+        )
+        # the reading column is narrower than the content area, so centring it is visible
+        assert measure < title["area"] - 100, (measure, title)
+        for box in boxes:
+            assert abs(box["centre"] - axis) <= 1, (box, axis)
+            if box["tag"] in ("P", "UL", "BLOCKQUOTE"):
+                # text inside the column stays aligned to its start
+                assert box["align"] in ("start", "left"), box
+                assert box["width"] <= measure + 0.5, (box, measure)
+
+    def test_front_page_text_reads_in_the_same_column(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/")
+        facts = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                return [...document.querySelectorAll('main .titlepage > p')].map((p) => {
+                    const b = p.getBoundingClientRect();
+                    return { centre: (b.left + b.right) / 2, width: b.width, axis: (area.left + area.right) / 2,
+                             area: area.width, align: getComputedStyle(p).textAlign };
+                });
+            }"""
+        )
+        assert facts, "the front page has no text"
+        for item in facts:
+            assert abs(item["centre"] - item["axis"]) <= 1, item
+            assert item["width"] < item["area"] - 100, item
+            assert item["align"] in ("start", "left"), item
+
+    def test_side_by_side_runs_keep_the_full_width(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Side-by-Side-Runs/")
+        widths = page.evaluate(
+            """() => { const s = document.querySelector('main .content-wrapper > section');
+                       const run = s.querySelector(':scope > .bp_sbs_run');
+                       return [s.getBoundingClientRect().width, run.getBoundingClientRect().width]; }"""
+        )
+        assert abs(widths[0] - widths[1]) <= 1, widths
+
+    def test_stats_bands_keep_their_own_layout(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Project-Stats/")
+        bands = page.evaluate(
+            """() => [...document.querySelectorAll('section.bp_stats_band')].map((band) => {
+                const style = getComputedStyle(band);
+                const start = band.getBoundingClientRect().left + parseFloat(style.borderLeftWidth)
+                    + parseFloat(style.paddingLeft);
+                return [...band.querySelectorAll(
+                    ':scope > :is(h2, p), :scope > .bp_stats_band_body > :is(h2, p)')]
+                    .filter((e) => e.getBoundingClientRect().width > 0).map((e) => ({
+                    tag: e.tagName, offset: e.getBoundingClientRect().left - start,
+                    align: getComputedStyle(e).textAlign }));
+            }).flat()"""
+        )
+        assert bands, "no stats bands"
+        # the band text is in each band's body, beside the title
+        assert any(item["tag"] == "P" for item in bands), bands
+        for item in bands:
+            # band titles and band text start at the band's edge, left-aligned, as on any card
+            assert abs(item["offset"]) <= 1, item
+            assert item["align"] in ("start", "left"), item
+
+    @pytest.mark.parametrize(
+        "path",
+        ("/", "/Side-by-Side-Runs/", "/Reading-Aids/A-Numbered-Section/", "/Part-II/", "/Project-Stats/"),
+    )
+    def test_no_width_scrolls_the_page_sideways(self, side_by_side_server: str, page: Page, path: str):
+        # phone widths, the widths where the table of contents leaves a narrow content area, and a sweep
+        widths = sorted({360, 390, 560, 700, 701, 720, 800, 900, 1000, 1024, 1440, 1920, *range(701, 1001, 33)})
+        for width in widths:
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + path)
+            page.wait_for_load_state("networkidle")
+            sizes = page.evaluate(
+                "() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]"
+            )
+            assert sizes[0] <= sizes[1], (path, width, sizes)
+            # each heading's permalink marker stays on the screen
+            boxes = page.evaluate(
+                "() => [...document.querySelectorAll('main .permalink-widget.inline > a')]"
+                ".map((a) => { const b = a.getBoundingClientRect(); return [b.left, b.right]; })"
+            )
+            assert all(left >= -0.5 and right <= sizes[1] + 0.5 for left, right in boxes), (path, width, boxes)
+            facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1, main .titlepage > h1")
+            for line in facts["lines"] or []:
+                assert abs(line - facts["axis"]) <= 1, (path, width, facts)
+
+    @pytest.mark.parametrize("width", (390, 720))
+    def test_permalink_marker_costs_a_title_no_line(self, side_by_side_server: str, page: Page, width: int):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        page.wait_for_load_state("networkidle")
+        selector = "main .content-wrapper > section > h1"
+        with_marker = page.evaluate(_AXIS_JS, selector)
+        padding = page.evaluate(f"() => getComputedStyle(document.querySelector('{selector}')).paddingInlineStart")
+        assert padding == "0px", padding
+        page.evaluate(f"() => document.querySelector('{selector} > .permalink-widget').remove()")
+        without_marker = page.evaluate(_AXIS_JS, selector)
+        assert len(with_marker["lines"]) == len(without_marker["lines"]), (with_marker, without_marker)
+
+    def test_permalink_marker_shows_with_the_keyboard_focus(self, side_by_side_server: str, page: Page):
+        for width in (390, 1440):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+            marker = page.locator("main .content-wrapper > section > h1 > .permalink-widget.inline")
+            assert marker.evaluate("(e) => getComputedStyle(e).opacity") == "0"
+            marker.locator("a").focus()
+            assert marker.evaluate("(e) => getComputedStyle(e).opacity") == "1"
+            box = marker.locator("a").bounding_box()
+            assert box is not None and box["x"] >= 0 and box["x"] + box["width"] <= width, (width, box)
+
+    def test_block_quotes_and_low_headings_keep_to_the_column(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        facts = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const axis = (area.left + area.right) / 2;
+                const section = document.querySelector('main section section');
+                const para = section.querySelector(':scope > p').getBoundingClientRect();
+                const quote = section.querySelector(':scope > blockquote');
+                const q = quote.getBoundingClientRect();
+                const text = quote.firstElementChild.getBoundingClientRect();
+                const low = document.createElement('h5');
+                low.textContent = 'A fifth-level heading';
+                section.querySelector(':scope > p').after(low);
+                const l = low.getBoundingClientRect();
+                return { axis, paraLeft: para.left, paraWidth: para.width,
+                         quoteCentre: (q.left + q.right) / 2, quoteWidth: q.width,
+                         indent: [text.left - q.left, q.right - text.right],
+                         lowAlign: getComputedStyle(low).textAlign, lowLeft: l.left, lowWidth: l.width };
+            }"""
+        )
+        # a block quote is the column, its text indented from both edges
+        assert abs(facts["quoteCentre"] - facts["axis"]) <= 1, facts
+        assert abs(facts["quoteWidth"] - facts["paraWidth"]) <= 1, facts
+        assert all(abs(side - 40) <= 1 for side in facts["indent"]), facts
+        # a fifth-level heading starts at the column's edge, within the measure
+        assert facts["lowAlign"] in ("start", "left"), facts
+        assert abs(facts["lowLeft"] - facts["paraLeft"]) <= 1, facts
+        assert facts["lowWidth"] <= facts["paraWidth"] + 0.5, facts
+
+    @pytest.mark.parametrize("length", ("short", "medium", "long"))
+    def test_code_blocks_grow_about_the_axis(self, side_by_side_server: str, page: Page, length: str):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        line = {"short": "x := 1", "medium": "theorem t " + "abc " * 18, "long": "theorem t " + "abcdef " * 60}[length]
+        facts = page.evaluate(
+            """(line) => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const block = document.querySelector('main section section > pre');
+                block.textContent = line;
+                const b = block.getBoundingClientRect();
+                const column = document.querySelector('main section section > p').getBoundingClientRect();
+                return { offset: (b.left + b.right) / 2 - (area.left + area.right) / 2, width: b.width,
+                         column: column.width, area: area.width,
+                         scrolls: block.scrollWidth > block.clientWidth };
+            }""",
+            line,
+        )
+        assert abs(facts["offset"]) <= 1, facts
+        if length == "short":
+            assert abs(facts["width"] - facts["column"]) <= 1 and not facts["scrolls"], facts
+        elif length == "medium":
+            assert facts["column"] + 10 < facts["width"] < facts["area"] - 10 and not facts["scrolls"], facts
+        else:
+            assert abs(facts["width"] - facts["area"]) <= 1 and facts["scrolls"], facts
+
+    def test_lists_of_sections_search_and_notices(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/")
+        toc = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const list = document.querySelector('main section > ol.section-toc');
+                const b = list.getBoundingClientRect();
+                return { offset: (b.left + b.right) / 2 - (area.left + area.right) / 2, width: b.width,
+                         area: area.width, align: getComputedStyle(list.querySelector('li')).textAlign };
+            }"""
+        )
+        # the list of sections is centred as a block, its entries aligned to their start
+        assert abs(toc["offset"]) <= 1 and toc["width"] < toc["area"] / 2, toc
+        assert toc["align"] in ("start", "left"), toc
+        page.goto(side_by_side_server + "/search/")
+        assert page.locator("main section.search-page > h1").evaluate("(e) => getComputedStyle(e).textAlign") == "center"
+        # a licence notice keeps its own layout
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        aligns = page.evaluate(
+            """() => {
+                document.querySelector('main section section').insertAdjacentHTML('beforeend',
+                    '<section class="license-info"><h3>A dependency</h3>'
+                    + '<section><h4>Its notice</h4><p>The text of the licence.</p></section></section>');
+                const h = document.querySelector('.license-info section > h4');
+                return [getComputedStyle(h).textAlign, getComputedStyle(h).marginLeft];
+            }"""
+        )
+        assert aligns == ["start", "0px"], aligns
 
 
 # The page of the fixture with Lean code in its running text: a block and inline code.

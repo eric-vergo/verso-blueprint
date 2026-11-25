@@ -8,17 +8,22 @@ import Lean
 import Verso
 import VersoManual
 import VersoBlueprint.Axioms
+import VersoBlueprint.CodeSite.Highlight
 import VersoBlueprint.Commands.Common
 import VersoBlueprint.Commands.SerializedExtension
 import VersoBlueprint.Commands.SiteSections
 import VersoBlueprint.Commands.WorkQueue
+import VersoBlueprint.DeclarationSource
 import VersoBlueprint.Git
 import VersoBlueprint.Graph
 import VersoBlueprint.Informal.Block.Store
+import VersoBlueprint.Informal.ExternalCode
 import VersoBlueprint.Lib.ExtensionDecode
 import VersoBlueprint.Meaning
+import VersoBlueprint.RepoFile
 import VersoBlueprint.ReplayView
 import VersoBlueprint.Stats.Claims
+import VersoBlueprint.Stats.Collect
 import VersoBlueprint.Stats.Data
 import VersoBlueprint.StatusColors
 import VersoBlueprint.TraversalIndex
@@ -31,7 +36,11 @@ revisions, links), its headline result (the theorems of its Comparator challenge
 how far along it is (nodes by progress status, overall and per chapter), how big it is, whether it
 builds, and a short ledger of what the Lean code rests on (`sorry`, extra axioms, compiled code).
 Every number comes from the project statistics captured with the render model
-(`Informal.Stats`); the page holds no version-control data and needs no script.
+(`Informal.Stats`); the page needs no script. Each fact of the identity, each standard axiom
+and each verdict is a link when it has a known address (`packageTreeHref?`, `leanReleaseHref?`,
+`axiomDocHref?`, `verdictPill`), and a plain chip otherwise; the license file's address at the
+commit the site is built from is the only version-control data the page uses
+(`StatsPageView.resolveLinks`).
 
 Each sentence on the page says what was looked at and no more. A status is about Lean code: its
 words are "Lean complete" (no `sorry` in a node's declarations or in what they use), never
@@ -49,9 +58,10 @@ Generators add the page to every site (`withStatsPage`), as an unnumbered page a
 table of contents, unless the document places it itself with `{blueprint_stats}` or the generator
 turns it off (`statsPage := false`, or the `--no-stats-page` flag).
 
-The page is drawn in two steps: `StatsPageView.build` gathers what the page shows from the
+The page is drawn in three steps: `StatsPageView.build` gathers what the page shows from the
 statistics and the traversal (chapter titles, node links, the addresses of the summary and
-work-queue pages), and `statsPageHtml` renders a view as a pure function.
+work-queue pages), `StatsPageView.resolveLinks` adds the license file's address and the
+highlighted statements, and `statsPageHtml` renders a view as a pure function.
 -/
 
 namespace Informal.Commands
@@ -125,7 +135,19 @@ structure StatsPageView where
   sourceChanged : Array Name := #[]
   /-- The address of each challenge's page, by the challenge's name. -/
   challengeHrefs : Array (String × String) := #[]
+  /-- The license file in the project's repository at the commit the site is built from, when the
+  repository is on GitHub and tracks the file (`resolveLinks`). -/
+  licenseHref : Option String := none
+  /-- The highlighted Lean statement of each judged theorem, by challenge and theorem
+  (`resolveLinks`); a theorem without one shows its statement as plain text. -/
+  statementCode : Array ((String × Name) × Output.Html) := #[]
 deriving Inhabited
+
+/-- The id of the challenge file's section on a challenge's page. -/
+def challengeFileId : String := "challenge-file"
+
+/-- The id of the solution file's section on a challenge's page. -/
+def solutionFileId : String := "solution-file"
 
 /-- The title of the page `{blueprint_summary}` adds. -/
 def summaryPageTitle : String := "Blueprint Summary"
@@ -236,10 +258,131 @@ private def commaList (items : Array Output.Html) : Output.Html :=
   .seq <| items.foldl (init := #[]) fun acc item =>
     if acc.isEmpty then #[item] else acc ++ #[txt ", ", item]
 
-private def band (cls title : String) (content : Array Output.Html) : Output.Html :=
-  el "section" s!"bp_stats_band {cls}" (.seq (#[el "h2" "bp_stats_band_title" (txt title)] ++ content))
+/-- A band: its title, then its content in a body of its own, so that the rules a site sets for the
+paragraphs and lists of a page's sections (a reading measure, list-item spacing) stay out of it. -/
+private def band (cls title : String) (content : Array Output.Html)
+    (attrs : Array (String × String) := #[]) : Output.Html :=
+  el "section" s!"bp_stats_band {cls}" (.seq #[el "h2" "bp_stats_band_title" (txt title),
+    el "div" "bp_stats_band_body" (.seq content)]) attrs
+
+/-- The host of an `https://` address: `https://github.com/o/r` gives `github.com`. -/
+def hostOf (href : String) : String :=
+  ((href.drop "https://".length).toString.splitOn "/").head!
+
+/-- A link that leaves the site, marked as such for the stylesheet and named by its host when it
+has no title of its own. -/
+private def externalLink (cls href : String) (content : Output.Html)
+    (attrs : Array (String × String) := #[]) : Output.Html :=
+  let title := if attrs.any (·.1 == "title") then #[] else #[("title", hostOf href)]
+  .element "a" (#[("class", s!"{cls} bp_stats_external"), ("href", href)] ++ title ++ attrs) content
+
+/-- A Lean name as code that, when it cannot fit on its line, breaks only after one of its dots. -/
+def theoremNameHtml (n : Name) : Output.Html :=
+  let parts := (n.toString.splitOn ".").toArray
+  el "code" "bp_stats_theorem_name" (.seq <| parts.mapIdx fun i part =>
+    if i == 0 then txt part else .seq #[txt ".", .element "wbr" #[] .empty, txt part])
+
+/-! ## Addresses of the identity's facts and the axioms -/
+
+/-- A GitHub repository's address, `https://github.com/<owner>/<name>`, from a remote URL in any of
+the spellings `Git.githubRepositoryUrl?` knows, when the path is exactly an owner and a name of
+letters, digits, `-`, `_` and `.`; otherwise `none`. -/
+def githubRepository? (url : String) : Option String := do
+  let repo ← Git.githubRepositoryUrl? url
+  let path := (repo.drop "https://github.com/".length).toString
+  let path := if path.endsWith "/" then (path.dropEnd 1).toString else path
+  let path := if path.endsWith ".git" then (path.dropEnd 4).toString else path
+  let parts := path.splitOn "/"
+  let ok (p : String) := !p.isEmpty && p != "." && p != ".." &&
+    p.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.'
+  guard (parts.length == 2 && parts.all ok)
+  return s!"https://github.com/{path}"
+
+/-- Whether `rev` is a full Git commit hash: forty hexadecimal digits. -/
+def isFullCommit (rev : String) : Bool :=
+  rev.length == 40 && rev.all Char.isHexDigit
+
+/-- The tree of a locked package at its locked commit, `https://github.com/<owner>/<name>/tree/<rev>`,
+and in it the package's folder when the package is not the repository's root (`subDir`): only for
+a `git` package from GitHub locked to a full commit, with a folder of plain path segments. A
+`path` package, a repository on another host and a revision that is not a commit have no
+address. -/
+def packageTreeHref? (pkg : ManifestPackage) : Option String := do
+  guard (pkg.source == "git")
+  let repo ← githubRepository? (← pkg.url)
+  let rev ← pkg.rev
+  guard (isFullCommit rev)
+  match pkg.subDir with
+  | Option.none => return s!"{repo}/tree/{rev}"
+  | some dir =>
+    let segments := (dir.splitOn "/").filter (!·.isEmpty)
+    guard (!segments.isEmpty && segments.all fun s => s != "." && s != ".." &&
+      s.all fun c => c.isAlphanum || c == '-' || c == '_' || c == '.')
+    return s!"{repo}/tree/{rev}/{"/".intercalate segments}"
+
+/-- Whether `v` is a Lean release or release candidate tag: `v4.36.0`, `v4.36.0-rc1`. -/
+def isLeanReleaseTag (v : String) : Bool :=
+  let number (p : String) := !p.isEmpty && p.all Char.isDigit
+  let (core, rcOk) := match v.splitOn "-rc" with
+    | [core] => (core, true)
+    | [core, n] => (core, number n)
+    | _ => ("", false)
+  rcOk && core.startsWith "v" &&
+    match (core.drop 1).toString.splitOn "." with
+    | [a, b, c] => number a && number b && number c
+    | _ => false
+
+/-- The release page of the Lean version a `lean-toolchain` names
+(`https://github.com/leanprover/lean4/releases/tag/<version>`): only for `leanprover/lean4` (named,
+or implied by a bare version) and a release or release candidate tag. A nightly, a custom
+toolchain or a channel such as `stable` has no address. -/
+def leanReleaseHref? (toolchain : String) : Option String :=
+  let t := toolchain.trimAscii.toString
+  let version? := match t.splitOn ":" with
+    | ["leanprover/lean4", v] => some v
+    | [v] => some v
+    | _ => none
+  version?.bind fun v =>
+    if isLeanReleaseTag v then some s!"https://github.com/leanprover/lean4/releases/tag/{v}" else none
+
+/-- The Lean releases whose Language Reference is published under its version
+(`https://lean-lang.org/doc/reference/4.<minor>.0`) with the sections `axiomDocHref?` links to:
+4.19.0 to 4.36.0, each checked. -/
+def versionedReferenceMinors : List Nat := (List.range 18).map (· + 19)
+
+/-- The Lean Language Reference of the version a `lean-toolchain` names, when it is a release of
+`versionedReferenceMinors`, and the latest reference otherwise (a release candidate, a nightly, a
+custom toolchain, an unknown version or no toolchain). Decided from the toolchain's form alone. -/
+def leanReferenceBase (toolchain : Option String) : String :=
+  let latest := "https://lean-lang.org/doc/reference/latest"
+  match toolchain with
+  | some t =>
+    if (leanReleaseHref? t).isNone then latest else
+    match (toolchainVersion t).splitOn "." with
+    | ["v4", minor, "0"] =>
+      if (minor.toNat?.any fun n => versionedReferenceMinors.contains n && toString n == minor) then
+        s!"https://lean-lang.org/doc/reference/4.{minor}.0"
+      else latest
+    | _ => latest
+  | Option.none => latest
+
+/-- The Lean Language Reference's account of one of Lean's standard axioms, in the reference at
+`reference` (`leanReferenceBase`): `propext` and `Quot.sound` where they are documented,
+`Classical.choice` in the section on the standard axioms, which states it. Any other axiom has no
+address here. -/
+def axiomDocHref? (reference : String) (a : Name) : Option String :=
+  if a == ``propext then some s!"{reference}/The-Type-System/Propositions/#propext"
+  else if a == ``Quot.sound then some s!"{reference}/The-Type-System/Quotients/#Quot___sound"
+  else if a == ``Classical.choice then some s!"{reference}/Axioms/#standard-axioms"
+  else none
 
 /-! ## Identity -/
+
+/-- A package's name as a reader writes it: without the `«»` that quote it in a manifest. -/
+def shownPackageName (name : String) : String :=
+  if name.startsWith "«" && name.endsWith "»" && name.length > 2 then
+    ((name.drop 1).dropEnd 1).toString
+  else name
 
 /-- What the page's reports are reports of: one build. A site of a port, or of a project built
 with other revisions than its release names, must not read as a check of that release. -/
@@ -258,14 +401,26 @@ def thisBuildText (identity : ProjectIdentity) : String :=
 private def identityHtml (view : StatsPageView) : Output.Html :=
   let identity := view.stats.identity
   let name := identity.shownTitle? <|> view.page.documentTitle <|> identity.name
+  -- a chip is a link when its fact has an address, and a plain chip otherwise
+  let chip (cls : String) (href? : Option String) (content : Output.Html)
+      (attrs : Array (String × String) := #[]) : Output.Html :=
+    match href? with
+    | some href => externalLink s!"bp_stats_chip {cls}" href content attrs
+    | Option.none => el "span" s!"bp_stats_chip {cls}" content attrs
+  let fact (key label : String) (values : Array Output.Html) : Output.Html :=
+    el "div" "bp_stats_fact" (.seq #[
+      el "dt" "bp_stats_fact_label" (txt label),
+      el "dd" "bp_stats_fact_value" (el "ul" "bp_stats_chips" (.seq (values.map fun v =>
+        .element "li" #[] v)))]) #[("data-bp-fact", key)]
   let license : Output.Html := match identity.license with
     | some info =>
-      el "li" "bp_stats_chip bp_stats_chip_license" (txt s!"License: {info.spdx.getD info.file}")
-        #[("data-bp-license-file", info.file)]
-    | Option.none => el "li" "bp_stats_chip bp_stats_chip_license bp_stats_chip_missing"
-        (txt "No license file")
+      fact "license" "License" #[chip "bp_stats_chip_license" view.licenseHref
+        (txt (info.spdx.getD info.file)) #[("data-bp-license-file", info.file)]]
+    | Option.none => fact "license" "License" #[
+        chip "bp_stats_chip_license bp_stats_chip_missing" Option.none (txt "No license file")]
   let toolchain : Output.Html := match identity.toolchain with
-    | some t => el "li" "bp_stats_chip bp_stats_chip_toolchain" (txt s!"Lean {toolchainVersion t}")
+    | some t => fact "lean" "Lean" #[chip "bp_stats_chip_toolchain" (leanReleaseHref? t)
+        (txt (toolchainVersion t)) #[("data-bp-toolchain", t.trimAscii.toString)]]
     | Option.none => .empty
   let packages := identity.packages.filter (!·.inherited) |>.map fun pkg =>
     let version := match pkg.rev with
@@ -273,23 +428,28 @@ private def identityHtml (view : StatsPageView) : Output.Html :=
         | some input => if Git.sameRevision input rev then shortRev rev else s!"{input} · {shortRev rev}"
         | Option.none => shortRev rev
       | Option.none => pkg.dir.map (fun _ => "local") |>.getD pkg.source
-    el "li" "bp_stats_chip bp_stats_chip_package" (.seq #[el "span" "bp_stats_chip_name" (txt pkg.name),
-      txt " ", el "span" "bp_stats_chip_version" (txt version)]) #[("data-bp-package", pkg.name)]
+    chip "bp_stats_chip_package" (packageTreeHref? pkg) (.seq #[
+      el "span" "bp_stats_chip_name" (txt (shownPackageName pkg.name)), txt " ",
+      el "span" "bp_stats_chip_version" (txt version)]) #[("data-bp-package", pkg.name)]
   let links : Output.Html :=
     if view.page.links.isEmpty then .empty
-    else el "ul" "bp_stats_links" (.seq <| view.page.links.map fun l =>
-      .element "li" #[] (.element "a" #[("href", l.href)] (txt l.label)))
-  el "section" "bp_stats_band bp_stats_identity" (.seq #[
+    else el "div" "bp_stats_fact" (.seq #[
+      el "dt" "bp_stats_fact_label" (txt "Links"),
+      el "dd" "bp_stats_fact_value" (el "ul" "bp_stats_chips bp_stats_links"
+        (.seq <| view.page.links.map fun l =>
+          .element "li" #[] (.element "a" #[("href", l.href)] (txt l.label))))])
+      #[("data-bp-fact", "links")]
+  el "section" "bp_stats_band bp_stats_identity" <| el "div" "bp_stats_band_body" <| .seq #[
     match name with
     | some n => el "p" "bp_stats_name" (txt n)
     | Option.none => .empty,
     match identity.description with
     | some d => el "p" "bp_stats_description" (txt d)
     | Option.none => .empty,
-    el "ul" "bp_stats_chips" (.seq (#[license, toolchain] ++ packages)),
-    el "p" "bp_stats_this_build" (txt (thisBuildText identity)) #[("data-bp-build", "this-build")],
-    links
-  ])
+    el "dl" "bp_stats_facts" (.seq #[license, toolchain,
+      if packages.isEmpty then .empty else fact "packages" "Packages" packages, links]),
+    el "p" "bp_stats_this_build" (txt (thisBuildText identity)) #[("data-bp-build", "this-build")]
+  ]
 
 /-! ## Headline -/
 
@@ -375,6 +535,36 @@ def headlineVerdict (t : HeadlineTheorem)
       ("not-theorem", s!"Not a theorem in the challenge{what}; only a theorem is judged as \
         proved")
 
+/-- The id of an entry of the explanation of the marks (`meaningItems`), from its title's first
+clause: "Kernel replay, and the check mark on a node" gives `bp-meaning-kernel-replay`. -/
+def meaningEntryId (title : String) : String :=
+  let clause := (title.splitOn ",").head!.trimAscii.toString.toLower
+  let slug := String.ofList (clause.toList.map fun c => if c.isAlphanum then c else '-')
+  s!"bp-meaning-{slug}"
+
+/-- The entry of the explanation of the marks that explains a verdict (`headlineVerdict`'s token,
+and whether the comparison's conditions were met): the replay's entry for a verdict a kernel replay
+decided or did not reach, among them the theorem the replay did not check because it rests on an
+axiom outside the standard three; the axioms' entry for a proof that rests on an axiom the verdict
+does not allow; and the headline's entry, which says what the comparison requires, for the rest. -/
+def verdictMeaningTitle (token : String) (conditionsMet : Bool := false) : String :=
+  if token == "rejected" || token == "not-replayed" || (token == "axioms" && conditionsMet) then
+    "Kernel replay, and the check mark on a node"
+  else if token == "axioms" then "Axioms"
+  else "Lean statement proved, in the headline"
+
+/-- A verdict as a pill. With the explanation of the marks on the site (`meaningHref`), the pill is
+a link to the entry that explains it, and to nothing else. -/
+def verdictPill (meaningHref : Option String) (token words : String) (conditionsMet : Bool) :
+    Output.Html :=
+  let pill := el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt words)
+  match meaningHref with
+  | some href =>
+    let page := (href.splitOn "#").head!
+    .element "a" #[("class", s!"bp_stats_verdict_link bp_stats_verdict_link_{token}"),
+      ("href", s!"{page}#{meaningEntryId (verdictMeaningTitle token conditionsMet)}")] pill
+  | Option.none => pill
+
 /-- How the solution declares a definition of the challenge, in a few words. -/
 def definitionVerdict : Correspondence → String
   | .same => "same in the solution"
@@ -414,10 +604,13 @@ def notComparedText (u : Unavailable) (detail? : Option String := none) : String
   let advice := if advice.isEmpty then "" else s!"; {advice}"
   s!"Not compared: {reason}{detail}{advice}."
 
-private def axiomChip (a : Name) : Output.Html :=
+private def axiomChip (reference : String) (a : Name) : Output.Html :=
   let cls := AxiomClass.ofName a
-  el "li" s!"bp_stats_axiom bp_stats_axiom_{cls.token}" (code a.toString)
-    #[("data-bp-axiom-class", cls.token), ("title", cls.description)]
+  let attrs := #[("data-bp-axiom-class", cls.token), ("title", cls.description)]
+  -- each of Lean's standard axioms links to the Lean Language Reference; no other axiom does
+  .element "li" #[] <| match axiomDocHref? reference a with
+    | some href => externalLink s!"bp_stats_axiom bp_stats_axiom_{cls.token}" href (code a.toString) attrs
+    | Option.none => el "span" s!"bp_stats_axiom bp_stats_axiom_{cls.token}" (code a.toString) attrs
 
 /-- The caption of the axioms of a judged theorem's proof: what the line is, and, unless the
 verdict is that the theorem is proved, that the list is what the build reports, which no kernel
@@ -437,7 +630,7 @@ def axiomsNoteText (axioms : Array Name) (proved : Bool) : String :=
     else "only the standard axioms of Lean's logic reported"
   else ""
 
-private def axiomsHtml (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
+private def axiomsHtml (reference : String) (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
   if t.solution == .missing || t.solution == .notCompared || t.solution == .notTheorem then .empty
   else
   let note := axiomsNoteText t.axioms proved
@@ -447,7 +640,7 @@ private def axiomsHtml (t : HeadlineTheorem) (proved : Bool) : Output.Html :=
       (txt s!"uses {notAllowedText t}")
   el "div" "bp_stats_axioms" (.seq #[
     el "span" "bp_stats_caption" (txt (axiomsCaption proved)),
-    el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map axiomChip)),
+    el "ul" "bp_stats_axiom_list" (.seq (t.axioms.map (axiomChip reference))),
     if note.isEmpty then .empty else el "span" "bp_stats_axioms_note" (txt note),
     permitted])
 
@@ -458,6 +651,12 @@ private def nodeLink (view : StatsPageView) (label : Name) : Output.Html :=
   match nodeRef? view label with
   | some ref => link ref.href (txt ref.title)
   | Option.none => txt label.toString
+
+/-- The address of a section of a challenge's page (`challengeFileId`, `solutionFileId`), when the
+site has the page. -/
+def challengeSectionHref? (view : StatsPageView) (challenge id : String) : Option String :=
+  (view.challengeHrefs.find? (·.1 == challenge)).map fun (_, href) =>
+    s!"{(href.splitOn "#").head!}#{id}"
 
 /-- The link to the explanation of the marks, with a space before it. -/
 private def meaningLink (view : StatsPageView) : Output.Html :=
@@ -538,17 +737,24 @@ private def headlineTheoremHtml (view : StatsPageView) (h : Headline) (t : Headl
   -- the theorem is proved is in the accepted scope
   let scope := if standing.isAccepted && token != "proved" then StatusColors.replayNoneClass
     else standing.scopeClass
+  let name := theoremNameHtml t.name
+  let statement : Output.Html :=
+    match view.statementCode.find? (·.1 == (h.name, t.name)) with
+    | some (_, html) => el "div" "bp_stats_statement bp_stats_statement_code" html
+    | Option.none => el "pre" "bp_stats_statement" (code t.statement)
   el "div" s!"bp_stats_theorem {scope}" (.seq #[
     el "div" "bp_stats_theorem_head" (.seq #[
-      el "code" "bp_stats_theorem_name" (txt t.name.toString),
-      el "span" s!"bp_stats_verdict bp_stats_verdict_{token}" (txt verdict),
+      match challengeSectionHref? view h.name challengeFileId with
+      | some href => .element "a" #[("class", "bp_stats_theorem_name_link"), ("href", href)] name
+      | Option.none => name,
+      verdictPill view.page.meaningHref token verdict t.conditionsMet,
       theoremNodeHtml view t]),
     replayNote,
     if t.statement.isEmpty then .empty
     else .seq #[
       el "p" "bp_stats_caption bp_stats_statement_caption" (txt "Lean statement, from the challenge"),
-      el "pre" "bp_stats_statement" (code t.statement)],
-    axiomsHtml t (token == "proved"),
+      statement],
+    axiomsHtml (leanReferenceBase view.stats.identity.toolchain) t (token == "proved"),
     match t.docstring with
     | some d => el "div" "bp_stats_theorem_informal" (.seq #[
         el "p" "bp_stats_caption bp_stats_doc_caption" (txt challengeDocCaption),
@@ -570,7 +776,7 @@ the verdict (`replayNoteText`) and in the replay band. -/
 def headlineMethodText : String :=
   "Compared by this site's generator from the compiled modules of this build, which it does not \
     rebuild in a sandbox as lake comparator does. The comparison runs no kernel: a verdict says \
-    \"proved\" only when a kernel replay accepted the theorem with everything it depends on."
+    “proved” only when a kernel replay accepted the theorem with everything it depends on."
 
 /-- The band of one challenge's headline: its verdicts, what was not judged, its definitions, its
 files, and a link to its page (`Informal.Commands.Comparator`). With several challenges the band
@@ -578,8 +784,13 @@ names its challenge. -/
 def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
     (pageLink : Bool := true) : Output.Html :=
     let source : Output.Html :=
-      let challenge := code (h.challengeFile.getD h.challengeModule.toString)
-      let solution := code (h.solutionFile.getD h.solutionModule.toString)
+      -- each file links to its text in full on the challenge's page
+      let file (path : String) (id : String) : Output.Html :=
+        match challengeSectionHref? view h.name id with
+        | some href => .element "a" #[("class", "bp_stats_file_link"), ("href", href)] (code path)
+        | Option.none => code path
+      let challenge := file (h.challengeFile.getD h.challengeModule.toString) challengeFileId
+      let solution := file (h.solutionFile.getD h.solutionModule.toString) solutionFileId
       -- what the comparison is and is not, only where one was made
       let method : Output.Html :=
         if h.unavailable.isSome then txt "."
@@ -589,7 +800,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
     let page : Output.Html := match view.challengeHrefs.find? (·.1 == h.name) with
       | some (_, href) => if !pageLink then .empty else el "p" "bp_stats_challenge_page" (.seq #[
           .element "a" #[("href", href), ("class", "bp_stats_challenge_link")]
-            (txt s!"The challenge {h.name}: its files in full, its configuration and its verdict")])
+            (txt s!"Challenge {h.name}: files, configuration and verdict")])
       | Option.none => .empty
     let unavailable : Output.Html := match h.unavailable with
       | some u =>
@@ -614,9 +825,7 @@ def challengeBandHtml (view : StatsPageView) (h : Headline) (several : Bool)
         el "ul" "bp_stats_files" (.seq (h.unjudged.map fun (n, why) =>
           .element "li" #[] (.seq #[code n.toString, txt s!": {why}"])))])
     let title := if several then s!"Headline result: {h.name}" else "Headline result"
-    el "section" "bp_stats_band bp_stats_headline" (.seq #[
-      el "h2" "bp_stats_band_title" (txt title),
-      unavailable, theorems, unjudged, definitions, source, page])
+    band "bp_stats_headline" title #[unavailable, theorems, unjudged, definitions, source, page]
       #[("data-bp-challenge", h.name)]
 
 /-- The headline results: a band for each Comparator challenge, or the hint that a challenge would
@@ -667,6 +876,61 @@ def noReplaySummary : String :=
   s!"Not replayed by a kernel: {Replay.noReplayText}. The marks on this site say what the \
     compiled files report."
 
+/-- At most this many modules and challenges are named in a sentence on sources that are not
+known to be the build's; the band lists every module below it. -/
+def buildSourcesNamed : Nat := 3
+
+/-- The modules and challenges behind `ProjectStats.buildSources`, for a sentence, separated by
+semicolons: a module whose source changed as "Demo.Basic in Demo/Basic.lean", one not known to
+match the build with why, and a challenge that was not compared for that reason as its headline
+says ("the challenge Main: a module the proof uses changed since the build (Demo.Basic in
+Demo/Basic.lean)") unless its detail names one of those modules; at most `buildSourcesNamed`,
+then how many more there are. -/
+def buildSourcesItems (stats : ProjectStats) : String :=
+  let causes := stats.sourceCauses
+  let modules := causes.map fun c => if c.changed then c.place else s!"{c.place}, which {c.state}"
+  let named (h : Headline) : Bool := causes.any fun c =>
+    ((h.unavailableDetail.getD "").splitOn c.module.toString).length > 1
+  let challenges := stats.sourceChallenges.filterMap fun h =>
+    if named h then none else h.unavailable.map fun u =>
+      let detail := (h.unavailableDetail.map (s!" ({·})")).getD ""
+      s!"the challenge {h.name}: {(unavailableReason u).1}{detail}"
+  let items := modules ++ challenges
+  let shown := items.extract 0 buildSourcesNamed
+  let more := items.size - shown.size
+  "; ".intercalate shown.toList ++ (if more == 0 then "" else s!"; and {more} more")
+
+/-- The replay band's first sentence: `Replay.Result.summary`, except after an acceptance beside
+sources that are not known to be the text of the build the checkers accepted
+(`ProjectStats.buildSources`). Then it says that the acceptance is the compiled build's, which
+modules changed or are not known to match it, and that the project is to be built again. -/
+def replaySummaryText (stats : ProjectStats) (r : Replay.Result) : String :=
+  if r.outcome != .accepted then r.summary else
+  match stats.buildSources with
+  | .asBuilt => r.summary
+  | .changed =>
+    s!"Accepted for the compiled build, not for the sources shown: {r.acceptedText} The sources \
+      changed since that build ({buildSourcesItems stats}); build it again after an edit."
+  | .unknown =>
+    s!"Accepted for the compiled build, which is not known to match the sources shown: \
+      {r.acceptedText} The sources shown are not known to be the text that was compiled \
+      ({buildSourcesItems stats}); build it again to compare them."
+
+/-- The generator's last line about the replay (after "Kernel replay: ") when both checkers
+accepted the build and the sources are not known to be its text (`ProjectStats.buildSources`);
+nothing otherwise, the replay's own last line then standing. -/
+def replayBuildSourcesLine? (stats : ProjectStats) : Option String := do
+  let r ← stats.replay
+  guard (r.outcome == .accepted)
+  let accepted := s!"both checkers accepted the compiled build \
+    ({Replay.counted r.constants "constant"})"
+  match stats.buildSources with
+  | .asBuilt => none
+  | .changed => some s!"{accepted}, not the sources: they changed since that build \
+      ({buildSourcesItems stats}); build it again after an edit"
+  | .unknown => some s!"{accepted}; the sources are not known to match it \
+      ({buildSourcesItems stats}); build it again to compare them"
+
 /-- The sentence above the modules whose source is not known to be the text that was compiled. -/
 def sourceChangedLeadText (modules : Nat) : String :=
   let these := if modules == 1 then "this module" else "these modules"
@@ -698,8 +962,11 @@ message when it rejected the build or could not run, the declarations checked an
 out, the axioms found, and what a replay leaves trusted. -/
 private def replayHtml (view : StatsPageView) : Output.Html :=
   let replay? := view.stats.replay
-  let token := replayToken replay?
-  let summary := (replay?.map (·.summary)).getD noReplaySummary
+  -- an acceptance beside sources that are not known to be the build's text is the build's
+  let sources := view.stats.buildSources
+  let ofBuild := replay?.any (·.outcome == .accepted) && sources != .asBuilt
+  let token := if ofBuild then "changed" else replayToken replay?
+  let summary := (replay?.map (replaySummaryText view.stats)).getD noReplaySummary
   -- the checker's message; what kept a replay from a verdict is in the summary already
   let message : Output.Html :=
     match replay?.filter (·.outcome.isRejection) |>.bind (·.message) with
@@ -718,7 +985,9 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           el "li" s!"bp_stats_replay_checker bp_stats_replay_checker_{c.name}"
             (txt (checkerRunText c)))),
         listed "bp_stats_replay_declarations"
-          (if r.outcome == .accepted then
+          (if ofBuild then
+            "Declarations checked in the compiled build, each with everything it depends on"
+          else if r.outcome == .accepted then
             "Declarations checked, each with everything it depends on"
           else "Declarations to check")
           ((byName r.declarations).map fun d => code d.toString),
@@ -731,8 +1000,12 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           (r.axioms.map fun (d, axioms) => .seq #[code d.toString,
             txt s!": {", ".intercalate (axioms.toList.map (·.toString))}"])]
     | Option.none => .empty
-  -- the sentence that the replay accepted the build is itself a positive statement
-  let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}" else ""
+  -- the sentence that the replay accepted the build is itself a positive statement; one about an
+  -- older build than the sources is not, also inside a page in the accepted scope
+  let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}"
+    else if ofBuild then s!" {StatusColors.replayNoneClass}" else ""
+  let attrs := #[("data-bp-replay", token)] ++
+    (if ofBuild then #[("data-bp-replay-sources", sources.token)] else #[])
   let uncovered : Output.Html :=
     if view.notReplayed.isEmpty then .empty
     else el "details" "bp_stats_more bp_stats_replay_uncovered" (.seq #[
@@ -749,7 +1022,7 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
         .element "li" #[] (nodeLink view label)))])
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
-      #[("data-bp-replay", token)],
+      attrs,
     sourceChangedHtml view,
     message,
     modules,
@@ -773,7 +1046,7 @@ private def claimsHtml (view : StatsPageView) : Output.Html :=
     if rest.isEmpty && claims.error.isNone then .empty else
     let items := rest.filterMap fun c => (claims.view? c.declaration).map fun v =>
       el "div" "bp_stats_claim_item" (.seq #[
-        el "code" "bp_stats_theorem_name" (txt c.declaration.toString),
+        theoremNameHtml c.declaration,
         v.render view.page.meaningHref]) #[("data-bp-claim-declaration", c.declaration.toString)]
     band "bp_stats_claims" "Author's claims" (#[error] ++ items)
 
@@ -1061,11 +1334,13 @@ def meaningViewerHref : String := "lean:help/marks"
 private def meaningHtml : Output.Html :=
   el "section" "bp_stats_band bp_stats_meaning" (.seq #[
     el "h2" "bp_stats_band_title" (txt "What this page reports, and what it does not"),
+    -- a link to an entry lands on its term, and the stylesheet marks the term and its explanation
     el "dl" "bp_stats_meaning_list" (.seq <| meaningItems.map fun item =>
-      .seq #[.element "dt" #[] (txt item.1), .element "dd" #[] (txt item.2)]),
+      .seq #[.element "dt" #[("id", meaningEntryId item.1)] (txt item.1),
+        .element "dd" #[] (txt item.2)]),
     el "p" "bp_stats_meaning_more" (.element "a" #[("href", meaningViewerHref)]
       (txt "More in the viewer's guide"))])
-    #[("id", Informal.Meaning.anchor)]
+    #[("id", Informal.Meaning.anchor), ("data-bp-own-target", "")]
 
 /-! ## The page -/
 
@@ -1141,6 +1416,43 @@ def StatsPageView.build (state : TraverseState) (stats : ProjectStats) (graph : 
       (challengePageSection? sections h.name).map fun s => (h.name, s.link.relativeLink)
   }
 
+/-- The highlighted code of each challenge module of the site being generated, as the Comparator
+pages show it (`registerChallengeCode`); the headline cards cut their statements from it. -/
+initialize challengeCodeRef : IO.Ref (Array (Name × SubVerso.Highlighting.Highlighted)) ←
+  IO.mkRef #[]
+
+/-- Record the highlighted code of a challenge module, the text of its file exactly. -/
+def registerChallengeCode (mod : Name) (code : SubVerso.Highlighting.Highlighted) : IO Unit :=
+  challengeCodeRef.modify fun codes => (codes.filter (·.1 != mod)).push (mod, code)
+
+/-- The license file's address in the project's repository at the commit the site is built from:
+the project being the root the statistics were collected from (`Informal.Stats.projectRoot`,
+which the option `verso.blueprint.projectRoot` may set apart from the working directory). -/
+def licenseHref? (stats : ProjectStats) : IO (Option String) := do
+  let some info := stats.identity.license | return Option.none
+  let root ← Informal.Stats.projectRoot stats.layout.projectRoot
+  Informal.RepoFile.projectFileHref? root info.file
+
+/-- The view with what the page takes from outside the statistics: the license file's address
+(`licenseHref?`), and each judged theorem's highlighted statement, with its hovers in the page's
+hover table. A statement is cut from the challenge module's highlighted code
+(`registerChallengeCode`) when that code has its text, and is otherwise that text with syntax
+colours only. -/
+def StatsPageView.resolveLinks {m : Type → Type} [Monad m] [MonadLiftT IO m] (view : StatsPageView) :
+    HtmlT Manual m StatsPageView := do
+  let licenseHref ← (licenseHref? view.stats : IO _)
+  let codes ← (challengeCodeRef.get : IO _)
+  let mut statementCode := #[]
+  for h in view.stats.challenges do
+    for t in h.theorems do
+      if t.statement.isEmpty then continue
+      let built := (codes.find? (·.1 == h.challengeModule)).bind fun (_, code) =>
+        Informal.DeclarationSource.sliceByText? code t.statement
+      let code := built.getD (Informal.CodeSite.Highlight.highlightPlain t.statement)
+      let rendered ← Informal.ExternalCode.renderSourceWithPageHovers code "bp_stats_statement_source"
+      statementCode := statementCode.push ((h.name, t.name), rendered)
+  return { view with licenseHref, statementCode }
+
 /-! ## The block and the page -/
 
 def statsCss : String := include_str "stats.css"
@@ -1163,7 +1475,7 @@ private def statsToHtml :
       | .error message => Verso.reportError message; pure none
     let (some stats, some graph) := (stats, graph) | pure .empty
     let data := { data with meaningHref := data.meaningHref <|> meaningHref? s }
-    pure (statsPageHtml (StatsPageView.build s stats graph data))
+    pure (statsPageHtml (← (StatsPageView.build s stats graph data).resolveLinks))
 
 block_extension Block.projectStats (data : StatsPageData) where
   data := toJson data
