@@ -466,11 +466,12 @@ private def jsTemplate : String := r##"(function () {
     const id = decodeURIComponent(hash.slice(1));
     const target = document.getElementById(id);
     if (!target) return;
-    // A heading is where a link to a page or a section lands, not a declaration to point out.
-    if (/^H[1-6]$/.test(target.tagName)) return;
-    openDetailsAncestors(target);
     document.querySelectorAll("." + targetClass).forEach((el) => el.classList.remove(targetClass));
     document.querySelectorAll("." + targetBlockClass).forEach((el) => el.classList.remove(targetBlockClass));
+    // A heading is where a link to a page or a section lands, not a declaration to point out; an
+    // element under `data-bp-own-target` styles its targets itself or leaves them unmarked.
+    if (/^H[1-6]$/.test(target.tagName) || target.closest("[data-bp-own-target]")) return;
+    openDetailsAncestors(target);
     target.classList.remove(targetClass);
     void target.offsetWidth;
     target.classList.add(targetClass);
