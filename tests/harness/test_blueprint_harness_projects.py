@@ -229,11 +229,7 @@ class BlueprintHarnessProjectsTests(unittest.TestCase):
 
         self.assertEqual(
             [project.project_id for project in projects],
-            [
-                "project-template",
-                "verso-flt",
-                "spherepackingblueprint",
-            ],
+            ["project-template"],
         )
         self.assertEqual(catalog.release_targets, branch_policy.release_targets)
         release_ids = [target.release_id for target in branch_policy.release_targets]
@@ -275,14 +271,9 @@ class BlueprintHarnessProjectsTests(unittest.TestCase):
         self.assertEqual(current_release.release_verso_ref, current_release.verso_ref)
         if current_release.deploy_pages:
             self.assertTrue(resolve_projects_for_release(catalog, current_release.release_id, None))
-        expected_external_repositories = {
-            "verso-flt": "https://github.com/ejgallego/verso-flt.git",
-            "spherepackingblueprint": "https://github.com/ejgallego/verso-sphere-packing.git",
-        }
         external_release_ids: set[str] = set()
         for project in projects[1:]:
             self.assertTrue(project.git_checkout)
-            self.assertEqual(project.repository, expected_external_repositories[project.project_id])
             self.assert_single_maintained_release_target(
                 project, release_id_set, publish_reference=True
             )

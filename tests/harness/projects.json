@@ -10,62 +10,7 @@
       },
       "targets": [
         {
-          "release": "v4.35.0"
-        },
-        {
           "release": "v4.36.0"
-        }
-      ],
-      "generate_command": [
-        "lake",
-        "exe",
-        "vbp",
-        "build",
-        "--output",
-        "{output_dir}"
-      ],
-      "site_subdir": "html-multi"
-    },
-    {
-      "id": "verso-flt",
-      "description": "External FLT blueprint integration layer with an FLT submodule checkout.",
-      "source": {
-        "kind": "git_checkout",
-        "repository": "https://github.com/ejgallego/verso-flt.git",
-        "project_root": "."
-      },
-      "targets": [
-        {
-          "release": "v4.35.0",
-          "ref": "07a159c5a0331482ab67ad19a20682fe7a9e5b49",
-          "publish_reference": true,
-          "reference_toolchain": "v4.35.0-rc3"
-        }
-      ],
-      "generate_command": [
-        "lake",
-        "exe",
-        "vbp",
-        "build",
-        "--output",
-        "{output_dir}"
-      ],
-      "site_subdir": "html-multi"
-    },
-    {
-      "id": "spherepackingblueprint",
-      "description": "External Sphere Packing blueprint integration layer with a Sphere Packing submodule checkout.",
-      "source": {
-        "kind": "git_checkout",
-        "repository": "https://github.com/ejgallego/verso-sphere-packing.git",
-        "project_root": "."
-      },
-      "targets": [
-        {
-          "release": "v4.35.0",
-          "ref": "cabad2250e1d3caef8962ce11c5ec2c0cec12dae",
-          "reference_toolchain": "v4.35.0-rc4",
-          "publish_reference": true
         }
       ],
       "generate_command": [
