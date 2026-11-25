@@ -846,30 +846,38 @@ class TestReadingAids:
         page.goto(side_by_side_server + "/Project-Stats/#bp-what-this-means")
         expect(page.locator("#bp-what-this-means")).to_be_visible()
 
-    def test_proof_declarations_match_the_lean_column(self, side_by_side_server: str, page: Page):
-        for width in (1440, 360):
-            page.set_viewport_size({"width": width, "height": 900})
-            page.goto(side_by_side_server + "/Reading-Aids/")
-            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
-            facts = page.evaluate(
-                """() => {
-                    const column = document.querySelector('.bp_sbs_formal code.hl.lean.block');
-                    const sig = [...document.querySelectorAll('pre.bp_external_decl_signature')]
-                        .find((p) => p.offsetParent && p.textContent.includes('aidLongSignature'));
-                    const name = sig && [...sig.querySelectorAll('.token')]
-                        .find((t) => t.textContent.includes('aidLongSignature'));
-                    const lines = name ? name.getClientRects().length : 0;
-                    return { column: column && getComputedStyle(column).fontSize,
-                             sig: sig && getComputedStyle(sig).fontSize,
-                             overflow: sig ? sig.scrollWidth - sig.clientWidth : null,
-                             nameLines: lines };
-                }"""
-            )
-            assert facts["sig"] is not None and facts["sig"] == facts["column"], (width, facts)
-            assert facts["overflow"] <= 0, (width, facts)
-            if width == 1440:
-                # the declaration's name is not broken across lines where it fits on one
-                assert facts["nameLines"] == 1, (width, facts)
+    def test_proof_declarations_have_no_panel(self, side_by_side_server: str, page: Page):
+        """A proof with attached Lean declarations shows no panel of them, on the page or in a
+        hover preview of the node, while the node's data and status still count them."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/")
+        page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+        proof = page.locator("[data-bp-facet='proof'][data-bp-node='aids_first']")
+        expect(proof).to_have_count(1)
+        assert "aidLongSignature" in (proof.get_attribute("data-lean-decls") or "")
+        expect(page.get_by_text("Lean declarations attached to this proof")).to_have_count(0)
+        expect(page.locator("[data-lean-decl$='aidLongSignature']")).to_have_count(0)
+        assert "theorem aidLongSignature" not in page.locator("main").inner_text()
+        # the node's status still counts the proof's declaration
+        glyph = page.locator(".bp_sbs[data-bp-node='aids_first'] .bp_status_glyph").first
+        expect(glyph).to_have_attribute("title", re.compile(r"^Lean proof without sorry"))
+        # the preview data keeps the proof facet's declarations; its rendered fragment has no panel
+        manifest = page.evaluate(
+            """async () => {
+                const manifest = await (await fetch('-verso-data/blueprint-manifest.json')).json();
+                const cache = await (await fetch('-verso-data/blueprint-html-cache.json')).json();
+                const entry = manifest.previews.find((e) => e.key === 'aids_first--proof');
+                return { entry, cache: JSON.stringify(cache) };
+            }"""
+        )
+        decls = [d["canonical"] for d in manifest["entry"]["codeData"]["externalDecls"]]
+        assert decls == ["PreviewRuntimeShowcase.ReadingAidDecls.aidLongSignature"], decls
+        assert "Lean declarations attached to this proof" not in manifest["cache"]
+        # a hover preview of the node (from its graph node view and from a link to it)
+        page.goto(side_by_side_server + "/Dependency-Graph/#node=aids_first", wait_until="domcontentloaded")
+        page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+        view = page.locator(".bp_graph_preview .bp_node_view")
+        assert "Lean declarations attached to this proof" not in view.inner_text()
 
     def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})

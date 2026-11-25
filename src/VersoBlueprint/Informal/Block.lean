@@ -153,8 +153,10 @@ private def informalBlockToHtml (renderPreview : PreviewResources.Render := Prev
             some <$> ExternalCode.renderDeclarationSourceColumn externalDecls getDeclHref getDeclAnchorAttrs
           else
             pure none
+        -- The side-by-side layout shows a statement's declarations in its Lean column and those
+        -- attached to a proof nowhere: they count towards the node's status and data only.
         let externalPanel : Output.Html ← do
-          if externalDecls.isEmpty || formalColumn?.isSome then
+          if externalDecls.isEmpty || sideBySide then
             pure .empty
           else
             let externalCdata : CodeSummary.ComputedData := {

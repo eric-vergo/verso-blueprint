@@ -276,6 +276,16 @@ run_meta do
   unless hasSubstr rendered.render "Lean declarations attached to this proof" &&
       hasSubstr rendered.render "Supporting declaration preview" do
     throw <| IO.userError "Cached proof rendering dropped its supporting declarations"
+  let sideBySide := PreviewManifest.BlockRender.renderWithRenderedContent
+    { proofCodePanel := false } proof {
+      body := .raw proofBody
+      codeBodies := #[.raw "Supporting declaration preview"]
+      codeData := proof.codeData.getD {}
+    }
+  unless hasSubstr sideBySide.render "A proof with two associated declarations." &&
+      !hasSubstr sideBySide.render "Lean declarations attached to this proof" &&
+      !hasSubstr sideBySide.render "Supporting declaration preview" do
+    throw <| IO.userError "A side-by-side proof rendering showed its declaration panel"
   let .ok (some query) := VersoBlueprint.Vbp.parseQueryPlan ["node", "proof.references"]
     | throw <| IO.userError "Node query failed to parse"
   let result := query.run files.manifest
@@ -301,6 +311,39 @@ run_meta do
     unless declarations.size == 1 &&
         (declarations[0]!.getObjValAs? String "facet").toOption == some "proof" do
       throw <| IO.userError "Status query lost proof association provenance"
+
+/- The side-by-side layout shows no panel of a proof's declarations, on the page or in its
+cached rendering, while the node's data keeps them: the same proof facet, status and queries. -/
+#eval show IO Unit from do
+  let (plain, plainState) ← renderManualDocHtmlStringAndState extension_impls% proofReferencesDoc
+  let (html, state) ← DeclarationSource.withEnabled true <|
+    renderManualDocHtmlStringAndState extension_impls% proofReferencesDoc
+  unless hasSubstr html "class=\"bp_sbs\"" &&
+      !hasSubstr html "Lean declarations attached to this proof" &&
+      !hasSubstr html "data-lean-decl=\"Nat.add_left_comm\"" &&
+      hasSubstr html "data-lean-decls=\"Nat.add_comm Nat.add_left_comm\"" do
+    throw <| IO.userError "A side-by-side page showed a proof's declarations"
+  let build (state : TraverseState) := PreviewManifest.buildPreviewDataFiles extension_impls%
+    (fun message => throw <| IO.userError message)
+    (PreviewManifest.PreparedPreviewState.prepare state)
+    ({ mode := .none } : ExternalMarkupRender.Config)
+  let plainFiles ← build plainState
+  let files ← DeclarationSource.withEnabled true <| build state
+  for label in #["proof.references", "proof.attachments.only", "proof.attachments.admitted"] do
+    let key := PreviewCache.proofKey (Name.mkSimple label)
+    let some proof := files.manifest.findEntry? key
+      | throw <| IO.userError s!"Missing proof facet of {label}"
+    unless (plainFiles.manifest.findEntry? key).any (toJson · == toJson proof) &&
+        proof.codeData.any (!·.externalDecls.isEmpty) do
+      throw <| IO.userError s!"The side-by-side layout changed the proof facet of {label}"
+    if let some cached := files.htmlCache.findHtml? key then
+      if hasSubstr cached "Lean declarations attached to this proof" then
+        throw <| IO.userError s!"The cached proof of {label} carries a declaration panel"
+  for (label, complete) in #[("proof.attachments.only", true), ("proof.attachments.admitted", false)] do
+    let .ok (some statusQuery) := VersoBlueprint.Vbp.parseQueryPlan ["status", label]
+      | throw <| IO.userError "Status query failed to parse"
+    unless ((statusQuery.run files.manifest).getObjValAs? Bool "complete").toOption == some complete do
+      throw <| IO.userError "A side-by-side status ignored the proof association"
 
 /--
 error: Label «proof.duplicate» has duplicate external Lean reference 'Nat.add' (canonical 'Nat.add'); previously declared as 'Nat.add'

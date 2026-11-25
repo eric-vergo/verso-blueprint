@@ -991,9 +991,11 @@ The proof is associated with the referenced Lean declarations.
 ```
 
 These declarations appear in a **Lean declarations attached to this proof** panel,
-with their own signatures, status, source links, and hover previews. The proof
-facet retains them in generated data; `lake exe vbp query node addition_assoc`
-returns that facet under `proof`.
+with their own signatures, status, source links, and hover previews. A site in
+the side-by-side layout shows no such panel, on chapter pages or in previews:
+there the declarations count towards the node's status, summaries, and generated
+data only. The proof facet retains them in generated data either way;
+`lake exe vbp query node addition_assoc` returns that facet under `proof`.
 
 Statement and proof attachments both contribute to the node's associated
 declarations, declaration lookup, summaries, and progress. A declaration mentioned

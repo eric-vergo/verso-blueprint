@@ -114,7 +114,8 @@ private def renderManualGraftNode
     [MonadBuildLog (Doc.Html.HtmlT Verso.Genre.Manual m)]
     (goB : Doc.Block Verso.Genre.Manual → Doc.Html.HtmlT Verso.Genre.Manual m Html)
     (id : Verso.Multi.InternalId)
-    (placement : Placement) :
+    (placement : Placement)
+    (sideBySide : Bool := false) :
     Doc.Html.HtmlT Verso.Genre.Manual m Html := do
   let node := placement.config.toNode
   let state ← Doc.Html.HtmlT.state
@@ -142,8 +143,10 @@ private def renderManualGraftNode
       else
         let body ← if preview.hasRenderedBody then renderManualBlocks goB preview.blocks
           else pure (externalBody?.getD .empty)
+        -- on a side-by-side page a proof's declarations have no panel (`proofCodePanel`)
+        let proofCodePanel := !sideBySide
         let (codeBodies, codeData) ←
-          if !placement.showsCode then
+          if !placement.showsCode || (preview.facet == .proof && !proofCodePanel) then
             pure (#[], {})
           else
             renderLeanCodeBodies goB state id resolved
@@ -154,6 +157,7 @@ private def renderManualGraftNode
         }
         pure <| Informal.Graft.renderNodeWithContent
           { manualManifestRenderConfig with
+            blockRenderConfig := { manualBlockRenderConfig with proofCodePanel }
             nodeAttrs := fun node => state.htmlId id ++ manualNodeAttrs node }
           node
           entry
@@ -197,7 +201,7 @@ block_extension Block.blueprintGraftNode (placement : Informal.Graft.Placement) 
           (α := Informal.Graft.Placement) data
           (fun err => s!"Malformed Blueprint placement ({err}): {data}")
         | pure .empty
-      renderManualGraftNode goB id placement
+      renderManualGraftNode goB id placement (sideBySide := ← Informal.DeclarationSource.enabled)
 
 open Verso Doc Elab Genre Manual in
 block_extension Block.blueprintGraftSideBySide (cfg : Informal.Graft.SideBySideConfig) where
