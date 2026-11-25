@@ -214,6 +214,70 @@
     return textTxt || "";
   }
 
+  // How a reader names a node in a fragment (`#node=…`, `#ego=…`): a name compared without
+  // regard to case or repeated spaces.
+  function normalizedNodeQuery(text) {
+    return String(text || "").trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  // Whether the Lean name `full` ends with `query` in whole components (`rho_irrational` and
+  // `Project.rho_irrational` for `Project.rho_irrational`).
+  function leanNameEndsWith(full, query) {
+    const name = String(full || "");
+    return name === query || name.endsWith("." + query);
+  }
+
+  // The label of the node of `graphData` that `query` names: its label, the full name of a
+  // declaration of its Lean statement (`leanNames`) or a trailing part of one in whole components
+  // (the short name a drawing shows), its number or title (`Theorem 7.2`), compared without regard
+  // to case or repeated spaces. A node's own label wins, then a node whose first declaration
+  // matches, then the first match in the graph's order; "" when no node matches.
+  export function graphNodeLabelFor(graphData, query) {
+    const nodes = graphData && Array.isArray(graphData.nodes) ? graphData.nodes : [];
+    const wanted = String(query || "").trim();
+    if (!wanted) return "";
+    const byLabel = nodes.find(function (node) { return node && node.label === wanted; });
+    if (byLabel) return byLabel.label;
+    const names = function (node) { return Array.isArray(node.leanNames) ? node.leanNames : []; };
+    const first = nodes.find(function (node) {
+      return node && names(node).length > 0 && leanNameEndsWith(names(node)[0], wanted);
+    });
+    if (first) return first.label;
+    const lowered = normalizedNodeQuery(wanted);
+    const other = nodes.find(function (node) {
+      if (!node) return false;
+      if (names(node).some(function (name) { return leanNameEndsWith(name, wanted); })) return true;
+      return [node.title, node.displayLabel].some(function (text) {
+        return typeof text === "string" && normalizedNodeQuery(text) === lowered;
+      });
+    });
+    return other ? other.label : "";
+  }
+
+  // What the nodes of a drawing show (`name` or `number`): the reader's choice, kept for the
+  // reader under `nodeTextStorageKey`, else the site's.
+  export const nodeTextStorageKey = "bp-graph-node-text";
+
+  export function normalizeNodeText(value) {
+    return value === "number" ? "number" : (value === "name" ? "name" : "");
+  }
+
+  export function storedNodeText() {
+    try {
+      return normalizeNodeText(window.localStorage.getItem(nodeTextStorageKey));
+    } catch (_err) {
+      return "";
+    }
+  }
+
+  export function storeNodeText(value) {
+    try {
+      window.localStorage.setItem(nodeTextStorageKey, normalizeNodeText(value) || "name");
+    } catch (_err) {
+      // the choice lasts for this page only
+    }
+  }
+
   export function graphNodeId(node) {
     if (!(node instanceof Element)) return "";
     const id = node.getAttribute("id");
@@ -842,6 +906,11 @@
     readPreviewBehaviorDefaults,
     layoutGraphCanvas,
     graphNodeLabel,
+    graphNodeLabelFor,
+    nodeTextStorageKey,
+    normalizeNodeText,
+    storedNodeText,
+    storeNodeText,
     graphNodeId,
     ensureGraphBlockState,
     rememberGraphLayoutMeasurements,

@@ -406,6 +406,7 @@
  * @property {string} label Canonical Blueprint node label.
  * @property {string} title Resolved display title.
  * @property {string} displayLabel Short display label.
+ * @property {string[]} leanNames Declarations of the node's Lean statement, in the order the author wrote them; empty for a node without one.
  * @property {string | null} kind Node kind, when available.
  * @property {string | null} parent Parent/group label, when available.
  * @property {string | null} href Link to the canonical generated node, when available.
@@ -468,6 +469,7 @@
  * @typedef {Object} BlueprintGraphLayoutOptions
  * @property {string} [direction] Layout direction: `TB`, `BT`, `LR` or `RL`.
  * @property {boolean} [pack] Lay each connected component out on its own and pack the drawings (default `true`).
+ * @property {"name" | "number"} [nodeText] What nodes with a Lean statement show first, in drawings emitted with the variant (default `name`).
  */
 
 /**
@@ -480,6 +482,7 @@
  * @property {function(BlueprintGraphLayoutOptions): void} setOptions Update graph layout options.
  * @property {function(string): void} setDirection Update the layout direction.
  * @property {function(boolean): void} setPack Enable or disable component packing.
+ * @property {function(string): string} setNodeText Show the nodes' Lean names (`name`) or numbers (`number`); returns the text shown.
  * @property {function(string, string=): void} setPreviewBehavior Update graph preview behavior.
  */
 
