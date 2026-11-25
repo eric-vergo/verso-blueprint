@@ -225,7 +225,8 @@ def test_pages_read_about_the_page_axis(page: Page, comparator_urls):
     url = comparator_urls["accepted"]
     # wide enough that the Comparator content is narrower than the content area
     page.set_viewport_size({"width": 1920, "height": 900})
-    for path, selectors in (("/Comparator/", ("h1", ".bp_comparator_intro", "ol.section-toc")),
+    # the index's cards span the content area; Verso's list of the pages below them is hidden
+    for path, selectors in (("/Comparator/", ("h1", ".bp_comparator_intro", ".bp_comparator_index_item")),
                             ("/Comparator/Double/", ("h1", ".bp_comparator_intro"))):
         page.goto(url + path, wait_until="load")
         offsets = page.evaluate(
