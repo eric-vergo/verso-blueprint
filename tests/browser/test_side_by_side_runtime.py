@@ -1069,18 +1069,134 @@ class TestReadingAxis:
         "path",
         ("/", "/Side-by-Side-Runs/", "/Reading-Aids/A-Numbered-Section/", "/Part-II/", "/Project-Stats/"),
     )
-    def test_phone_width_has_no_horizontal_scroll(self, side_by_side_server: str, page: Page, path: str):
-        page.set_viewport_size({"width": 390, "height": 844})
-        page.goto(side_by_side_server + path)
+    def test_no_width_scrolls_the_page_sideways(self, side_by_side_server: str, page: Page, path: str):
+        # phone widths, the widths where the table of contents leaves a narrow content area, and a sweep
+        widths = sorted({360, 390, 560, 700, 701, 720, 800, 900, 1000, 1024, 1440, 1920, *range(701, 1001, 33)})
+        for width in widths:
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + path)
+            page.wait_for_load_state("networkidle")
+            sizes = page.evaluate(
+                "() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]"
+            )
+            assert sizes[0] <= sizes[1], (path, width, sizes)
+            # each heading's permalink marker stays on the screen
+            boxes = page.evaluate(
+                "() => [...document.querySelectorAll('main .permalink-widget.inline > a')]"
+                ".map((a) => { const b = a.getBoundingClientRect(); return [b.left, b.right]; })"
+            )
+            assert all(left >= -0.5 and right <= sizes[1] + 0.5 for left, right in boxes), (path, width, boxes)
+            facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1, main .titlepage > h1")
+            for line in facts["lines"] or []:
+                assert abs(line - facts["axis"]) <= 1, (path, width, facts)
+
+    @pytest.mark.parametrize("width", (390, 720))
+    def test_permalink_marker_costs_a_title_no_line(self, side_by_side_server: str, page: Page, width: int):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
         page.wait_for_load_state("networkidle")
-        width = page.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
-        assert width[0] <= width[1], (path, width)
-        # each heading's permalink marker stays inside the page
-        rights = page.evaluate(
-            "() => [...document.querySelectorAll('main .permalink-widget.inline > a')]"
-            ".map((a) => a.getBoundingClientRect().right)"
+        selector = "main .content-wrapper > section > h1"
+        with_marker = page.evaluate(_AXIS_JS, selector)
+        padding = page.evaluate(f"() => getComputedStyle(document.querySelector('{selector}')).paddingInlineStart")
+        assert padding == "0px", padding
+        page.evaluate(f"() => document.querySelector('{selector} > .permalink-widget').remove()")
+        without_marker = page.evaluate(_AXIS_JS, selector)
+        assert len(with_marker["lines"]) == len(without_marker["lines"]), (with_marker, without_marker)
+
+    def test_permalink_marker_shows_with_the_keyboard_focus(self, side_by_side_server: str, page: Page):
+        for width in (390, 1440):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+            marker = page.locator("main .content-wrapper > section > h1 > .permalink-widget.inline")
+            assert marker.evaluate("(e) => getComputedStyle(e).opacity") == "0"
+            marker.locator("a").focus()
+            assert marker.evaluate("(e) => getComputedStyle(e).opacity") == "1"
+            box = marker.locator("a").bounding_box()
+            assert box is not None and box["x"] >= 0 and box["x"] + box["width"] <= width, (width, box)
+
+    def test_block_quotes_and_low_headings_keep_to_the_column(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        facts = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const axis = (area.left + area.right) / 2;
+                const section = document.querySelector('main section section');
+                const para = section.querySelector(':scope > p').getBoundingClientRect();
+                const quote = section.querySelector(':scope > blockquote');
+                const q = quote.getBoundingClientRect();
+                const text = quote.firstElementChild.getBoundingClientRect();
+                const low = document.createElement('h5');
+                low.textContent = 'A fifth-level heading';
+                section.querySelector(':scope > p').after(low);
+                const l = low.getBoundingClientRect();
+                return { axis, paraLeft: para.left, paraWidth: para.width,
+                         quoteCentre: (q.left + q.right) / 2, quoteWidth: q.width,
+                         indent: [text.left - q.left, q.right - text.right],
+                         lowAlign: getComputedStyle(low).textAlign, lowLeft: l.left, lowWidth: l.width };
+            }"""
         )
-        assert all(right <= width[1] + 0.5 for right in rights), (path, rights)
-        facts = page.evaluate(_AXIS_JS, "main .content-wrapper > section > h1, main .titlepage > h1")
-        for line in facts["lines"] or []:
-            assert abs(line - facts["axis"]) <= 1, (path, facts)
+        # a block quote is the column, its text indented from both edges
+        assert abs(facts["quoteCentre"] - facts["axis"]) <= 1, facts
+        assert abs(facts["quoteWidth"] - facts["paraWidth"]) <= 1, facts
+        assert all(abs(side - 40) <= 1 for side in facts["indent"]), facts
+        # a fifth-level heading starts at the column's edge, within the measure
+        assert facts["lowAlign"] in ("start", "left"), facts
+        assert abs(facts["lowLeft"] - facts["paraLeft"]) <= 1, facts
+        assert facts["lowWidth"] <= facts["paraWidth"] + 0.5, facts
+
+    @pytest.mark.parametrize("length", ("short", "medium", "long"))
+    def test_code_blocks_grow_about_the_axis(self, side_by_side_server: str, page: Page, length: str):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        line = {"short": "x := 1", "medium": "theorem t " + "abc " * 18, "long": "theorem t " + "abcdef " * 60}[length]
+        facts = page.evaluate(
+            """(line) => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const block = document.querySelector('main section section > pre');
+                block.textContent = line;
+                const b = block.getBoundingClientRect();
+                const column = document.querySelector('main section section > p').getBoundingClientRect();
+                return { offset: (b.left + b.right) / 2 - (area.left + area.right) / 2, width: b.width,
+                         column: column.width, area: area.width,
+                         scrolls: block.scrollWidth > block.clientWidth };
+            }""",
+            line,
+        )
+        assert abs(facts["offset"]) <= 1, facts
+        if length == "short":
+            assert abs(facts["width"] - facts["column"]) <= 1 and not facts["scrolls"], facts
+        elif length == "medium":
+            assert facts["column"] + 10 < facts["width"] < facts["area"] - 10 and not facts["scrolls"], facts
+        else:
+            assert abs(facts["width"] - facts["area"]) <= 1 and facts["scrolls"], facts
+
+    def test_lists_of_sections_search_and_notices(self, side_by_side_server: str, page: Page):
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/")
+        toc = page.evaluate(
+            """() => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const list = document.querySelector('main section > ol.section-toc');
+                const b = list.getBoundingClientRect();
+                return { offset: (b.left + b.right) / 2 - (area.left + area.right) / 2, width: b.width,
+                         area: area.width, align: getComputedStyle(list.querySelector('li')).textAlign };
+            }"""
+        )
+        # the list of sections is centred as a block, its entries aligned to their start
+        assert abs(toc["offset"]) <= 1 and toc["width"] < toc["area"] / 2, toc
+        assert toc["align"] in ("start", "left"), toc
+        page.goto(side_by_side_server + "/search/")
+        assert page.locator("main section.search-page > h1").evaluate("(e) => getComputedStyle(e).textAlign") == "center"
+        # a licence notice keeps its own layout
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        aligns = page.evaluate(
+            """() => {
+                document.querySelector('main section section').insertAdjacentHTML('beforeend',
+                    '<section class="license-info"><h3>A dependency</h3>'
+                    + '<section><h4>Its notice</h4><p>The text of the licence.</p></section></section>');
+                const h = document.querySelector('.license-info section > h4');
+                return [getComputedStyle(h).textAlign, getComputedStyle(h).marginLeft];
+            }"""
+        )
+        assert aligns == ["start", "0px"], aligns

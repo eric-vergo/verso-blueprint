@@ -219,6 +219,28 @@ def test_narrow_window_keyboard_and_no_sideways_scroll(page: Page, comparator_ur
     assert outline != "none"
 
 
+def test_pages_read_about_the_page_axis(page: Page, comparator_urls):
+    url = comparator_urls["accepted"]
+    # wide enough that the Comparator content is narrower than the content area
+    page.set_viewport_size({"width": 1920, "height": 900})
+    for path, selectors in (("/Comparator/", ("h1", ".bp_comparator_intro", "ol.section-toc")),
+                            ("/Comparator/Double/", ("h1", ".bp_comparator_intro"))):
+        page.goto(url + path, wait_until="load")
+        offsets = page.evaluate(
+            """(selectors) => {
+                const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+                const axis = (area.left + area.right) / 2;
+                return selectors.map((s) => {
+                    const e = document.querySelector('main .content-wrapper > section ' + s);
+                    const b = e.getBoundingClientRect();
+                    return [s, (b.left + b.right) / 2 - axis];
+                });
+            }""",
+            list(selectors),
+        )
+        assert all(abs(offset) <= 1 for _, offset in offsets), (path, offsets)
+
+
 def test_pages_without_scripts(browser, comparator_sites):
     from conftest import serve_site
 
