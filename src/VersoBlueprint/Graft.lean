@@ -84,7 +84,7 @@ private def renderLeanCodePreviewBody?
     | .inlineBlocks _label blocks _sourceLocation => renderManualBlocks goB blocks
     | .externalDecl decl =>
       pure (Informal.ExternalCode.renderPreviewHtml #[decl]
-        (Informal.Resolve.resolveInformalDeclHref? state label)
+        (Informal.TraversalIndex.ExternalDeclAnchors.declHref? state label)
         (fun decl => Informal.TraversalIndex.ExternalDeclAnchors.htmlIdAttrs state id decl.canonical))
   pure <| some (body, panel.facts)
 

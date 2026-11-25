@@ -415,6 +415,105 @@ lands on the node, and every link to a place on the page finds it. -/
   unless !declLinks.isEmpty && declLinks.all landsOnNode do
     throw <| IO.userError s!"The summary's link to the open proof declaration misses its node: {declLinks}"
 
+#docs (Manual) proofDeclTargetsDoc "Proof declaration targets" :=
+:::::::
+:::lemma_ "proof.targets.only"
+A statement without a Lean declaration of its own.
+:::
+:::proof "proof.targets.only" (lean := "admittedAttachedResult")
+Its declaration is named by the proof alone.
+:::
+:::lemma_ "proof.targets.both" (lean := "attachedResult")
+A statement whose declaration its proof names as well.
+:::
+:::proof "proof.targets.both" (lean := "attachedResult, inferredDependency")
+The proof names the statement's declaration and one of its own.
+:::
+
+```Verso.Genre.Manual.InlineLean.lean
+theorem proofTargetsInline : True := trivial
+```
+
+:::lemma_ "proof.targets.inline"
+A statement whose proof names a declaration of the text.
+:::
+:::proof "proof.targets.inline" (lean := "proofTargetsInline")
+The declaration is defined in a Lean block of the text.
+:::
+
+{blueprint_summary}
+:::::::
+
+/-- The fragment of `href`, if it has one. -/
+private def fragmentOf? (href : String) : Option String :=
+  match href.splitOn "#" with
+  | [_, fragment] => if fragment.isEmpty then none else some fragment
+  | _ => none
+
+/-- The opening tag of the element of `html` whose `id` is `fragment`. -/
+private def tagWithId (html fragment : String) : String :=
+  match html.splitOn s!"id=\"{fragment}\"" with
+  | before :: after :: _ => ((before.splitOn "<").getLast?.getD "") ++ ((after.splitOn ">").headD "")
+  | _ => ""
+
+/-- Where a reader of the traversal store of rendered declarations finds `decl` without asking the
+Blueprint's resolver: the first fallback key of a node (by key) that names it, else an inline Lean
+block that defines it. This is how a library that draws figures with links into the site looks a
+declaration up. -/
+private def storeTarget? (state : TraverseState) (decl : Name) : Option String :=
+  let dom := Resolve.externalRenderedDeclDomainName
+  let keys := match state.domains.get? dom with
+    | some d => d.objects.foldl (init := (#[] : Array String)) fun (acc : Array String) (k : String) _ =>
+        if k.startsWith "label:" && k.endsWith ("|" ++ decl.toString) then acc.push k else acc
+    | none => #[]
+  (keys.qsort (· < ·)).findSome? (Resolve.resolveDomainHref? state dom ·) <|>
+    Resolve.resolveInlineLeanDeclHref? state decl
+
+/- Every resolver of the site leads a declaration attached to a proof to the same place, a place
+of the page: the proof's panel row in the standard layout; in the side-by-side layout, which shows
+no row of a proof's declarations, the statement's row when the statement names it as well, the
+Lean block of the text that defines it, else the node. -/
+#eval show IO Unit from do
+  let only := ``admittedAttachedResult
+  let both := ``attachedResult
+  let own := ``inferredDependency
+  let inline := ``proofTargetsInline
+  for sideBySide in [false, true] do
+    let layout := if sideBySide then "side-by-side" else "standard"
+    let (html, state) ← DeclarationSource.withEnabled sideBySide <|
+      renderManualDocHtmlStringAndState extension_impls% proofDeclTargetsDoc
+    let ids := attrValues html "id"
+    let site := LeanCodeLinks.siteTargets state
+    for (label, decl) in [("proof.targets.only", only), ("proof.targets.both", both),
+        ("proof.targets.both", own), ("proof.targets.inline", inline)] do
+      let label := Name.mkSimple label
+      let some href := TraversalIndex.ExternalDeclAnchors.declHref? state label decl
+        | throw <| IO.userError s!"{layout}: {decl} of {label} has no place in the site"
+      let some fragment := fragmentOf? href
+        | throw <| IO.userError s!"{layout}: {decl} leads to {href}, not a place of the page"
+      -- this test's renderer gives the defining name of a Lean block of the text no `id` (a site
+      -- does, `TraverseState.definitionIds`); the name is on the page, under its link target
+      let inlineTarget := sideBySide && decl == inline
+      unless ids.contains fragment ||
+          (inlineTarget && hasSubstr html s!"data-binding=\"const-{decl}\"") do
+        throw <| IO.userError s!"{layout}: {decl} leads to {href}, missing from the page"
+      -- the store's readers, the running text's Lean code and the summary agree with it
+      unless storeTarget? state decl == some href do
+        throw <| IO.userError
+          s!"{layout}: the store leads {decl} to {storeTarget? state decl}, not {href}"
+      unless site.get? decl == some href do
+        throw <| IO.userError s!"{layout}: Lean code leads {decl} to {site.get? decl}, not {href}"
+      let summaryLinks := (linksMentioning html decl.toString).filter (fragmentOf? · |>.isSome)
+      unless !summaryLinks.isEmpty && summaryLinks.all (fun h => fragmentOf? h == some fragment) do
+        throw <| IO.userError s!"{layout}: the page's links to {decl} are {summaryLinks}, not {href}"
+      let tag := tagWithId html fragment
+      let expected : Bool := if inlineTarget then
+          some href == Resolve.resolveInlineLeanDeclHref? state inline else
+        if !sideBySide || decl == both then hasSubstr tag s!"data-lean-decl=\"{decl}\""
+        else hasSubstr tag (label.toString (escape := false))
+      unless expected do
+        throw <| IO.userError s!"{layout}: {decl} of {label} leads to the wrong place: <{tag}>"
+
 /--
 error: Label «proof.duplicate» has duplicate external Lean reference 'Nat.add' (canonical 'Nat.add'); previously declared as 'Nat.add'
 -/

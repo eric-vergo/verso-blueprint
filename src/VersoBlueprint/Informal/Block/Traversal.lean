@@ -135,6 +135,33 @@ def registerExternalDeclAnchors
     registerExternalDeclAnchor occurrence label decl
 
 /--
+The targets of the declarations of a proof that shows no rows of them (the side-by-side layout):
+each declaration that the node's statement does not show gets, under its fallback key, the inline
+Lean block that defines it, else the node (`ExternalDeclAnchors.declHref?`). A key keeps its first
+target, so it is registered only once every inline Lean block and the node's own target are
+known: from the second traversal pass on (`earlierPass`), never in the first.
+-/
+private def registerUnshownProofDeclTargets
+    {m}
+    [Monad m]
+    [MonadStateOf TraverseState m]
+    (label : Data.Label)
+    (decls : Array Data.ExternalRef)
+    (earlierPass : Bool) :
+    m Unit := do
+  unless earlierPass do return
+  let statement := ((Informal.TraversalIndex.Nodes.node? (← get) label).map (·.externalRefs)).getD #[]
+  for decl in decls do
+    if statement.any (·.canonical == decl.canonical) then continue
+    let state ← get
+    let key := Resolve.externalRenderedDeclFallbackKey label decl.canonical
+    if (Informal.TraversalIndex.ExternalDeclAnchors.object? state key).isSome then continue
+    let target? := Resolve.inlineLeanDeclId? state decl.canonical <|>
+      Informal.TraversalIndex.Nodes.target? state label
+    if let some id := target? then
+      modify fun s => Informal.TraversalIndex.ExternalDeclAnchors.saveId s key id
+
+/--
 Register all traversal-time preview and anchor data owned by an informal block.
 
 This keeps the block extension focused on orchestration while the traversal
@@ -153,10 +180,15 @@ private def registerTraversedBlockAssets
     (showsCode : Bool) :
     m Unit := do
   let externalDecls := externalDeclsOfBlock blockData
+  -- this block's preview names it as its target from the first pass on
+  let earlierPass := Informal.TraversalIndex.TraversalPreviews.target? (← get)
+    (PreviewCache.key blockData.label (if blockData.isProof then .proof else .statement)) == some id
   registerBlockPreviewData id blockData contents
   registerExternalCodePreviews id externalDecls
   if showsCode then
     registerExternalDeclAnchors id blockData.label externalDecls
+  else if blockData.isProof then
+    registerUnshownProofDeclTargets blockData.label externalDecls earlierPass
 
 /--
 Resolve and register one decoded informal occurrence through the shared traversal path.

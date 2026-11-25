@@ -172,9 +172,12 @@ def canonicalOccurrence? (state : TraverseState) (label : Name) : Option Preview
   let (_, object) ← selectBody? state label <|> select? state label (fun _ => true)
   (fromJson? object.data).toOption
 
+/-- The occurrence a facet's preview selected, without decoding its body. -/
+def target? (state : TraverseState) (previewKey : String) : Option Verso.Multi.InternalId :=
+  (objectData? (α := PreviewCache.Occurrence) state domainName previewKey).bind (·.target)
+
 def href? (state : TraverseState) (previewKey : String) : Option String :=
-  (objectData? (α := PreviewCache.Occurrence) state domainName previewKey).bind (·.target) |>.bind fun id =>
-    (state.externalTags[id]?).map (·.relativeLink)
+  (target? state previewKey).bind fun id => (state.externalTags[id]?).map (·.relativeLink)
 
 def hrefFor? (state : TraverseState) (label : Name) (facet : PreviewCache.Facet) :
     Option String :=
@@ -614,7 +617,7 @@ def spec : StoreSpec := {
   kind := .internalIndex
   key := "(occurrence, canonical declaration), plus (label, declaration) fallback"
   value := "rendered declaration row anchor ids"
-  summary := "Visible declaration rows and the first visible fallback when the selected prose occurrence has no code."
+  summary := "Visible declaration rows and the first visible fallback when the selected prose occurrence has no code; for a proof's declaration that no row shows, its inline Lean anchor or its node."
 }
 
 def domainName : Name := spec.name
@@ -625,8 +628,22 @@ def key (occurrence : Verso.Multi.InternalId) (decl : Name) : String :=
 def object? (state : TraverseState) (targetKey : String) : Option Verso.Multi.Object :=
   state.getDomainObject? domainName targetKey
 
-def href? (state : TraverseState) (label decl : Name) : Option String :=
-  Resolve.resolveRenderedExternalDeclHref? state label decl
+/--
+Where a link to `decl`, a Lean declaration of node `label`, leads; every renderer of the site asks
+this. The row that shows it (`Resolve.resolveRenderedExternalDeclHref?`: the node's statement row,
+the proof's panel row, the first visible row), else an inline Lean block that defines it, else,
+when the declaration is attached to the node's statement or proof, the node itself
+(`Nodes.href?`). A declaration attached to a proof that shows no rows of its declarations (the
+side-by-side layout) has this target registered as the node's fallback key, so that readers of
+this store that do not call this function find it as well.
+-/
+def declHref? (state : TraverseState) (label decl : Name) : Option String :=
+  Resolve.resolveInformalDeclHref? state label decl <|>
+    if (Nodes.node? state label).any fun node =>
+        (node.externalRefs ++ node.proofExternalRefs).any fun ref =>
+          ref.canonical == decl || ref.written == decl then
+      Nodes.href? state label
+    else none
 
 /-- HTML `id` attributes for a registered rendered external-declaration row. -/
 def htmlIdAttrs (state : TraverseState) (occurrence : Verso.Multi.InternalId) (decl : Name) : Array (String × String) :=

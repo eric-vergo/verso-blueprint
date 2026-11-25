@@ -25,8 +25,10 @@ renders on the site's pages (the Lean blocks and inline Lean code of the running
 Verso's; the Blueprint's own components (the Lean column, code panels, previews) render their code
 with links of their own:
 
-* **the site**: a declaration that a Blueprint node names (`(lean := "…")`) is shown in a Lean row
-  of that node, and its name links there (`siteTargets`);
+* **the site**: a declaration that a Blueprint node names (`(lean := "…")`) links to the place the
+  site gives it (`TraversalIndex.ExternalDeclAnchors.declHref?`): the Lean row of that node that
+  shows it, else the node itself (a declaration attached to a proof, in a layout that shows no row
+  of it) (`siteTargets`);
 * **the repository**: a declaration of a project module of the document's environment (the modules
   the project statistics list, `Stats.ProjectStats.modules`) links to its lines in that module's
   source file on GitHub at the commit the site is built from (`SourceIndex.load`). The lines are
@@ -49,8 +51,9 @@ open Verso.Genre.Manual
 
 /-! ## The site -/
 
-/-- The Lean rows of the site, by declaration name: each declaration a node names, linked to the
-first row that shows it (nodes in the order of their labels, statement rows before proof rows). -/
+/-- The places of the site, by declaration name: each declaration a node names, linked to its
+place as a declaration of the first node that names it (nodes in the order of their labels,
+statements' declarations before proofs'; `TraversalIndex.ExternalDeclAnchors.declHref?`). -/
 def siteTargets (state : TraverseState) : Std.HashMap Name String := Id.run do
   let some dom := TraversalIndex.Nodes.domain? state | return {}
   let mut nodes : Array (Name × Json) := #[]
@@ -67,7 +70,7 @@ def siteTargets (state : TraverseState) : Std.HashMap Name String := Id.run do
     for (label, data) in nodes do
       for decl in declsOf data field do
         if out.contains decl then continue
-        if let some href := Resolve.resolveRenderedExternalDeclHref? state label decl then
+        if let some href := TraversalIndex.ExternalDeclAnchors.declHref? state label decl then
           out := out.insert decl href
   return out
 
