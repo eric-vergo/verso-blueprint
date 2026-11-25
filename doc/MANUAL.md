@@ -1511,6 +1511,39 @@ remote of the checkout it is generated in
 checkout with a GitHub `origin` the text is shown without a link. TeX output
 shows the text.
 
+### Lean code in the text
+
+Lean code written in the running text with Verso's own code block and role
+(` ```Verso.Genre.Manual.InlineLean.lean ` and
+`` {Verso.Genre.Manual.InlineLean.lean}`term` ``) is elaborated and highlighted
+by Verso, with hovers, proof states and messages, and a Blueprint site shows it
+as it shows the Lean column:
+
+- **Colours.** Every highlighted Lean code of a site (the running text's blocks
+  and inline code, the Lean column, code panels and hovers) takes one palette:
+  `--bp-code-keyword`, `--bp-code-const`, `--bp-code-var`, `--bp-code-sort`,
+  `--bp-code-literal`, `--bp-code-comment` (comments and doc comments, in
+  italics) and `--bp-code-punctuation`, with light defaults and dark values in
+  the dark theme. A project stylesheet can override them.
+- **Frame.** A block of the running text is a framed panel on the subtle
+  surface colour; a line longer than the column scrolls inside the panel, not
+  the page.
+- **Links.** A name links to its documentation or to its definition in a Lean
+  block of the document, as in Verso. A declaration of the project also links to
+  where the site shows it, the Lean row of the first Blueprint node that names
+  it (`(lean := ...)`), and to its lines in the source file on GitHub at the
+  commit the site is built from. The second link is found in the `.ilean` files
+  Lake writes for the project's own modules under `.lake/build/lib/lean`, and
+  only for a file that Git tracks and that is as it is at that commit. A name
+  with both links follows the Lean row on a click and lists both in its hover.
+  A declaration of Lean or of a dependency, without documentation in the site,
+  stays unlinked.
+- **Hovers from a file.** Verso's pages read their hover table
+  (`-verso-docs.json`) with `fetch`, which a page opened from the disk
+  (`file://`) may not do. A Blueprint site also writes the table as a script,
+  `-verso-docs.js`, and a page opened from a file loads that script when its
+  hovers start; over HTTP nothing changes.
+
 ### Side-by-side layout
 
 A generator can render every statement that has `(lean := ...)` references as a

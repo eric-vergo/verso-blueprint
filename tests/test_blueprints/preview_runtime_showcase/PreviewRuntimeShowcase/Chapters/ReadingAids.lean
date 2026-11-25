@@ -17,6 +17,9 @@ theorem aidLongSignature (first second third fourth : Nat) (hFirst : first ≤ s
 
 theorem aidSectioned (n : Nat) : n + 0 = n := Nat.add_zero n
 
+/-- A bound that no statement of the Blueprint names: the text below uses it. -/
+def aidSlack : Nat := 2
+
 end PreviewRuntimeShowcase.ReadingAidDecls
 
 #doc (Manual) "Reading Aids" =>
@@ -37,3 +40,28 @@ Chain the inequalities.
 :::lemma_ "aids_sectioned" (lean := "PreviewRuntimeShowcase.ReadingAidDecls.aidSectioned")
 Adding zero changes nothing.
 :::
+
+# Lean in the Text
+
+Lean code in the running text is highlighted as in the Lean column: the bound
+{Verso.Genre.Manual.InlineLean.lean}`PreviewRuntimeShowcase.ReadingAidDecls.aidBase 3` is the
+statement of the first theorem of this chapter.
+
+```Verso.Genre.Manual.InlineLean.lean
+namespace PreviewRuntimeShowcase.ReadingAidDecls
+
+-- Two steps up, from the first theorem of the chapter.
+/-- Every number is at most two more than itself. -/
+theorem aidTwoSteps (n : Nat) :
+    n ≤ n + aidSlack := by
+  have h : n ≤ n + 1 := aidBase n
+  exact Nat.le_trans h
+    (Nat.succ_le_succ (Nat.le_succ n))
+
+def aidLabel : String := "two steps"
+
+example : aidSlack = 2 ∧ (Nat : Type) = Nat :=
+  ⟨rfl, rfl⟩
+
+end PreviewRuntimeShowcase.ReadingAidDecls
+```
