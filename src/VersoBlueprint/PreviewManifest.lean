@@ -2855,6 +2855,7 @@ private def emitBlueprintHtml
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
     (sideBySide : Bool)
+    (sidebar : Bool)
     (previewConfig? : Option Informal.ExternalMarkupRender.Config)
     (how : EmitHtml)
     (mode : Mode)
@@ -2905,6 +2906,12 @@ private def emitBlueprintHtml
       withTimedBuildProgress cfg.verbose s!"emitting {modeDescription} HTML" prepared.emit
   finally
     Informal.DeclarationSource.setEnabled false
+  if sidebar then
+    -- the full outline for the sidebar's tree, beside the pages that show it
+    let depth := match mode with | .single => 0 | .multi => cfg.htmlDepth
+    withReader (fun _ => pageImpls) <|
+      Informal.Sidebar.writeOutline (outDirForMode prepared.config.toConfig mode) depth cfg
+        prepared.state prepared.text
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
   -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
@@ -2951,7 +2958,8 @@ private def blueprintMainCore (text : Part Manual)
     (reproducibility : ReproducibilityOptions := {})
     (sideBySide : Bool := false)
     (statsPage? : Option Informal.Commands.StatsPageData := some {})
-    (comparatorPages : Array Informal.Commands.ChallengePageData := #[]) : IO UInt32 :=
+    (comparatorPages : Array Informal.Commands.ChallengePageData := #[])
+    (sidebar : Bool := false) : IO UInt32 :=
   ReaderT.run go extensionImpls
 where
   go : ReaderT ExtensionImpls IO UInt32 := do
@@ -2987,10 +2995,10 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
-        htmlText
-      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
-        htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide sidebar previewConfig?
+        cfg.emitHtmlSingle .single cfg htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide sidebar previewConfig?
+        cfg.emitHtmlMulti .multi cfg htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|
@@ -3084,6 +3092,7 @@ def blueprintMain (text : Part Manual)
   blueprintMainCore text (model.withExtensions extensionImpls) options config extraSteps pdfOptions
     (reproducibility := reproducibility) (sideBySide := sideBySide)
     (statsPage? := statsPageData? statsPage sidebar?) (comparatorPages := comparatorPages)
+    (sidebar := sidebar?.isSome)
 
 /-- `blueprintMain` with preview data files and the generator's command-line flags; it adds the
 Project Stats page the same way. -/
@@ -3133,6 +3142,6 @@ def blueprintMainWithPreviewData
     (extraSteps := extraSteps) (pdfOptions := pdfOptions)
     (previewConfig? := some externalMarkupConfig) (reproducibility := reproducibility)
     (sideBySide := sideBySide) (statsPage? := statsPageData? statsPage sidebar?)
-    (comparatorPages := comparatorPages)
+    (comparatorPages := comparatorPages) (sidebar := sidebar?.isSome)
 
 end Informal.PreviewManifest
