@@ -82,8 +82,9 @@ private def count (s needle : String) : Nat := (s.splitOn needle).length - 1
   texts (labels #[#[Name.str `Project "α-lemma"], #[`Project.ρ_irrational]]) ==
     #[some "«α-lemma»", some "ρ_irrational"]
 
--- A long label is shortened with an ellipsis: leading components first, then the middle of the
--- last component; it never has more than `maxLabelLength` characters.
+-- A long label is shortened with an ellipsis in the middle of its last component, and at the
+-- namespace side where its namespaces take more than half of it; it never has more than
+-- `maxLabelLength` characters.
 /-- info: true -/
 #guard_msgs in
 #eval
@@ -93,6 +94,10 @@ private def count (s needle : String) : Nat := (s.splitOn needle).length - 1
   short == "an_extremely_l…ality_of_things" && short.length == maxLabelLength &&
     shorten `Abcdefghij.Klmnopqrst.uvwxyz_uvwxyz 3 20 == "…uvwxyz_uvwxyz" &&
     shorten `Abcdefghij.Klmnopqrst.uvwxyz_uvwxyz 3 26 == "…Klmnopqrst.uvwxyz_uvwxyz" &&
+    -- the component that tells two long names apart stays
+    texts (labels #[#[`Project.not_exists_abs_sum_chi4_sub_mul_le],
+        #[`Project.PNT.not_exists_abs_sum_chi4_sub_mul_le]]) ==
+      #[some "Project.not_exists…_sub_mul_le", some "PNT.not_exists_a…i4_sub_mul_le"] &&
     (texts collide).all (·.all (·.length ≤ maxLabelLength)) &&
     cutMiddle "short" == "short"
 

@@ -14,8 +14,9 @@ without its namespaces (`rho_irrational` for `Project.rho_irrational`), followed
 statement has two more. Trailing components are added where the last one does not name the
 declaration to a reader (a numeric component, or one that starts with `_`), and where the name
 would read the same as the label of another node of the graph or as another declaration of the
-same statement. A label longer than `maxLabelLength` characters is shortened with an ellipsis,
-first at the namespace side, then in the middle of the last component.
+same statement. A label longer than `maxLabelLength` characters is shortened with an ellipsis in
+the middle of its last component, and at the namespace side where its namespaces take more than
+half of it.
 -/
 
 namespace Informal.GraphNames
@@ -57,17 +58,23 @@ def cutMiddle (text : String) (limit : Nat := maxLabelLength) : String :=
     let head := limit - 1 - tail
     (text.take head).toString ++ "…" ++ (text.takeEnd tail).toString
 
-/-- The last `count` components of `name` as a label of at most `limit` characters: leading
-components left out behind an ellipsis while it is too long, and a last component that is too
-long by itself cut in the middle. -/
+/-- The last `count` components of `name` as a label of at most `limit` characters. A label
+that is too long keeps the components before the last one where they take at most half of it,
+leaving out leading ones behind an ellipsis where they take more, and is cut in the middle of
+its last component: the components that tell two names apart stay where they fit. -/
 def shorten (name : Name) (count : Nat) (limit : Nat := maxLabelLength) : String := Id.run do
   let full := (suffix name count).toString
   if full.length ≤ limit then return full
-  for k in (List.range count).reverse do
-    if k ≥ 1 then
-      let text := "…" ++ (suffix name k).toString
-      if text.length ≤ limit then return text
-  return cutMiddle (suffix name 1).toString limit
+  let last := (suffix name 1).toString
+  for j in (List.range (count + 1)).reverse do
+    if j ≥ 1 then
+      let leading := if j ≥ 2 then
+        (((suffix name j).components.dropLast).foldl (· ++ ·) Name.anonymous).toString ++ "."
+        else ""
+      let head := (if j < count then "…" else "") ++ leading
+      if j == 1 || head.length ≤ limit / 2 then
+        return head ++ cutMiddle last (limit - head.length)
+  return cutMiddle last limit
 
 /-- The Lean label of a node: its text, the declaration it names and how many further
 declarations the node's statement has. -/
