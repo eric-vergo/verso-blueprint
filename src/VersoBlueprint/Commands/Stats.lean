@@ -667,6 +667,61 @@ def noReplaySummary : String :=
   s!"Not replayed by a kernel: {Replay.noReplayText}. The marks on this site say what the \
     compiled files report."
 
+/-- At most this many modules and challenges are named in a sentence on sources that are not
+known to be the build's; the band lists every module below it. -/
+def buildSourcesNamed : Nat := 3
+
+/-- The modules and challenges behind `ProjectStats.buildSources`, for a sentence, separated by
+semicolons: a module whose source changed as "Demo.Basic in Demo/Basic.lean", one not known to
+match the build with why, and a challenge that was not compared for that reason as its headline
+says ("the challenge Main: a module the proof uses changed since the build (Demo.Basic in
+Demo/Basic.lean)") unless its detail names one of those modules; at most `buildSourcesNamed`,
+then how many more there are. -/
+def buildSourcesItems (stats : ProjectStats) : String :=
+  let causes := stats.sourceCauses
+  let modules := causes.map fun c => if c.changed then c.place else s!"{c.place}, which {c.state}"
+  let named (h : Headline) : Bool := causes.any fun c =>
+    ((h.unavailableDetail.getD "").splitOn c.module.toString).length > 1
+  let challenges := stats.sourceChallenges.filterMap fun h =>
+    if named h then none else h.unavailable.map fun u =>
+      let detail := (h.unavailableDetail.map (s!" ({·})")).getD ""
+      s!"the challenge {h.name}: {(unavailableReason u).1}{detail}"
+  let items := modules ++ challenges
+  let shown := items.extract 0 buildSourcesNamed
+  let more := items.size - shown.size
+  "; ".intercalate shown.toList ++ (if more == 0 then "" else s!"; and {more} more")
+
+/-- The replay band's first sentence: `Replay.Result.summary`, except after an acceptance beside
+sources that are not known to be the text of the build the checkers accepted
+(`ProjectStats.buildSources`). Then it says that the acceptance is the compiled build's, which
+modules changed or are not known to match it, and that the project is to be built again. -/
+def replaySummaryText (stats : ProjectStats) (r : Replay.Result) : String :=
+  if r.outcome != .accepted then r.summary else
+  match stats.buildSources with
+  | .asBuilt => r.summary
+  | .changed =>
+    s!"Accepted for the compiled build, not for the sources shown: {r.acceptedText} The sources \
+      changed since that build ({buildSourcesItems stats}); build it again after an edit."
+  | .unknown =>
+    s!"Accepted for the compiled build, which is not known to match the sources shown: \
+      {r.acceptedText} The sources shown are not known to be the text that was compiled \
+      ({buildSourcesItems stats}); build it again to compare them."
+
+/-- The generator's last line about the replay (after "Kernel replay: ") when both checkers
+accepted the build and the sources are not known to be its text (`ProjectStats.buildSources`);
+nothing otherwise, the replay's own last line then standing. -/
+def replayBuildSourcesLine? (stats : ProjectStats) : Option String := do
+  let r ← stats.replay
+  guard (r.outcome == .accepted)
+  let accepted := s!"both checkers accepted the compiled build \
+    ({Replay.counted r.constants "constant"})"
+  match stats.buildSources with
+  | .asBuilt => none
+  | .changed => some s!"{accepted}, not the sources: they changed since that build \
+      ({buildSourcesItems stats}); build it again after an edit"
+  | .unknown => some s!"{accepted}; the sources are not known to match it \
+      ({buildSourcesItems stats}); build it again to compare them"
+
 /-- The sentence above the modules whose source is not known to be the text that was compiled. -/
 def sourceChangedLeadText (modules : Nat) : String :=
   let these := if modules == 1 then "this module" else "these modules"
@@ -698,8 +753,11 @@ message when it rejected the build or could not run, the declarations checked an
 out, the axioms found, and what a replay leaves trusted. -/
 private def replayHtml (view : StatsPageView) : Output.Html :=
   let replay? := view.stats.replay
-  let token := replayToken replay?
-  let summary := (replay?.map (·.summary)).getD noReplaySummary
+  -- an acceptance beside sources that are not known to be the build's text is the build's
+  let sources := view.stats.buildSources
+  let ofBuild := replay?.any (·.outcome == .accepted) && sources != .asBuilt
+  let token := if ofBuild then "changed" else replayToken replay?
+  let summary := (replay?.map (replaySummaryText view.stats)).getD noReplaySummary
   -- the checker's message; what kept a replay from a verdict is in the summary already
   let message : Output.Html :=
     match replay?.filter (·.outcome.isRejection) |>.bind (·.message) with
@@ -718,7 +776,9 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           el "li" s!"bp_stats_replay_checker bp_stats_replay_checker_{c.name}"
             (txt (checkerRunText c)))),
         listed "bp_stats_replay_declarations"
-          (if r.outcome == .accepted then
+          (if ofBuild then
+            "Declarations checked in the compiled build, each with everything it depends on"
+          else if r.outcome == .accepted then
             "Declarations checked, each with everything it depends on"
           else "Declarations to check")
           ((byName r.declarations).map fun d => code d.toString),
@@ -731,8 +791,12 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
           (r.axioms.map fun (d, axioms) => .seq #[code d.toString,
             txt s!": {", ".intercalate (axioms.toList.map (·.toString))}"])]
     | Option.none => .empty
-  -- the sentence that the replay accepted the build is itself a positive statement
-  let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}" else ""
+  -- the sentence that the replay accepted the build is itself a positive statement; one about an
+  -- older build than the sources is not, also inside a page in the accepted scope
+  let scope := if token == "accepted" then s!" {StatusColors.replayAcceptedClass}"
+    else if ofBuild then s!" {StatusColors.replayNoneClass}" else ""
+  let attrs := #[("data-bp-replay", token)] ++
+    (if ofBuild then #[("data-bp-replay-sources", sources.token)] else #[])
   let uncovered : Output.Html :=
     if view.notReplayed.isEmpty then .empty
     else el "details" "bp_stats_more bp_stats_replay_uncovered" (.seq #[
@@ -749,7 +813,7 @@ private def replayHtml (view : StatsPageView) : Output.Html :=
         .element "li" #[] (nodeLink view label)))])
   band "bp_stats_replay" "Kernel replay" #[
     el "p" s!"bp_stats_lead bp_stats_replay_summary bp_stats_replay_{token}{scope}" (txt summary)
-      #[("data-bp-replay", token)],
+      attrs,
     sourceChangedHtml view,
     message,
     modules,

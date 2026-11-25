@@ -550,21 +550,26 @@ def Result.checkedText (r : Result) : String :=
   s!"{counted r.declarations.size "declaration"} and everything {them} on, \
     {counted r.constants "constant"} in all"
 
+/-- What both checkers accepted, as the words after "Accepted: " in `Result.summary`:
+"con-leche and con-ron (Lean 4.36.0) each checked 3 declarations and everything they depend on,
+…, and both accepted them." -/
+def Result.acceptedText (r : Result) : String :=
+  let origins := if r.origins.isEmpty then "" else s!" ({r.originsText})"
+  if r.reproducible then
+    s!"{r.checkerName} both accepted this build's export, in this run or, for an identical \
+      export, in an earlier one: {r.checkedText}{origins}, each starting from its own built-in \
+      prelude."
+  else if r.recorded then
+    s!"{r.checkerName} both accepted an export identical to this build's in an earlier run: \
+      {r.checkedText}{origins}."
+  else
+    s!"{r.checkerName} each checked {r.checkedText}{origins}, starting from its own built-in \
+      prelude, and both accepted them."
+
 /-- One sentence on what the replay did, for the Project Stats page. -/
 def Result.summary (r : Result) : String :=
   match r.outcome with
-  | .accepted =>
-    let origins := if r.origins.isEmpty then "" else s!" ({r.originsText})"
-    if r.reproducible then
-      s!"Accepted: {r.checkerName} both accepted this build's export, in this run or, for an \
-        identical export, in an earlier one: {r.checkedText}{origins}, each starting from its \
-        own built-in prelude."
-    else if r.recorded then
-      s!"Accepted: {r.checkerName} both accepted an export identical to this build's in an \
-        earlier run: {r.checkedText}{origins}."
-    else
-      s!"Accepted: {r.checkerName} each checked {r.checkedText}{origins}, starting from its \
-        own built-in prelude, and both accepted them."
+  | .accepted => s!"Accepted: {r.acceptedText}"
   | .rejected =>
     s!"Rejected: {r.rejectionText} (the export of this site's declarations and what they \
       depend on). Nothing on this site counts as checked by a kernel."

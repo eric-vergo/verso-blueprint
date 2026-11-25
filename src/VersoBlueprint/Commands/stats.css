@@ -634,6 +634,14 @@ html[data-lean-links] .bp_stats_meaning_more {
   font-weight: 700;
 }
 
+/* An acceptance of a build older than the sources shown, or not known to be theirs: the
+   neutral mark of a changed source, never the check mark. */
+.bp_stats_replay_changed::before {
+  content: "\25cc\00a0";
+  color: var(--bp-color-text-subtle);
+  font-weight: 700;
+}
+
 .bp_stats_replay_message {
   margin: 0.4rem 0;
   padding: 0.5rem 0.7rem;

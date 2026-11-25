@@ -525,6 +525,103 @@ private def page (replay? : Option Replay.Result) : String :=
     on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own \
     library (Init, Std))."
 
+/-- The replay band's first element, from its start tag to its end, in `html`. -/
+private def bandLead (html : String) : String :=
+  let start := "<p class=\"bp_stats_lead bp_stats_replay_summary"
+  match html.splitOn start with
+  | _ :: rest :: _ => start ++ ((rest.splitOn "</p>").head!) ++ "</p>"
+  | _ => "(no band)"
+
+/-- A module whose source changed since the build, and one no build record says it was compiled
+from. -/
+private def changedModule (m : Name) : SourceChange :=
+  { module := m, file := s!"{m.toString.replace "." "/"}.lean", changed := true }
+
+private def unknownModule (m : Name) : SourceChange :=
+  { module := m, file := s!"{m.toString.replace "." "/"}.lean", changed := false
+    why := "its compiled module was not found" }
+
+/-- The Project Stats page with the replay `replay?`, the modules `changes` not known to match
+the build, and the challenge's headline `headline'` when given. -/
+private def pageWith (replay? : Option Replay.Result) (changes : Array SourceChange)
+    (headline' : Option Headline := none) : String :=
+  let s := { stats replay? with sourceChanged := changes }
+  let s := match headline' with
+    | some h => { s with challenges := #[h] }
+    | none => s
+  (statsPageHtml { stats := s }).render
+
+-- The replay band's first sentence, by what the sources shown are (`ProjectStats.buildSources`):
+-- as built (the element as it always was: the check mark's class, the accepted scope, no other
+-- attribute), a source changed since the build, a source not known to match it, a challenge not
+-- compared because a module it rests on changed, more modules than are named, and a rejection,
+-- which is said as it is whatever the sources.
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_accepted bp_replay_accepted" data-bp-replay="accepted">Accepted: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and both accepted them.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .accepted)) #[]))
+
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_changed bp_replay_none" data-bp-replay="changed" data-bp-replay-sources="changed">Accepted for the compiled build, not for the sources shown: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and both accepted them. The sources changed since that build (Demo.Basic in Demo/Basic.lean); build it again after an edit.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .accepted))
+  #[changedModule `Demo.Basic,
+    SourceChange.imported `P.Solution "P/Solution.lean" #[changedModule `Demo.Basic]]))
+
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_changed bp_replay_none" data-bp-replay="changed" data-bp-replay-sources="unknown">Accepted for the compiled build, which is not known to match the sources shown: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and both accepted them. The sources shown are not known to be the text that was compiled (Demo.Basic in Demo/Basic.lean, which is not known to match the build: its compiled module was not found); build it again to compare them.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .accepted)) #[unknownModule `Demo.Basic]))
+
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_changed bp_replay_none" data-bp-replay="changed" data-bp-replay-sources="changed">Accepted for the compiled build, not for the sources shown: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and both accepted them. The sources changed since that build (the challenge Main: a module the proof uses changed since the build (Lib.Helper in Lib/Helper.lean)); build it again after an edit.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .accepted)) #[]
+  (some { headline with name := "Main", unavailable := some .solutionOutOfDate
+                        unavailableDetail := some "Lib.Helper in Lib/Helper.lean" })))
+
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_changed bp_replay_none" data-bp-replay="changed" data-bp-replay-sources="changed">Accepted for the compiled build, not for the sources shown: con-leche and con-ron (Lean 4.35.0) each checked 2 declarations and everything they depend on, 3,409 constants in all (87 of this project, 860 of Mathlib and 2,462 of Lean's own library (Init, Std)), starting from its own built-in prelude, and both accepted them. The sources changed since that build (M.A in M/A.lean; M.B in M/B.lean; M.C in M/C.lean; and 2 more); build it again after an edit.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .accepted))
+  (#[`M.A, `M.B, `M.C, `M.D, `M.E].map changedModule)))
+
+/--
+info: <p class="bp_stats_lead bp_stats_replay_summary bp_stats_replay_rejected" data-bp-replay="rejected">Rejected: con-leche (Lean 4.35.0) and con-ron (Lean 4.35.0) rejected this build (the export of this site's declarations and what they depend on). Nothing on this site counts as checked by a kernel.</p>
+-/
+#guard_msgs in
+#eval IO.println (bandLead (pageWith (some (result .rejected)) #[changedModule `Demo.Basic]))
+
+-- Beside sources that are not the build's, the band has no check mark's class, nothing in the
+-- accepted scope, and says what it checked was the compiled build; the generator's last line
+-- about the replay says the same.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let changed := pageWith (some (result .accepted)) #[changedModule `Demo.Basic]
+  let unknown := pageWith (some (result .accepted)) #[unknownModule `Demo.Basic]
+  [changed, unknown].all (fun html =>
+    !hasSubstr html "bp_stats_replay_accepted" && !hasSubstr html "data-bp-replay=\"accepted\"" &&
+    hasSubstr html "Declarations checked in the compiled build, each with everything it depends \
+      on (2)") &&
+  replayBuildSourcesLine? { stats (some (result .accepted)) with
+      sourceChanged := #[changedModule `Demo.Basic] } ==
+    some "both checkers accepted the compiled build (3,409 constants), not the sources: they \
+      changed since that build (Demo.Basic in Demo/Basic.lean); build it again after an edit" &&
+  replayBuildSourcesLine? { stats (some (result .accepted)) with
+      sourceChanged := #[unknownModule `Demo.Basic] } ==
+    some "both checkers accepted the compiled build (3,409 constants); the sources are not known \
+      to match it (Demo.Basic in Demo/Basic.lean, which is not known to match the build: its \
+      compiled module was not found); build it again to compare them" &&
+  replayBuildSourcesLine? (stats (some (result .accepted))) == none &&
+  replayBuildSourcesLine? { stats (some (result .rejected)) with
+      sourceChanged := #[changedModule `Demo.Basic] } == none
+
 -- Rejected: no "proved" as a verdict, the checker's message, the error state.
 /-- info: true -/
 #guard_msgs in
