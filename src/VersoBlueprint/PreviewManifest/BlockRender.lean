@@ -65,9 +65,6 @@ structure RenderConfig where
   titleRowAttrs? :
     Entry → Option (Array (String × String)) := fun _ => none
   relationPanels : RelationPanelsConfig := {}
-  /-- Show the Lean declarations attached to a proof in a panel under it. The side-by-side
-  layout does not: they count towards the node's status and data only. -/
-  proofCodePanel : Bool := true
 
 /-- Per-node render options for a preview-data-backed Blueprint block. -/
 structure RenderOptions where
@@ -178,7 +175,7 @@ def renderWithRenderedContent
     let title := entry.heading opts.displayLabelOverride?
     let codePanel :=
       if opts.compact || (entry.facet == .proof &&
-          (!cfg.proofCodePanel || !entry.codeData.any (! ·.externalDecls.isEmpty))) then
+          !entry.codeData.any (! ·.externalDecls.isEmpty)) then
         .empty
       else
         renderCodePanel cfg title entry content
