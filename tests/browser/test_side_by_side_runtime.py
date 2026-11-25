@@ -1008,6 +1008,33 @@ class TestReadingAids:
         # the statement's own declaration keeps its link to its row of the Lean column
         expect(panel.locator(".bp_code_decl_item", has_text="aidSectioned").locator("a[href]")).to_have_count(1)
 
+    def test_a_placement_links_the_declarations_of_its_chip(self, side_by_side_server: str, page: Page):
+        """A placement of a node is not the node: its chip links the statement's declaration to its
+        Lean row and the proof's declaration to the node, as every other link to them does."""
+        page.set_viewport_size({"width": 1440, "height": 900})
+        page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+        placement = page.locator("[data-bp-blueprint-node][data-bp-label='aids_sectioned']")
+        placement.locator(".bp_code_summary_preview_wrap").first.hover()
+        panel = page.locator(".bp_code_summary_preview_panel:not([hidden])")
+        expect(panel).to_be_visible()
+        proof_link = panel.locator(".bp_code_decl_item", has_text="aidOpen").locator("a[href]")
+        expect(proof_link).to_have_count(1)
+        href = proof_link.get_attribute("href") or ""
+        target = page.evaluate(
+            """(id) => {
+                const el = document.getElementById(id);
+                if (!el || el.closest('[data-bp-blueprint-node]')) return null;
+                const node = el.closest('[data-bp-node]') || el.querySelector('[data-bp-node]');
+                return node && node.getAttribute('data-bp-node');
+            }""",
+            href.split("#", 1)[1],
+        )
+        assert target == "aids_sectioned", (href, target)
+        statement_link = panel.locator(".bp_code_decl_item", has_text="aidSectioned").locator("a[href]")
+        expect(statement_link).to_have_count(1)
+        fragment = (statement_link.get_attribute("href") or "").split("#", 1)[1]
+        expect(page.locator(f'[id="{fragment}"][data-lean-decl$="aidSectioned"]')).to_have_count(1)
+
     def test_graph_nodes_are_named_by_their_numbers(self, side_by_side_server: str, page: Page):
         page.set_viewport_size({"width": 1440, "height": 900})
         page.goto(side_by_side_server + "/Dependency-Graph/")
