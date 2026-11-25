@@ -1617,8 +1617,11 @@ layout on:
   controls; a monospace face for code. The faces are CSS variables a project
   stylesheet can set: `--bp-sbs-text-font-family`, `--bp-sbs-code-font-family`
   (and `--bp-sbs-text-size`). Every page of the site uses the wide content
-  area, with running text kept to a readable measure (`--bp-sbs-measure`,
-  48rem); links in reading text use the theme's link colour.
+  area, with running text (paragraphs, lists, definition lists, block quotes)
+  and section headings kept to a readable measure (`--bp-sbs-measure`, 48rem)
+  in a column centred in that area (see "Page layout" below); a code block in
+  the prose is at least as wide as the column and widens about its centre up to
+  the content area. Links in reading text use the theme's link colour.
 - Display formulas wider than the left column are set smaller to fit (down to
   70%); wider ones scroll inside the column.
 
@@ -1627,6 +1630,38 @@ rendering, the generator runs `lake build +<Module>:highlighted` once for every
 workspace module that declares a referenced declaration; Lake caches the result
 per module, so only changed modules are highlighted again. The first build of a
 large project can take a while: highlighting re-elaborates each such module.
+
+### Page layout
+
+Every page of a Blueprint site reads about one vertical axis, the centre of the
+content area. The page title, including the search page's, and the section
+headings down to the fourth level are centred on it; fifth- and sixth-level
+headings, set at the size of the text, start at the reading column's edge. A
+heading's permalink marker takes no room in the line, so the text itself is
+centred. The marker shows while the pointer is over the heading or the marker
+has the keyboard focus; where the content area is narrower than 56rem it sits
+over the end of the heading's last line instead of after it, and a heading never
+lets it widen the page.
+
+Paragraphs, lists, definition lists, block quotes and figures, the front page's
+text among them, form a column centred on the same axis, with their text
+aligned to its start; on a site in the `sbs` style the column has the readable
+measure above, elsewhere it is as wide as the content area. A block quote is
+indented from both edges of the column. A code block in the prose is at least as
+wide as the column and grows with its longest line equally on both sides of the
+axis, up to the content area, beyond which it scrolls inside. A page's list of
+sections and the introduction of a Comparator page are centred as blocks, their
+text aligned to its start. Wider content (side-by-side nodes, tables, the
+dependency graph, the bands of the Project Stats page) spans the content area
+and so shares the axis, and the Comparator and work-queue pages centre their
+content on it.
+
+Only the document's own sections and the front page's title block are laid out
+this way. The bands and cards of generated pages, and blocks such as Verso's
+licence notices, are sections with a class and keep their own left-aligned
+layout inside. The layout rules have the specificity of a plain element
+selector, so an ordinary rule in a project stylesheet overrides any of them; the
+measure of paragraphs and lists is set with `--bp-sbs-measure`.
 
 ### Dark theme
 
