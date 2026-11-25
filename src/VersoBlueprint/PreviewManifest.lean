@@ -2784,12 +2784,13 @@ def emitBlueprintPreviewData : BlueprintExtraStep := fun preparedState => do
     for graph in files.manifest.graphs do
       let direction := (graph.variants[0]?.map (·.options.direction)).getD .TB
       let routing := (graph.variants[0]?.map (·.options.routing)).getD .bundled
+      let nodeText := (graph.variants[0]?.map (·.options.nodeText)).getD .name
       let views := graph.variantGraphs.map fun v =>
         (v.key, ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters
-                   routing } : Informal.GraphLayout.View))
+                   routing, nodeText } : Informal.GraphLayout.View))
       let (_, omitted) ← Informal.GraphLayout.writeDrawings
         (dataDir / Informal.GraphLayout.drawingsFolder graph.key) views graph.renderGraph direction
-        routing
+        routing nodeText
       if omitted > 0 then
         Verso.reportWarning s!"Blueprint graph: {omitted} neighbourhood drawings left out \
           (neighbourhoods of more than {Informal.GraphLayout.egoNodeLimit} nodes, or more than \

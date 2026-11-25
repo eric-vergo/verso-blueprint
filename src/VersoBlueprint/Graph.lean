@@ -5,6 +5,7 @@ Author: Emilio J. Gallego Arias
 -/
 
 import VersoBlueprint.Environment
+import VersoBlueprint.GraphNames
 import VersoBlueprint.Informal.Block.Model
 import VersoBlueprint.Lib.HtmlId
 import VersoBlueprint.Lib.PreviewKey
@@ -129,6 +130,13 @@ structure GraphNode (Ref : Type) where
   /-- The node's numbered title in the document (`Theorem 6.5`), when it has one: drawings label
   the node with it, and keep the label for the node's tooltip and accessible name. -/
   caption? : Option String := none
+  /-- The declarations of the node's Lean statement as a reader writes them, in the order the
+  author wrote them (`Informal.GraphNames.distinctNames`); empty for a node without one. -/
+  leanNames : Array Name := #[]
+  /-- The node's Lean label (`Informal.GraphNames.labels`): drawings show it, followed by
+  `+leanMore`, unless a reader asks for numbers. -/
+  leanLabel? : Option String := none
+  leanMore : Nat := 0
   deps : Array Name
   proofDeps : Array Name := #[]
   parent? : Option Name := none
@@ -153,7 +161,8 @@ deriving Inhabited, Repr, ToJson, FromJson
 instance [Quote Ref] : Quote (GraphNode Ref) where
   quote n := Syntax.mkCApp ``GraphNode.mk
     #[
-      quote n.label, quote n.displayLabel?, quote n.caption?, quote n.deps, quote n.proofDeps, quote n.parent?, quote n.shape,
+      quote n.label, quote n.displayLabel?, quote n.caption?, quote n.leanNames, quote n.leanLabel?,
+      quote n.leanMore, quote n.deps, quote n.proofDeps, quote n.parent?, quote n.shape,
       quote n.style, quote n.fillcolor, quote n.color, quote n.penwidth, quote n.fontcolor, quote n.peripheries,
       quote n.gradientangle?, quote n.tooltip?, quote n.ref?, quote n.svgClass
     ]
@@ -208,6 +217,26 @@ def GraphRouting.parse? (s : String) : Option GraphRouting :=
   | "spline" => some .spline
   | _ => none
 
+/-- What the node of a statement with Lean declarations shows: the short Lean name of its first
+declaration, or its number (`Theorem 6.5`). A node without a Lean statement always shows its
+number. -/
+inductive GraphNodeText where
+  | name
+  | number
+deriving Inhabited, Repr, BEq, DecidableEq, FromJson, ToJson, Quote
+
+/-- The token of a node text in options, controls and drawings. -/
+def GraphNodeText.token : GraphNodeText → String
+  | .name => "name"
+  | .number => "number"
+
+/-- Parse a node text token (`name` or `number`). -/
+def GraphNodeText.parse? (s : String) : Option GraphNodeText :=
+  match s.trimAscii.toString.toLower with
+  | "name" | "names" | "lean" => some .name
+  | "number" | "numbers" => some .number
+  | _ => none
+
 /--
 Options that affect the layout of rendered Blueprint graphs.
 
@@ -226,6 +255,9 @@ structure GraphOptions where
   /-- How the edges are drawn; a view too large for bundled lanes is drawn with curves
   (`Informal.GraphLayout.routingFor`). -/
   routing : GraphRouting := .bundled
+  /-- What the nodes of a drawing show first: a node with a Lean statement can be labelled by
+  its Lean name or by its number; a reader can switch between the two. -/
+  nodeText : GraphNodeText := .name
 deriving Inhabited, Repr, BEq, FromJson, ToJson, Quote
 
 /--
@@ -324,6 +356,10 @@ structure NodeData where
   label : Name
   title : String
   displayLabel : String
+  /-- The declarations of the node's Lean statement (`Data.Node.statementCode`), in the order the
+  author wrote them; empty for a node without a Lean statement. Declarations attached only to the
+  proof are not among them. -/
+  leanNames : Array Name := #[]
   kind : Option Data.NodeKind := none
   parent : Option Name := none
   href : Option String := none
@@ -424,11 +460,15 @@ def numberedCaption? (title : String) : Option String :=
     !last.endsWith "."
   if title.contains ' ' && isNumber then some title else none
 
-private def NodeData.toGraphNode (node : NodeData) : GraphNode String :=
+private def NodeData.toGraphNode (node : NodeData) (lean? : Option GraphNames.Label) :
+    GraphNode String :=
   {
     label := node.label
     displayLabel? := some node.displayLabel
     caption? := numberedCaption? node.title
+    leanNames := GraphNames.distinctNames node.leanNames
+    leanLabel? := lean?.map (·.text)
+    leanMore := (lean?.map (·.more)).getD 0
     deps := node.statementUses.map (fun useRef => (useRef.label : Name))
     proofDeps := node.proofUses.map (fun useRef => (useRef.label : Name))
     parent? := node.parent
@@ -449,9 +489,12 @@ private def NodeData.toGraphNode (node : NodeData) : GraphNode String :=
       | none => if node.warnings.unknownRef then unresolvedClass else ""
   }
 
-/-- Build render topology exclusively from the authoritative node fields. -/
+/-- Build render topology exclusively from the authoritative node fields. The Lean labels of
+the nodes are chosen for the whole graph (`Informal.GraphNames.labels`), so every view of it
+labels a node alike. -/
 private def GraphModel.toGraph (model : GraphModel) : Graph String :=
-  model.nodes.map NodeData.toGraphNode
+  let labels := GraphNames.labels (model.nodes.map (·.leanNames))
+  model.nodes.mapIdx fun i node => node.toGraphNode (labels[i]?.join)
 
 /-- Recover a semantic model when finalized graph nodes must be selected or merged again. -/
 def GraphData.toModel (data : GraphData) : GraphModel := {
@@ -680,6 +723,17 @@ def allDeps (node : Data.Node) : Array Name :=
 
 def nodeExternalDecls (node : Data.Node) : Array Data.ExternalRef :=
   node.summaryExternalRefs
+
+/-- The declarations of the node's Lean statement (`Data.Node.statementCode`) in the order the
+author wrote them: those attached to the statement, then those of its code blocks, each block's
+in source order. Empty for a node without a Lean statement (`Data.Node.hasLeanStatement`), whatever
+is attached to its proof. -/
+def statementDeclarationNames (node : Data.Node) : Array Name :=
+  if !node.hasLeanStatement then #[] else
+  node.externalRefs.map (·.canonical) ++ node.literateCodes.flatMap fun code =>
+    let defs := code.definedDefs.map fun d => (d.commandIndex, d.name)
+    let theorems := code.definedTheorems.map fun d => (d.commandIndex, d.name)
+    ((defs ++ theorems).qsort (·.1 < ·.1)).map (·.2)
 
 def nodeHasAssociatedCode (node : Data.Node) : Bool :=
   node.hasAssociatedCode
@@ -1265,6 +1319,7 @@ def nodeDataWithExternal
       label
       title := nodeTitle resolveTitle? label
       displayLabel := graphNode.displayLabel
+      leanNames := statementDeclarationNames node
       kind := some node.kind
       parent := node.parent
       href := resolveHref? label

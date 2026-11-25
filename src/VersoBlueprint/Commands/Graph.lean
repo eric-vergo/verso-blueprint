@@ -44,6 +44,11 @@ register_option verso.blueprint.graph.defaultRouting : String := {
   descr := "Default edge drawing for `blueprint_graph` when `(routing := ...)` is omitted (`bundled` or `spline`)"
 }
 
+register_option verso.blueprint.graph.defaultNodeText : String := {
+  defValue := "name"
+  descr := "What graph nodes with a Lean statement show first in `blueprint_graph` when `(nodeText := ...)` is omitted: `name` (the short Lean name) or `number` (`Theorem 6.5`)"
+}
+
 register_option verso.blueprint.graph.defaultPreviewMode : String := {
   defValue := "pinned"
   descr := "Default preview behavior for `blueprint_graph` when `(preview := ...)` is omitted (`pinned` or `hover`)"
@@ -125,7 +130,8 @@ private def graphToHtml
         | none => "full"
       let viewOf := fun (v : Informal.Graph.VariantGraph) =>
         ({ graph := v.graph, groupTitle := v.groupTitle, clusters := v.clusters
-           routing := graphData.options.routing } : Informal.GraphLayout.View)
+           routing := graphData.options.routing, nodeText := graphData.options.nodeText } :
+          Informal.GraphLayout.View)
       -- A generator that writes the site's data folder puts every drawing there
       -- (`Informal.GraphLayout.writeDrawings`), and only the first is drawn here.
       let drawings : Array Informal.GraphLayout.Drawing :=
@@ -249,6 +255,25 @@ private def graphToHtml
       let graphPackInputId : String := graphControlId "--pack"
       let graphPreviewModeSelectId : String := graphControlId "--preview-mode"
       let graphPreviewPlacementSelectId : String := graphControlId "--preview-placement"
+      let graphNodeTextSelectId : String := graphControlId "--node-text"
+      -- the reader's choice of node text, offered when a node has a Lean name to show
+      let nodeTextDefault : String := graphData.options.nodeText.token
+      let nodeTextControl : Output.Html :=
+        if publicGraphData.nodes.any (!·.leanNames.isEmpty) then
+          let option := fun (value label : String) =>
+            if value == nodeTextDefault then html%{<option value={value} selected>{label}</option>}
+            else html%{<option value={value}>{label}</option>}
+          html%{
+            <label class="bp_graph_controls_label" for={graphNodeTextSelectId}>Node text</label>
+            <select
+              id={graphNodeTextSelectId}
+              class="bp_graph_controls_select bp_graph_node_text_select"
+              data-bp-graph-default-node-text={nodeTextDefault}>
+              {option "name" "Lean name"}
+              {option "number" "Number"}
+            </select>
+          }
+        else .empty
       let graphLegendPanelId : String := graphControlId "--legend"
       let graphOptionsPanelId : String := graphControlId "--options"
       let graphDirectionOptions : Array Output.Html :=
@@ -288,7 +313,7 @@ private def graphToHtml
           graphData.previewPlacement
       let groupHoverPanel := Informal.HoverRender.graphGroupPreviewPanel
       return html%{
-        <div class="bp_graph_fullwidth">
+        <div class="bp_graph_fullwidth" data-bp-graph-node-text={nodeTextDefault}>
           <div class="bp_graph_controls">
             <div class="bp_graph_controls_primary">
               <button
@@ -352,6 +377,7 @@ private def graphToHtml
                   {...graphPackChecked}/>
                 <span>Pack disconnected components</span>
               </label>
+              {nodeTextControl}
               <label class="bp_graph_controls_label" for={graphPreviewModeSelectId}>Preview</label>
               <select
                 id={graphPreviewModeSelectId}
@@ -460,6 +486,23 @@ instance : FromArgVal GraphRouting Verso.Doc.Elab.PartElabM where
         throwError "Expected `bundled` or `spline`, got {toMessageData other}"
   }
 
+instance : FromArgVal GraphNodeText Verso.Doc.Elab.PartElabM where
+  fromArgVal := {
+    description := doc!"what nodes with a Lean statement show first (`name` or `number`)"
+    signature := CanMatch.Ident ∪ CanMatch.String
+    get := fun
+      | .name id =>
+        match GraphNodeText.parse? id.getId.toString with
+        | some t => pure t
+        | none => throwErrorAt id "Expected `name` or `number`"
+      | .str s =>
+        match GraphNodeText.parse? s.getString with
+        | some t => pure t
+        | none => throwErrorAt s "Expected \"name\" or \"number\""
+      | other =>
+        throwError "Expected `name` or `number`, got {toMessageData other}"
+  }
+
 instance : FromArgVal Informal.HoverRender.PreviewMode Verso.Doc.Elab.PartElabM where
   fromArgVal := {
     description := doc!"graph preview mode (`pinned` or `hover`)"
@@ -498,6 +541,7 @@ structure BlueprintGraphConfig where
   direction : Option GraphDirection := none
   pack : Option Bool := none
   routing : Option GraphRouting := none
+  nodeText : Option GraphNodeText := none
   preview : Option Informal.HoverRender.PreviewMode := none
   previewPlacement : Option Informal.HoverRender.PreviewPlacement := none
 
@@ -507,6 +551,7 @@ instance : FromArgs BlueprintGraphConfig Verso.Doc.Elab.PartElabM where
       .named' `direction true <*>
       .named' `pack true <*>
       .named' `routing true <*>
+      .named' `nodeText true <*>
       .named' `preview true <*>
       .named' `previewPlacement true
 
@@ -541,7 +586,17 @@ def parseGraphOptions (cfg : BlueprintGraphConfig) : Verso.Doc.Elab.PartElabM Gr
       | none =>
         logWarning m!"Invalid value '{configured}' for option 'verso.blueprint.graph.defaultRouting'; expected bundled or spline. Falling back to bundled."
         pure .bundled
-  pure { direction, pack, routing }
+  let nodeText ← match cfg.nodeText with
+    | some nodeText => pure nodeText
+    | none =>
+      let configured := (← getOptions).get verso.blueprint.graph.defaultNodeText.name
+        verso.blueprint.graph.defaultNodeText.defValue
+      match GraphNodeText.parse? configured with
+      | some nodeText => pure nodeText
+      | none =>
+        logWarning m!"Invalid value '{configured}' for option 'verso.blueprint.graph.defaultNodeText'; expected name or number. Falling back to name."
+        pure .name
+  pure { direction, pack, routing, nodeText }
 
 def parseGraphPreviewMode
     (cfg : BlueprintGraphConfig) : Verso.Doc.Elab.PartElabM Informal.HoverRender.PreviewMode := do

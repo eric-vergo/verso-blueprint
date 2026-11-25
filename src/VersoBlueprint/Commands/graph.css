@@ -124,6 +124,30 @@
   fill: var(--bp-color-graph-label);
 }
 
+/* A node with a Lean statement carries two labels: its short Lean name in the code face
+   (`text.bp_graph_label_name`, with the count of further declarations after it) and its number
+   (`text.bp_graph_label_number`). The graph block says which one a reader chose to see. */
+.bp_graph_fullwidth svg text.bp_graph_label_name {
+  font-family: var(--verso-code-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+}
+
+.bp_graph_fullwidth svg tspan.bp_graph_label_more {
+  font-family: var(--verso-structure-font-family, Helvetica, Arial, sans-serif);
+  font-size: 10px;
+  fill-opacity: 0.72;
+}
+
+.bp_graph_fullwidth[data-bp-graph-node-text="name"] svg text.bp_graph_label_name,
+.bp_graph_fullwidth[data-bp-graph-node-text="number"] svg text.bp_graph_label_number {
+  display: inline;
+}
+
+.bp_graph_fullwidth[data-bp-graph-node-text="name"] svg text.bp_graph_label_number,
+.bp_graph_fullwidth[data-bp-graph-node-text="number"] svg text.bp_graph_label_name {
+  display: none;
+}
+
 /* What a view could not show (a neighbourhood the site did not draw), or how it is drawn when
    that is not what was asked for (curves for a view too large for bundled lanes). */
 .bp_graph_notice {

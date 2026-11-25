@@ -34,6 +34,15 @@ Base statement for a graph drawn with curves.
 {blueprint_graph (routing := spline)}
 :::::::
 
+#docs (Genre.Manual) numberLabelGraphDoc "Blueprint Graph Labelled By Numbers" :=
+:::::::
+:::theorem "thm:graph.numbers.base" (lean := "Nat.add_comm")
+A statement with a Lean declaration.
+:::
+
+{blueprint_graph (nodeText := number)}
+:::::::
+
 #docs (Genre.Manual) hoverPreviewGraphDoc "Blueprint Hover Preview Graph" :=
 :::::::
 :::definition "def:graph.hover.base"
@@ -122,7 +131,10 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-direction=\"TB\"" &&
       hasSubstr out "data-bp-graph-pack=\"true\"" &&
       hasSubstr out "data-bp-graph-default-pack=\"true\"" &&
-      hasSubstr out "\"options\":{\"direction\":\"TB\",\"pack\":true,\"routing\":\"bundled\"}" &&
+      hasSubstr out "\"options\":{\"direction\":\"TB\",\"nodeText\":\"name\",\"pack\":true,\"routing\":\"bundled\"}" &&
+      hasSubstr out "class=\"bp_graph_fullwidth\" data-bp-graph-node-text=\"name\"" &&
+      -- no node has a Lean name to show: no control to choose one
+      !hasSubstr out "bp_graph_node_text_select" &&
       hasSubstr out "data-bp-tex-prelude-id" &&
       !hasSubstr out "data-bp-tex-prelude=\"" &&
       !hasSubstr out "bp_preview_tex_prelude" &&
@@ -186,7 +198,7 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-default-direction=\"LR\"" &&
       hasSubstr out "data-bp-graph-default-pack=\"false\"" &&
       (hasSubstr out "selected value=\"LR\"" || hasSubstr out "value=\"LR\" selected") &&
-      hasSubstr out "\"options\":{\"direction\":\"LR\",\"pack\":false,\"routing\":\"bundled\"}" &&
+      hasSubstr out "\"options\":{\"direction\":\"LR\",\"nodeText\":\"name\",\"pack\":false,\"routing\":\"bundled\"}" &&
       hasSubstr out "class=\"bp_graph_first_drawing\" data-variant=\"full\" data-direction=\"LR\"" &&
       !hasSubstr out "rankdir=LR;" &&
       !hasSubstr out "dotByDirection"
@@ -212,6 +224,25 @@ Base statement for graph preview mode option coverage.
         errors.any fun msg =>
           hasSubstr msg "Blueprint manifest: malformed graph entry graph:malformed:"
 
+
+-- `(nodeText := number)` labels the nodes by their numbers first; the graph options offer the
+-- Lean names, and the drawing carries both.
+/-- info: true -/
+#guard_msgs in
+#eval
+  show IO Bool from do
+    let (out, _) ← renderManualDocHtmlStringAndState manualImpls numberLabelGraphDoc
+    pure (
+      hasSubstr out "\"nodeText\":\"number\"" &&
+      hasSubstr out "class=\"bp_graph_fullwidth\" data-bp-graph-node-text=\"number\"" &&
+      hasSubstr out "class=\"bp_graph_controls_select bp_graph_node_text_select\"" &&
+      hasSubstr out "data-bp-graph-default-node-text=\"number\"" &&
+      hasSubstr out "<option value=\"number\" selected>Number</option>" &&
+      hasSubstr out "<option value=\"name\">Lean name</option>" &&
+      hasSubstr out "\"leanNames\":[\"Nat.add_comm\"]" &&
+      hasSubstr out "display=\"none\">add_comm</text>" &&
+      hasSubstr out "<text class=\"bp_graph_label_number\" x="
+    )
 
 -- `(routing := spline)` draws the graph with curves; without it the graph has bundled lanes.
 /-- info: true -/

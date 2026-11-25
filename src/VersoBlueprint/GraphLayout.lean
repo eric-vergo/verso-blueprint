@@ -44,6 +44,8 @@ structure View where
   groupTitle : Name → Option String := fun _ => none
   clusters : Bool := true
   routing : GraphRouting := .bundled
+  /-- What the nodes with a Lean statement show first (`GraphNodeText`). -/
+  nodeText : GraphNodeText := .name
 
 /-- The size of node labels. -/
 def fontSize : Float := 12
@@ -72,26 +74,60 @@ in its namespaces) broken after dots, so that a node is not much wider than the 
 def labelLines (node : GraphNode Ref) : Array String :=
   (((node.caption?.getD node.displayLabel).splitOn "\n").toArray).flatMap wrapDotted
 
-/-- The accessible name of a drawn node: the text of its label, followed by its name (the
-node's label) when the label shows something else, as a numbered title does
-(`Theorem 6.5 (critical_radius)`), then its tooltip, which says the node's state in the words of
-its mark ("Theorem 6.5 (critical_radius): Lean proof without sorry, as the compiled files
-report; …"). -/
-def accessibleName (node : PILean.Graph.WebNode) : String :=
+/-- The accessible name of a drawn node: the text of its number label, followed by its name
+(the node's label) when the label shows something else, as a numbered title does
+(`Theorem 6.5 (critical_radius)`), then the full names of the declarations of its Lean statement
+(`leanNames`), then its tooltip, which says the node's state in the words of its mark
+("Theorem 6.5 (critical_radius), Lean name Project.critical_radius: Lean proof without sorry, as
+the compiled files report; …"). -/
+def accessibleName (node : PILean.Graph.WebNode) (leanNames : Array Name := #[]) : String :=
   let shown := String.join node.lines.toList
   let named := if shown == node.name || node.name.isEmpty then shown
     else s!"{" ".intercalate node.lines.toList} ({node.name})"
+  let named := match leanNames.size with
+    | 0 => named
+    | 1 => s!"{named}, Lean name {leanNames[0]!}"
+    | _ => s!"{named}, Lean names {", ".intercalate (leanNames.map toString).toList}"
   if node.tooltip.isEmpty then named else s!"{named}: {node.tooltip}"
+
+/-- The size of a node's Lean label, set in the page's code face. -/
+def leanFontSize : Float := 11
+
+/-- The size of the count of further declarations after a node's Lean label (`+2`). -/
+def moreFontSize : Float := 10
+
+/-- The gap between a node's Lean label and the count after it. -/
+def moreGap : Float := 4
+
+/-- The width of a line of text of `size` in a monospaced face: six tenths of the size for a
+character, the full size for one of the wide scripts. -/
+def monoWidth (s : String) (size : Float) : Float :=
+  (s.foldl (fun n c => n + if c.val ≥ 0x2E80 then 1000 else 600) 0).toFloat * size / 1000
+
+/-- The count after a node's Lean label: `+2` for two further declarations, nothing for none. -/
+def moreText (more : Nat) : String :=
+  if more == 0 then "" else s!"+{more}"
+
+/-- The width of a node's Lean label and the count after it; zero for a node without one. -/
+def leanLabelWidth (node : GraphNode Ref) : Float :=
+  match node.leanLabel? with
+  | none => 0
+  | some text =>
+    monoWidth text leanFontSize +
+      if node.leanMore == 0 then 0 else moreGap + PILean.Graph.sansWidth (moreText node.leanMore) moreFontSize
 
 /-- The outline of a node. -/
 def webShape (node : GraphNode Ref) : PILean.Graph.WebShape :=
   if node.shape == "ellipse" then .ellipse else if node.shape == "tab" then .tab else .box
 
-/-- The width and height of a node's box: its label in the page's sans-serif face (measured with
-Helvetica's metrics and a small reserve) with room around it. -/
+/-- The width and height of a node's box: room around the wider of its number label in the
+page's sans-serif face (measured with Helvetica's metrics) and its Lean label in the code face
+(`leanLabelWidth`), with a small reserve, so that the box holds whichever a reader shows. -/
 def nodeSize (node : GraphNode Ref) : Float × Float :=
   let lines := labelLines node
-  let width := lines.foldl (fun w s => max w (PILean.Graph.sansWidth s fontSize)) 0 * 1.06
+  let width :=
+    max (lines.foldl (fun w s => max w (PILean.Graph.sansWidth s fontSize)) 0)
+      (leanLabelWidth node) * 1.06
   let extra := fontSize * 1.2 * ((lines.size : Nat) - 1).toFloat
   match webShape node with
   | .ellipse => (max 56 (width * 1.12 + 20), 32 + extra)
@@ -273,6 +309,20 @@ structure Drawing where
   /-- Why the drawing's edges are not drawn as the view asked (`routingFor`), when they are not. -/
   note : Option String := none
 
+/-- What a node with a Lean label adds to its drawing: its element id, the label, the count of
+further declarations and the full names of its statement's declarations. -/
+structure LeanText where
+  id : String
+  label : String
+  more : Nat
+  names : Array Name
+deriving Inhabited
+
+/-- The Lean text of every node of `graph`, by number; `none` for a node without a Lean label. -/
+def leanTexts (graph : Graph Ref) : Array (Option LeanText) :=
+  graph.map fun node => node.leanLabel?.map fun label =>
+    { id := graphNodeSvgId node.label, label, more := node.leanMore, names := node.leanNames }
+
 /-- Text for an attribute value: `&`, `<`, `>` and `"` escaped, and the characters XML cannot
 carry (`xmlChar`) left out, since a drawing with one is not a well-formed SVG document. -/
 def escapeAttribute (text : String) : String :=
@@ -281,9 +331,11 @@ def escapeAttribute (text : String) : String :=
 
 /-- A drawing whose nodes are images named for a reader of the page (`role="img"` and their
 `accessibleName` as `aria-label`), found by the nodes' ids. -/
-def withAccessibleNames (nodes : Array PILean.Graph.WebNode) (svg : String) : String :=
-  let names : Std.HashMap String String := nodes.foldl (init := {}) fun m n =>
-    if n.id.isEmpty then m else m.insert n.id (accessibleName n)
+def withAccessibleNames (nodes : Array PILean.Graph.WebNode) (svg : String)
+    (lean : Array (Option LeanText) := #[]) : String :=
+  let names : Std.HashMap String String := (nodes.zipIdx).foldl (init := {}) fun m (n, i) =>
+    if n.id.isEmpty then m
+    else m.insert n.id (accessibleName n ((lean[i]?.join.map (·.names)).getD #[]))
   match svg.splitOn "<g id=\"" with
   | [] | [_] => svg
   | first :: rest =>
@@ -379,20 +431,74 @@ def withRouteData (layout : PILean.Graph.Layout) (ids : Array String) (svg : Str
     | [] => svg
   | _ => svg
 
+/-- The code face of a node's Lean label where no stylesheet sets the site's. -/
+def codeFontFamily : String := "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+
+/-- The drawing with the Lean labels of its nodes: in the group of a node with one, its number
+label's lines get the class `bp_graph_label_number` and a `text.bp_graph_label_name` follows
+them, the label in the code face with the count of further declarations
+(`tspan.bp_graph_label_more`) after it, centred in the node's box. The one that `nodeText` does
+not show first is hidden (`display="none"`); the page's stylesheet shows the one a reader
+chooses. `ink` is the colour of the node's text, `boxes` the boxes of the layout's nodes. -/
+def withLeanLabels (svg : String) (lean : Array (Option LeanText))
+    (ink : Array String) (boxes : Std.HashMap Nat PILean.Box) (nodeText : GraphNodeText) :
+    String :=
+  let entries : Std.HashMap String String := Id.run do
+    let mut m := {}
+    for entry? in lean, i in [0:lean.size] do
+      if let (some entry, some box) := (entry?, boxes.get? i) then
+        let cx := (box.x0 + box.x1) / 2
+        let cy := (box.y0 + box.y1) / 2
+        let hidden := if nodeText == .name then "" else " display=\"none\""
+        let more := if entry.more == 0 then "" else
+          s!"<tspan class=\"bp_graph_label_more\" dx=\"{PILean.fmtNum moreGap 0}\" \
+            font-family=\"Helvetica, Arial, sans-serif\" \
+            font-size=\"{PILean.fmtNum moreFontSize 0}\">{moreText entry.more}</tspan>"
+        let text := s!"<text class=\"bp_graph_label_name\" x=\"{PILean.fmtNum cx 1}\" \
+          y=\"{PILean.fmtNum (cy + leanFontSize * 0.36) 1}\" \
+          fill=\"{escapeAttribute (ink.getD i "")}\" font-family=\"{codeFontFamily}\" \
+          font-size=\"{PILean.fmtNum leanFontSize 0}\"{hidden}>{escapeAttribute entry.label}{more}</text>"
+        m := m.insert entry.id text
+    return m
+  let numberAttrs := if nodeText == .number then "" else " display=\"none\""
+  if entries.isEmpty then svg else
+  match svg.splitOn "<g id=\"" with
+  | [] | [_] => svg
+  | first :: rest =>
+    let rest := rest.map fun piece =>
+      let id := (piece.splitOn "\"").head?.getD ""
+      match entries.get? id, piece.splitOn "</g>" with
+      | some text, inside :: after@(_ :: _) =>
+        let inside := inside.replace "<text " s!"<text class=\"bp_graph_label_number\"{numberAttrs} "
+        -- the node's own lines, then the indentation of its closing tag
+        let lines := inside.splitOn "\n"
+        if lines.length < 2 then inside ++ text ++ "</g>" ++ "</g>".intercalate after else
+        let indent := lines.getLastD ""
+        let body := "\n".intercalate lines.dropLast
+        body ++ "\n" ++ indent ++ "  " ++ text ++ "\n" ++ indent ++ "</g>" ++
+          "</g>".intercalate after
+      | _, _ => piece
+    "<g id=\"".intercalate (first :: rest)
+
 /-- A layout written for a direction: the layout of the top-down or left-to-right direction,
 mirrored for the opposite one, with how its edges are drawn (`data-bp-routing`), the sentence
 that says why when that is not what the view asked for (`data-bp-routing-note`), and what a page
 needs to highlight routes (`withRouteData`). -/
 def svgFor (layout : PILean.Graph.Layout) (nodes : Array PILean.Graph.WebNode)
     (edges : Array PILean.Graph.WebEdge) (direction : GraphDirection)
-    (routing : GraphRouting := .bundled) (note : Option String := none) : String :=
+    (routing : GraphRouting := .bundled) (note : Option String := none)
+    (lean : Array (Option LeanText) := #[]) (nodeText : GraphNodeText := .name) : String :=
   let mirrored := match direction with
     | .BT => layout.mirror true
     | .RL => layout.mirror false
     | _ => layout
   let attrs := #[("data-bp-direction", direction.rankdir), ("data-bp-routing", routing.token)] ++
     (note.map fun n => #[("data-bp-routing-note", n)]).getD #[]
-  withRouteData mirrored (nodes.map (·.id)) <| withAccessibleNames nodes <|
+  let boxes : Std.HashMap Nat PILean.Box :=
+    mirrored.nodes.foldl (init := {}) fun m n => m.insert n.index n.box
+  withRouteData mirrored (nodes.map (·.id)) <|
+    withLeanLabels (lean := lean) (ink := nodes.map (·.ink)) (boxes := boxes) (nodeText := nodeText) <|
+    withAccessibleNames (lean := lean) nodes <|
     mirrored.toWebSvg nodes edges
       { classes := "bp_graph_drawing", fontSize, titlesBelow := direction == .BT, attrs }
 
@@ -413,6 +519,7 @@ def severalComponents (graph : PILean.Graph) : Bool :=
 layers when the view has more than one. The layouts are computed in parallel. -/
 def drawings (key : String) (view : View) : Array Drawing :=
   let (graph, nodes, edges) := toLayoutGraph view
+  let lean := leanTexts view.graph
   let (routing, note) := routingFor view.routing graph
   let packs : Array (Option Bool) :=
     if severalComponents graph then #[some true, some false] else #[none]
@@ -421,7 +528,8 @@ def drawings (key : String) (view : View) : Array Drawing :=
     let layout := layoutOf graph leftToRight (pack.getD false) (routing := routing)
     (directionsOf leftToRight).map fun direction =>
       ({ variant := key, direction, pack,
-         svg := svgFor layout nodes edges direction routing note, note } : Drawing)
+         svg := svgFor layout nodes edges direction routing note lean view.nodeText,
+         note } : Drawing)
   tasks.flatMap (·.get)
 
 /-- The one drawing of a view for a direction and a packing. -/
@@ -430,7 +538,8 @@ def drawing (key : String) (view : View) (direction : GraphDirection) (pack : Bo
   let (routing, note) := routingFor view.routing graph
   let pack? := if severalComponents graph then some pack else none
   let layout := layoutOf graph (direction == .LR || direction == .RL) pack (routing := routing)
-  { variant := key, direction, pack := pack?, svg := svgFor layout nodes edges direction routing note
+  { variant := key, direction, pack := pack?
+    svg := svgFor layout nodes edges direction routing note (leanTexts view.graph) view.nodeText
     note }
 
 /-! ## Neighbourhood views -/
@@ -544,7 +653,7 @@ def drawingsFolder (graphKey : String) : String :=
 Returns the number of neighbourhood drawings written and left out. -/
 def writeDrawings (dir : System.FilePath) (views : Array (String × View))
     (graph : Graph String) (direction : GraphDirection) (routing : GraphRouting := .bundled)
-    (limit : Nat := egoByteLimit) (nodeLimit : Nat := egoNodeLimit) (jobs : Nat := 8) :
+    (nodeText : GraphNodeText := .name) (limit : Nat := egoByteLimit) (nodeLimit : Nat := egoNodeLimit) (jobs : Nat := 8) :
     IO (Nat × Nat) := do
   IO.FS.createDirAll dir
   let mut variants : Array (String × Json) := #[]
@@ -573,14 +682,15 @@ def writeDrawings (dir : System.FilePath) (views : Array (String × View))
         omitted := omitted + batch.size
         continue
       let tasks := batch.map fun id => Task.spawn fun _ =>
-        let view : View := { graph := sets[id]!.map (graph[·]!), clusters := false, routing }
+        let view : View :=
+          { graph := sets[id]!.map (graph[·]!), clusters := false, routing, nodeText }
         let (g, nodes, edges) := toLayoutGraph view
         let (routing, note) := routingFor view.routing g
         -- thousands of these are drawn: fewer starts each
         let layout := layoutOf g leftToRight false
           (starts := if sets[id]!.size ≤ 40 then 4 else 1) (routing := routing)
         let d : GraphDirection := if leftToRight then .LR else .TB
-        (d, svgFor layout nodes edges d routing note)
+        (d, svgFor layout nodes edges d routing note (leanTexts view.graph) nodeText)
       for id in batch, task in tasks do
         let (d, svg) := task.get
         if bytes + svg.utf8ByteSize > limit then
