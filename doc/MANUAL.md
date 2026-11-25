@@ -1979,33 +1979,52 @@ change dependency edges.
 
 A node whose statement has a Lean statement (`BlockCodeData.isLeanStatement`:
 declarations attached to the statement, or named declarations of its code
-blocks) shows the name of its first declaration, in the order the author wrote
-them, without its namespaces and set in the site's code face: `rho_irrational`
-for `Project.rho_irrational`. When the statement has more declarations, a quiet
-count follows (`rho_irrational +2`). The name keeps more trailing components
-where the last one does not name the declaration on its own (a number, or a
-component that starts with `_`), and where it would read the same as the name
-shown on another node of the graph or as another declaration of the same
-statement (`Real.foo` and `Complex.foo`); the prefix of a private declaration is
-left out. A name longer than 30 characters is shortened with an ellipsis in the
-middle of its last component, keeping the namespaces that tell it apart while
-they take at most half of it (`PNT.not_exists_a…i4_sub_mul_le`). A node without a Lean statement shows
-its number (`Theorem 7.2`), however complete the declarations attached to its
-proof are: a name there would suggest a Lean statement that does not exist.
+blocks) shows the name of one of those declarations without its namespaces, set
+in the site's code face: `rho_irrational` for `Project.rho_irrational`. The
+declarations are taken in the order the author wrote them: the attached ones in
+the order they were attached, then those of the code blocks in source order, a
+type before the constructors and fields its command also declares. A theorem,
+lemma, proposition or corollary shows its first theorem-like declaration; a
+definition its first declaration that is not a constructor, field, projection or
+recursor of another of its declarations (named inside it) nor an instance
+(`inst…`); without one, the first declaration. When the statement has more
+declarations, their count follows (`rho_irrational +2`).
 
-The number stays available: a node's accessible name reads its number, its
-label and the full names of its declarations before its status
-(`Theorem 7.2 (main), Lean name Project.main: …`), and the node view shows the
-declarations. `Graph options` switches every node between `Lean name` and
-`Number`; the choice is remembered for the reader in the browser's local
-storage (`bp-graph-node-text`) and applies to every graph of the site, and a
-page read without scripts shows the site's default. A node's box is sized for
-the wider of its two labels, so it holds either, and the layout is computed
-with those sizes.
+The name keeps more trailing components where the last one does not name the
+declaration on its own (a number, or a component that starts with `_`), and
+where it would read the same as the name shown on another node of the graph or
+as another declaration of the same statement (`Real.foo` and `Complex.foo`); the
+prefix of a private declaration is left out. A name takes one or two lines of at
+most 20 characters, broken after a `.` (a namespace on a line of its own) or
+else after a `_`. A name that does not fit in two lines is cut in its last
+component, at `_` boundaries where it can, keeping its beginning and its end
+(`eventuallyPeriodic_` over `of…mem_range_ratCast`); the namespaces that tell it
+apart from another node are always shown in full. Nodes that would still read
+alike, such as nodes whose statements name the same declaration, show their
+numbers under their names. A node without a Lean statement shows its number
+(`Theorem 7.2`), however complete the declarations attached to its proof are: a
+name there would suggest a Lean statement that does not exist.
+
+The number stays available. A pointer resting on a node with a Lean label shows
+its number and label, then the full name of every declaration of its statement,
+one per line, the one it shows first; a declaration that was not found in the
+built environment is followed by `(not found)` (its status says so too). A
+node's accessible name reads its number, its label and the full names of its
+declarations before its status (`Theorem 7.2 (main), Lean name Project.main: …`),
+and the node view shows the declarations. `Graph options` switches every node
+between `Lean name` and `Number`. The choice is remembered for the reader in the
+browser's local storage, for the site (`bp-graph-node-text:` followed by the
+site's address), and applies to every graph of the site; without a choice the
+site's default applies (`nodeText`), and a page read without scripts shows the
+site's default. A node's box is sized for the wider and taller of its two
+labels, so it holds either and switching moves nothing, and the layout is
+computed with those sizes.
 
 The fragments that name a node (`#node=…` and `#ego=…`) accept its label, the
 full name of a declaration of its Lean statement or its trailing components (the
-name a node shows), and its number (`#node=Theorem%207.2`).
+name a node shows), its number (`#node=Theorem%207.2`, or `#node=7.2`) and its
+title. A name that several nodes match opens the first of them in the order of
+the graph data; a full name or the number names one node.
 
 #### Neighbourhood (ego) view
 
@@ -2171,11 +2190,15 @@ with curves because of the limits, why (`data-bp-routing-note`, also shown under
 the first drawing of a page read without scripts).
 
 Labels are drawn at 12 pixels, Lean names at 11 pixels in the code face. A node
-with a Lean statement carries its Lean name (`text.bp_graph_label_name`, the
-count of further declarations in a `tspan.bp_graph_label_more`) and its number
-label (`text.bp_graph_label_number`); the one the site does not show first has
+with a Lean statement carries its Lean name (one `text.bp_graph_label_name` per
+line, the count of further declarations in a `tspan.bp_graph_label_more`, the
+number under a name that reads like another in a
+`text.bp_graph_label_name.bp_graph_label_quiet`) and its number label
+(`text.bp_graph_label_number`); the one the site does not show first has
 `display="none"`, and the stylesheet shows the one the graph block's
-`data-bp-graph-node-text` names (see "Node labels"). The number label of a node
+`data-bp-graph-node-text` names (see "Node labels"). Its `title` is its hover,
+kept by the page (`data-bp-node-hover`), and its name is in
+`data-bp-node-name`. The number label of a node
 of a statement the document numbers is its numbered title (`Theorem 6.5`); its
 label (`critical_radius`) stays its name and its tooltip, and both make its
 accessible name: every node is an image (`role="img"`) named by `aria-label`
