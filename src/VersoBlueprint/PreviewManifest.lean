@@ -3045,6 +3045,14 @@ def comparatorPagesOf (model : RenderModel) (highlight : Bool := true)
       (logWarning := fun msg => IO.eprintln s!"warning: {msg}")
   Informal.Commands.challengePages model.stats root codeOf
 
+/-- Print the last line about the kernel replay when both checkers accepted a build whose sources
+are not known to be the text shown now (`Informal.Commands.replayBuildSourcesLine?`), after the
+sources were checked for the last time: a reader of the generator's output who takes its last
+line about the replay does not take the acceptance for one of the sources. -/
+def sayReplayBuildSources (model : RenderModel) : IO Unit := do
+  if let some line := Informal.Commands.replayBuildSourcesLine? model.stats then
+    IO.eprintln s!"Kernel replay: {line}"
+
 /-- Generate a document using semantic data captured after all generator imports.
 
 The HTML site gets a Project Stats page at the end of its table of contents
@@ -3075,6 +3083,7 @@ def blueprintMain (text : Part Manual)
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  sayReplayBuildSources model
   let comparatorPages ← try comparatorPagesOf model
     catch e => IO.eprintln s!"error: {e}"; return 1
   let (sidebar?, options) := Informal.Sidebar.parseFlag sidebar? options
@@ -3109,6 +3118,7 @@ def blueprintMainWithPreviewData
   let (replayFlag, options) := parseKernelReplayFlag options
   let model ← model.refreshStats (kernelReplay := kernelReplay || replayFlag)
   let model := withReproducibleReplay reproducibility options model
+  sayReplayBuildSources model
   -- a generator that highlights the code itself gives `comparatorCode?`; others take Lake's
   let comparatorPages ← try
       comparatorPagesOf model (highlight := comparatorCode?.isNone)
