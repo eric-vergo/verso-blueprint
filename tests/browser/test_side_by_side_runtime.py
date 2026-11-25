@@ -259,31 +259,6 @@ class TestSideBySideRuntime:
         title = page.locator(".bp_sbs .bp_status_glyph").first.get_attribute("title")
         assert title and "Lean" in title and len(title.split()) >= 3
 
-    def test_dark_code_tokens_are_readable(
-        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
-    ):
-        page.emulate_media(color_scheme="dark")
-        page.goto(side_by_side_server + side_by_side_page_path(side_by_side_site_dir))
-        result = page.evaluate(
-            """() => {
-              const parse = (c) => { const p = c.match(/[\\d.]+/g).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
-              const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
-              const bg = parse(getComputedStyle(document.body).backgroundColor);
-              const tokens = [...document.querySelectorAll('.bp_sbs_formal .hl.lean .token')]
-                .filter((el) => el.textContent.trim())
-                .map((el) => {
-                  const [x, y] = [lum(parse(getComputedStyle(el).color)), lum(bg)].sort((p, q) => q - p);
-                  return [el.className, (x + 0.05) / (y + 0.05)];
-                });
-              return { dark: lum(bg) < 0.05, tokens };
-            }"""
-        )
-        if not result["dark"]:
-            pytest.skip("no dark theme on this branch")
-        assert result["tokens"]
-        failing = [t for t in result["tokens"] if t[1] < 4.5]
-        assert not failing, failing
-
     def test_folded_proof_without_visible_chips_is_one_line_in_a_narrow_card(
         self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
     ):
@@ -1211,3 +1186,292 @@ class TestReadingAxis:
             }"""
         )
         assert aligns == ["start", "0px"], aligns
+
+
+# The page of the fixture with Lean code in its running text: a block and inline code.
+PROSE_LEAN_PAGE = "/Reading-Aids/Lean-in-the-Text/"
+
+# The places of the running text where a Lean block is a block of the text.
+_PROSE_PLACES = (
+    "main section:not([class]), main .titlepage, main section:not([class]) > :is(ul, ol) > li, "
+    "main section:not([class]) > blockquote, main section:not([class]) > dl > dd, div.paragraph, "
+    ".bp_content"
+)
+
+# Lean blocks of the running text, as opposed to those of the Blueprint's own components.
+_PROSE_BLOCK_JS = """() => [...document.querySelectorAll('code.hl.lean.block')].filter((b) =>
+    b.parentElement.matches('""" + _PROSE_PLACES + """'))"""
+
+# Lean blocks of the Blueprint's own components: the Lean column, code panels, the code of the
+# Comparator and statistics pages.
+_COMPONENT_BLOCKS = (
+    ".bp_sbs_formal code.hl.lean.block, details.bp_code_block code.hl.lean.block, "
+    ".bp_comparator_code code.hl.lean.block, .bp_stats_statement_code code.hl.lean.block"
+)
+
+# Each visible token of the Lean code that `selector` finds (in `root`, a function giving the
+# elements), with its contrast against the colour behind it.
+_TOKEN_CONTRAST_JS = """(roots) => {
+  // `rgb(…)`/`rgba(…)` in 0–255, or `color(srgb …)` in 0–1 (what `color-mix` computes to)
+  const parse = (c) => {
+    const p = c.match(/[\\d.]+/g).map(Number);
+    const k = c.startsWith('color(') ? 255 : 1;
+    return { r: p[0] * k, g: p[1] * k, b: p[2] * k, a: p.length > 3 ? p[3] : 1 };
+  };
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+  // the colour behind an element: its ancestors' backgrounds laid over the canvas (white)
+  const behind = (el) => {
+    const layers = [];
+    for (let e = el; e; e = e.parentElement) {
+      const c = parse(getComputedStyle(e).backgroundColor);
+      if (c.a > 0) layers.push(c);
+      if (c.a >= 1) break;
+    }
+    let out = { r: 255, g: 255, b: 255, a: 1 };
+    for (const c of layers.reverse()) {
+      out = { r: c.r * c.a + out.r * (1 - c.a), g: c.g * c.a + out.g * (1 - c.a),
+              b: c.b * c.a + out.b * (1 - c.a), a: 1 };
+    }
+    return out;
+  };
+  const out = {};
+  for (const [name, selector] of Object.entries(roots)) {
+    const elements = selector === 'prose'
+      ? (""" + _PROSE_BLOCK_JS + """)()
+      : [...document.querySelectorAll(selector)];
+    out[name] = elements.flatMap((root) => [...root.querySelectorAll('.token')])
+      .filter((el) => el.textContent.trim() && el.getClientRects().length)
+      .map((el) => {
+        const [x, y] = [lum(parse(getComputedStyle(el).color)), lum(behind(el))].sort((p, q) => q - p);
+        return [el.className, el.textContent.slice(0, 20), (x + 0.05) / (y + 0.05)];
+      });
+  }
+  return { dark: lum(behind(document.body)) < 0.05, out };
+}"""
+
+
+class TestLeanInTheText:
+    """Lean code of the running text: highlighted, framed, linked and with hovers like the Lean column."""
+
+    @pytest.mark.parametrize("scheme", ("light", "dark"))
+    def test_code_tokens_are_readable(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page, scheme: str
+    ):
+        page.emulate_media(color_scheme=scheme)
+        for path, roots in (
+            (side_by_side_page_path(side_by_side_site_dir), {"column": ".bp_sbs_formal .hl.lean"}),
+            (PROSE_LEAN_PAGE, {"block": "prose", "inline": "code.hl.lean.inline"}),
+        ):
+            page.goto(side_by_side_server + path)
+            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+            # the tokens' colours ease in; measure them once they have settled
+            page.wait_for_function(
+                "document.getAnimations().every((a) => a.playState !== 'running')", timeout=5000
+            )
+            result = page.evaluate(_TOKEN_CONTRAST_JS, roots)
+            assert result["dark"] == (scheme == "dark"), (path, scheme)
+            for name, tokens in result["out"].items():
+                assert tokens, (path, name)
+                failing = [t for t in tokens if t[2] < 4.5]
+                assert not failing, (path, scheme, name, failing)
+
+    @pytest.mark.parametrize("scheme", ("light", "dark"))
+    def test_prose_tokens_take_the_palette(self, side_by_side_server: str, page: Page, scheme: str):
+        page.emulate_media(color_scheme=scheme)
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        page.wait_for_function(
+            "document.getAnimations().every((a) => a.playState !== 'running')", timeout=5000
+        )
+        colours = page.evaluate(
+            """() => {
+              const probe = document.createElement('span');
+              document.body.appendChild(probe);
+              const palette = (name, fallback) => {
+                probe.style.color = `var(${name}, ${fallback})`;
+                return getComputedStyle(probe).color;
+              };
+              const block = (""" + _PROSE_BLOCK_JS + """)()[0];
+              const first = (sel) => { const e = block.querySelector(sel); return e && getComputedStyle(e).color; };
+              const inline = document.querySelector('code.hl.lean.inline .const.token');
+              return {
+                const: [first('.const.token'), palette('--bp-code-const', '#8a5a00')],
+                keyword: [first('.keyword.token'), palette('--bp-code-keyword', '#0b52b5')],
+                comment: [first('.comment.token, .doc-comment.token'), palette('--bp-code-comment', '#5f6b78')],
+                inlineConst: [inline && getComputedStyle(inline).color, palette('--bp-code-const', '#8a5a00')],
+              };
+            }"""
+        )
+        for kind, (actual, expected) in colours.items():
+            assert actual == expected, (scheme, kind, actual, expected)
+
+    def test_prose_block_is_framed_on_the_reading_column(self, side_by_side_server: str, page: Page):
+        for width in (1440, 360):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+            facts = page.evaluate(
+                """() => {
+                  const b = (""" + _PROSE_BLOCK_JS + """)()[0];
+                  const p = b.parentElement.querySelector(':scope > p');
+                  const cs = getComputedStyle(b);
+                  const box = b.getBoundingClientRect(), text = p.getBoundingClientRect();
+                  const section = b.parentElement.getBoundingClientRect();
+                  return { border: cs.borderTopWidth, overflow: cs.overflowX, padding: cs.paddingLeft,
+                           left: box.left, width: box.width, right: box.right,
+                           textLeft: text.left, textWidth: text.width, sectionRight: section.right,
+                           scrolls: b.scrollWidth > b.clientWidth,
+                           page: [document.documentElement.scrollWidth, document.documentElement.clientWidth] };
+                }"""
+            )
+            assert facts["border"] == "1px" and facts["overflow"] == "auto", facts
+            assert float(facts["padding"][:-2]) > 4, facts
+            # it sits on the paragraphs' axis, is at least as wide as they are, and stays in the
+            # content area: a line longer than that scrolls inside the block, not the page
+            centre = (facts["left"] + facts["right"]) / 2
+            assert abs(centre - (facts["textLeft"] + facts["textWidth"] / 2)) <= 1, (width, facts)
+            assert facts["width"] >= facts["textWidth"] - 1, (width, facts)
+            assert facts["right"] <= facts["sectionRight"] + 1, (width, facts)
+            assert facts["page"][0] <= facts["page"][1], (width, facts)
+            if width == 360:
+                assert facts["scrolls"], facts
+
+    def test_prose_lean_block_shares_the_plain_code_block_geometry(
+        self, side_by_side_server: str, page: Page
+    ):
+        # a Lean block of the text and a plain code block of the prose: both on the page's axis,
+        # both at least as wide as the reading column, both within the content area
+        js = """(sel) => {
+            const b = document.querySelector(sel);
+            const area = document.querySelector('main .content-wrapper > section').getBoundingClientRect();
+            const p = b.parentElement.querySelector(':scope > p').getBoundingClientRect();
+            const box = b.getBoundingClientRect(), cs = getComputedStyle(b);
+            return { offset: (box.left + box.right) / 2 - (area.left + area.right) / 2,
+                     wide: box.width >= p.width - 1, inside: box.right <= area.right + 1,
+                     minWidth: cs.minWidth, maxWidth: cs.maxWidth };
+        }"""
+        for width in (1920, 1440, 1024, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(side_by_side_server + "/Reading-Aids/A-Numbered-Section/")
+            plain = page.evaluate(js, "main section:not([class]) > pre")
+            page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+            lean = page.evaluate(js, "main section:not([class]) > code.hl.lean.block")
+            for facts in (plain, lean):
+                assert abs(facts["offset"]) <= 1 and facts["wide"] and facts["inside"], (width, plain, lean)
+            assert (plain["minWidth"], plain["maxWidth"]) == (lean["minWidth"], lean["maxWidth"]), (
+                width, plain, lean)
+
+    def test_blueprint_components_keep_their_own_code_layout(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        seen = 0
+        for path in (side_by_side_page_path(side_by_side_site_dir), "/Code-Panels/", "/Project-Stats/"):
+            page.goto(side_by_side_server + path)
+            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+            framed = page.evaluate(
+                """(sel) => [...document.querySelectorAll(sel)].map((b) => {
+                  const cs = getComputedStyle(b);
+                  return [b.parentElement.className, cs.borderTopStyle, cs.borderTopWidth, cs.minWidth];
+                })""",
+                _COMPONENT_BLOCKS,
+            )
+            seen += len(framed)
+            # none of them gets the frame of a Lean block of the text
+            assert all(f[1] == "none" or f[2] == "0px" for f in framed), (path, framed)
+            assert not page.evaluate(
+                "(sel) => [...document.querySelectorAll(sel)].some((b) => b.parentElement.matches(" +
+                repr(_PROSE_PLACES) + "))",
+                _COMPONENT_BLOCKS,
+            ), path
+        assert seen, "no component code on these pages"
+
+    @pytest.mark.parametrize("scheme", ("light", "dark"))
+    def test_lean_messages_keep_their_colours(self, side_by_side_server: str, page: Page, scheme: str):
+        page.emulate_media(color_scheme=scheme)
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        page.wait_for_function(
+            "document.getAnimations().every((a) => a.playState !== 'running')", timeout=5000
+        )
+        result = page.evaluate(
+            """() => {
+              const probe = document.createElement('span');
+              document.body.appendChild(probe);
+              probe.style.color = 'var(--verso-message-error-color, #cc0000)';
+              const error = getComputedStyle(probe).color;
+              const tokens = [...document.querySelectorAll('.error .verso-message .token')]
+                .filter((t) => t.textContent.trim());
+              return { error, tokens: tokens.map((t) => [t.textContent, getComputedStyle(t).color]) };
+            }"""
+        )
+        assert result["tokens"], result
+        wrong = [t for t in result["tokens"] if t[1] != result["error"]]
+        assert not wrong, (scheme, result["error"], wrong)
+
+    def test_hovering_a_prose_token_shows_its_tooltip(self, side_by_side_server: str, page: Page):
+        errors = record_runtime_errors(page)
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        page.wait_for_load_state("networkidle")
+        _hover_prose_constant(page)
+        assert_no_runtime_errors(errors)
+
+    def test_hovering_a_prose_token_shows_its_tooltip_from_a_file(
+        self, side_by_side_site_dir: Path, page: Page
+    ):
+        assert (side_by_side_site_dir / "-verso-docs.js").is_file()
+        page.goto((side_by_side_site_dir / PROSE_LEAN_PAGE.strip("/") / "index.html").as_uri())
+        page.wait_for_load_state("load")
+        _hover_prose_constant(page)
+
+    def test_project_constant_links_to_its_lean_row(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        link = page.locator("code.hl.lean.block a:has(.const.token[data-binding$='.aidBase'])").first
+        expect(link).to_have_count(1)
+        href = link.get_attribute("href") or ""
+        page_path, _, anchor = href.partition("#")
+        assert anchor, href
+        target = side_by_side_site_dir / page_path / "index.html"
+        assert f'id="{anchor}"' in target.read_text(encoding="utf-8"), href
+        link.click()
+        page.wait_for_url(re.compile(re.escape("#" + anchor) + "$"))
+        expect(page.locator(f'[id="{anchor}"]')).to_be_attached()
+        # a declaration of Lean itself has no place on the site
+        expect(page.locator("code.hl.lean.block a:has(.const.token[data-binding='const-Nat.le_trans'])")).to_have_count(0)
+
+    def test_project_constant_links_to_its_source_at_the_commit(self, side_by_side_server: str, page: Page):
+        source = PACKAGE_ROOT / "tests/test_blueprints/preview_runtime_showcase/PreviewRuntimeShowcase/Chapters/ReadingAids.lean"
+        rel = source.relative_to(PACKAGE_ROOT).as_posix()
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        link = page.locator("code.hl.lean.block a:has(.const.token[data-binding$='.aidSlack'])").first
+        origin = subprocess.run(["git", "remote", "get-url", "origin"], cwd=PACKAGE_ROOT,
+                                capture_output=True, text=True).stdout.strip()
+        if "github.com" not in origin:
+            pytest.skip("the checkout has no GitHub origin, so its files have no address")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=PACKAGE_ROOT,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        clean = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", str(source)], cwd=PACKAGE_ROOT).returncode == 0
+        if not clean:
+            # a file that differs from the commit has no address at it
+            expect(link).to_have_count(0)
+            return
+        href = link.get_attribute("href") or ""
+        m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/blob/([0-9a-f]{40})/(.+)#L(\d+)(?:-L(\d+))?", href)
+        assert m, href
+        # the commit the site was built from, and the file there
+        assert m.group(1) == head, (href, head)
+        assert m.group(2) == rel, href
+        lines = source.read_text(encoding="utf-8").splitlines()
+        start, stop = int(m.group(3)), int(m.group(4) or m.group(3))
+        assert any("def aidSlack" in line for line in lines[start - 1 : stop]), (href, lines[start - 1 : stop])
+
+
+def _hover_prose_constant(page: Page) -> None:
+    # the constant in the theorem's statement, outside its proof's tactics
+    token = page.locator("code.hl.lean.block .const.token[data-verso-hover][data-binding$='.aidSlack']").first
+    token.scroll_into_view_if_needed()
+    token.hover()
+    box = page.locator(".tippy-box[data-theme~='lean']").first
+    expect(box).to_be_visible()
+    expect(box).to_contain_text("aidSlack")
+    expect(box).to_contain_text("A bound that no statement of the Blueprint names")
+    expect(box).not_to_contain_text("Failed to load")
+

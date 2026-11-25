@@ -9,6 +9,7 @@ import VersoBlueprint.OutputPrune
 import VersoBlueprint.Parts
 import VersoBlueprint.PageText
 import VersoBlueprint.LinkCheck
+import VersoBlueprint.LeanCodeLinks
 import Lean
 import Lean.Elab.Command
 import Std.Data.HashMap
@@ -678,7 +679,17 @@ private def patchHighlightedStartupJs (js : JS) : JS :=
           "tactic hover content without a tactic state"
           [highlightedTacticContentCloneRead]
           highlightedTacticContentGuardedCloneRead
+  -- Verso's own reader of the hover table, when the script uses it: also from a file
+  let patched :=
+    (replaceFirstHighlightedJs? [Verso.Code.fetchDocsJson] Informal.LeanCodeLinks.loadDocsJs
+      patched).getD patched
   { js with js := patched }
+
+/-- Whether the hover script among `assets`, if there is one, reads its table from a page opened
+from a file too (`patchHighlightedStartupJs`). -/
+private def fileHoversPatched (assets : HtmlAssets) : Bool :=
+  assets.extraJs.toArray.all fun js =>
+    !isHighlightedStartupJs js.js || js.js.contains Informal.LeanCodeLinks.loadDocsJs
 
 private def patchBlueprintHtmlAssets (assets : HtmlAssets) : HtmlAssets :=
   { assets with
@@ -2876,6 +2887,14 @@ private def emitBlueprintHtml
       document.save path
     return
   let prepared := PreparedRendererState.prepare document
+  -- names in Lean code link to the site's Lean rows and to the repository's sources too
+  let (sources, unread) ← Informal.LeanCodeLinks.SourceIndex.load prepared.state
+  for why in unread do
+    Verso.reportWarning s!"Blueprint Lean code: no source links for {why}"
+  let prepared := { prepared with config := Informal.LeanCodeLinks.withLinks prepared.config sources }
+  unless fileHoversPatched prepared.state.toHtmlAssets do
+    Verso.reportWarning "Blueprint Lean code: Verso's hover script does not read its table the \
+      way this build expects, so hovers will not show on a page opened from a file"
   -- what this build writes into the folder; what an earlier build wrote and this one does not is
   -- removed at the end (`Informal.OutputPrune`)
   let outDir := outDirForMode prepared.config.toConfig prepared.mode
@@ -2914,6 +2933,8 @@ private def emitBlueprintHtml
         prepared.config prepared.state prepared.text
   if prepared.previewFiles?.isSome then
     emitBlueprintPreviewData prepared
+  -- the hover table once more, as a script a page opened from a file can load
+  Informal.LeanCodeLinks.writeDocsScript outDir
   -- build-time math: each page's glyph outlines once, KaTeX only where a page can need it
   let finished ← Informal.StaticMath.finishSite (outDirForMode prepared.config.toConfig mode)
   if finished.clashes > 0 then

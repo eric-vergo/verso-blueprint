@@ -1,0 +1,73 @@
+/* Highlighted Lean code everywhere on a Blueprint site: the Lean column, the code panels, the
+   Lean code of the running text (blocks and inline code) and the hovers. Each colour is a
+   variable, so that a theme (the dark theme, for example) can replace the palette. The code
+   inside a Lean message (error, warning and information output, message hovers) keeps Verso's
+   message colours. */
+.hl.lean .keyword.token:not(.verso-message *),
+.hl.lean .built-in.delim.token:not(.verso-message *) {
+  color: var(--bp-code-keyword, #0b52b5);
+}
+
+.hl.lean .const.token:not(.verso-message *) {
+  color: var(--bp-code-const, #8a5a00);
+}
+
+.hl.lean .var.token:not(.verso-message *),
+.hl.lean .wildcard.token:not(.verso-message *) {
+  color: var(--bp-code-var, #1a5fa8);
+  font-style: normal;
+}
+
+.hl.lean .sort.token:not(.verso-message *) {
+  color: var(--bp-code-sort, #0f7a6c);
+}
+
+.hl.lean .literal.token:not(.verso-message *) {
+  color: var(--bp-code-literal, #0f7a3d);
+}
+
+.hl.lean .doc-comment.token:not(.verso-message *),
+.hl.lean .comment.token:not(.verso-message *) {
+  color: var(--bp-code-comment, #5f6b78);
+  font-style: italic;
+}
+
+.hl.lean .punctuation.token:not(.verso-message *),
+.hl.lean .unknown.token:not(.verso-message *) {
+  color: var(--bp-code-punctuation, var(--bp-color-text));
+}
+
+/* A Lean block of the running text (Verso's `lean` code block placed directly in a section, on
+   the front page, in a paragraph, a list item, a block quote, a definition or a node's
+   statement): a framed panel, at least as wide as the reading column and growing with its longest
+   line up to the space it sits in, past which it scrolls sideways rather than running past the
+   page. A block placed directly in a section or on the front page sits on the page's axis, as a
+   plain code block of the prose does (`side-by-side.css`), and grows equally on both sides; one
+   inside a list item, a block quote, a definition, a paragraph or a statement starts at that
+   container's edge. Only these places are matched (the sections of generated pages carry a
+   class), so the code of a Blueprint component (the Lean column, code panels, previews, the bands
+   of generated pages) keeps its own layout. */
+:is(main section:not([class]), main .titlepage, main section:not([class]) > :is(ul, ol) > li,
+    main section:not([class]) > blockquote, main section:not([class]) > dl > dd, div.paragraph,
+    .bp_content) > code.hl.lean.block {
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: min(100%, var(--bp-sbs-measure, 48rem));
+  max-width: 100%;
+  margin-block: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  overflow-x: auto;
+  border: 1px solid var(--bp-color-border-soft, #e2e8f0);
+  border-radius: var(--bp-radius-md, 0.45rem);
+  background: var(--bp-color-surface-subtle, #f9fafb);
+  line-height: 1.5;
+}
+
+:is(main section:not([class]) > :is(ul, ol) > li, main section:not([class]) > blockquote,
+    main section:not([class]) > dl > dd, div.paragraph, .bp_content) > code.hl.lean.block {
+  margin-inline: 0;
+}
+
+:is(main section:not([class]), main .titlepage) > code.hl.lean.block {
+  margin-inline: auto;
+}

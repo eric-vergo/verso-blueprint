@@ -1514,6 +1514,53 @@ remote of the checkout it is generated in
 checkout with a GitHub `origin` the text is shown without a link. TeX output
 shows the text.
 
+### Lean code in the text
+
+Lean code written in the running text with Verso's own code block and role
+(` ```Verso.Genre.Manual.InlineLean.lean ` and
+`` {Verso.Genre.Manual.InlineLean.lean}`term` ``) is elaborated and highlighted
+by Verso, with hovers, proof states and messages, and a Blueprint site shows it
+as it shows the Lean column:
+
+- **Colours.** Every highlighted Lean code of a site (the running text's blocks
+  and inline code, the Lean column, code panels and hovers) takes one palette:
+  `--bp-code-keyword`, `--bp-code-const`, `--bp-code-var`, `--bp-code-sort`,
+  `--bp-code-literal`, `--bp-code-comment` (comments and doc comments, in
+  italics) and `--bp-code-punctuation`, with light defaults and dark values in
+  the dark theme. A project stylesheet can override them.
+- **Frame.** A block of the running text (a block directly in a section or on
+  the front page, a paragraph, a list item, a block quote, a definition or a
+  node's statement) is a framed panel on the subtle surface colour. A block
+  directly in a section or on the front page sits on the page's axis, as wide
+  as the column (`--bp-sbs-measure`) for short lines and growing equally on
+  both sides up to the content area, as a plain code block of the prose does;
+  one inside another block starts at that block's edge. A line longer than the
+  space the block has scrolls inside the panel, not the page. The code of the
+  Blueprint's own components is not framed this way.
+- **Messages.** Tokens inside Lean messages (error, warning and information
+  output and message hovers) keep Verso's message colours.
+- **Links.** A name in this code links to its documentation or to its
+  definition in a Lean block of the document, as in Verso. A declaration of the
+  project also links to where the site shows it, the Lean row of the first
+  Blueprint node that names it (`(lean := ...)`), and to its lines in the source
+  file on GitHub at the commit the site is built from. The lines come from the
+  `.ilean` file Lake writes beside each project module of the document's
+  environment (the modules the project statistics list), so a declaration of
+  the same name in a module the document does not import, such as a Comparator
+  challenge, is never the target; a name two of these modules declare gets no
+  source link. There is no source link for a file that Git does not track or
+  that differs from that commit, nor, with a build warning, for an `.ilean` file
+  of a format the build does not know. A name with both links follows the Lean
+  row on a click and lists both in its hover. A declaration of Lean or of a
+  dependency, without documentation in the site, stays unlinked. The code of
+  the Blueprint's own components (the Lean column, code panels, previews) keeps
+  its own links.
+- **Hovers from a file.** Verso's pages read their hover table
+  (`-verso-docs.json`) with `fetch`, which a page opened from the disk
+  (`file://`) may not do. A Blueprint site also writes the table as a script,
+  `-verso-docs.js`, and a page opened from a file loads that script when its
+  hovers start; over HTTP nothing changes.
+
 ### Side-by-side layout
 
 A generator can render every statement that has `(lean := ...)` references as a
