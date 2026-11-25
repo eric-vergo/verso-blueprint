@@ -31,3 +31,11 @@ Statement depends on {uses "group_target"}[].
 :::theorem "ungrouped_theorem"
 Standalone theorem without a parent group.
 :::
+
+# Groups of $`n + 1` Statements
+
+A section whose title holds a formula.
+
+# Groups Named by {Verso.Genre.Manual.InlineLean.lean}`Nat.succ 0`
+
+A section whose title holds Lean code.

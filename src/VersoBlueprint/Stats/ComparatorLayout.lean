@@ -548,32 +548,14 @@ partial def strayConfigs (root : System.FilePath) : IO (Array String) := do
       | _ => pure ()
   return out.qsort (· < ·)
 
-/-- Check one challenge's folder `Comparator/<name>/`. -/
-def checkChallenge (root : System.FilePath) (name : String) :
-    IO (Option ChallengeConfig × Array Violation) := do
-  let dir := root / folder / name
+/-- The rules of one challenge's files that are read from their texts (`J1` to `J7`, `C1` to `C3`,
+`S1`, `S2`), for the challenge `name`: `configText`, `challenge` and `solution` are the texts of
+its `comparator.json`, `Challenge.lean` and `Solution.lean`, each `none` when it could not be
+read (which the caller reports). The configuration, and the violations found. -/
+def checkChallengeTexts (name : String) (configText challenge solution : Option String) :
+    Option ChallengeConfig × Array Violation := Id.run do
   let rel := folderOf name
   let mut out : Array Violation := #[]
-  let wanted := [challengeFileName, solutionFileName, comparatorConfigFile]
-  for entry in ← namesIn dir do
-    if entry.startsWith "." then continue
-    unless wanted.contains entry do
-      out := out.push { file := s!"{rel}/{entry}", rule := .folderContents
-                        message := s!"a challenge's folder holds only {", ".intercalate wanted}; \
-                          move or remove {shown entry}" }
-  let read := fun (file : String) (limit : Nat) => do
-    match ← readLimited (dir / file) limit with
-    | .ok text => pure (some text, #[])
-    | .error why =>
-      let rule := if why == "it is missing" || why.startsWith "it is a symbolic" ||
-          why == "it is not a regular file" then Rule.folderContents
-        else if file == comparatorConfigFile then .configSyntax else .leanFile
-      let fix := if why == "it is missing" then s!"; add {rel}/{file}" else ""
-      pure (none, #[({ file := s!"{rel}/{file}", rule, message := why ++ fix } : Violation)])
-  let (configText, v1) ← read comparatorConfigFile configLimit
-  let (challenge, v2) ← read challengeFileName leanFileLimit
-  let (solution, v3) ← read solutionFileName leanFileLimit
-  out := out ++ v1 ++ v2 ++ v3
   let mut config? : Option ChallengeConfig := none
   if let some text := configText then
     let (config, problems) := checkConfig s!"{rel}/{comparatorConfigFile}" name text
@@ -607,6 +589,36 @@ def checkChallenge (root : System.FilePath) (name : String) :
     let code := codeOnly text
     out := out ++ checkImports solutionFileName code .solutionImports
     out := out ++ checkDeclared solutionFileName code
+  return (config?, out)
+
+/-- Check one challenge's folder `Comparator/<name>/`. -/
+def checkChallenge (root : System.FilePath) (name : String) :
+    IO (Option ChallengeConfig × Array Violation) := do
+  let dir := root / folder / name
+  let rel := folderOf name
+  let mut out : Array Violation := #[]
+  let wanted := [challengeFileName, solutionFileName, comparatorConfigFile]
+  for entry in ← namesIn dir do
+    if entry.startsWith "." then continue
+    unless wanted.contains entry do
+      out := out.push { file := s!"{rel}/{entry}", rule := .folderContents
+                        message := s!"a challenge's folder holds only {", ".intercalate wanted}; \
+                          move or remove {shown entry}" }
+  let read := fun (file : String) (limit : Nat) => do
+    match ← readLimited (dir / file) limit with
+    | .ok text => pure (some text, #[])
+    | .error why =>
+      let rule := if why == "it is missing" || why.startsWith "it is a symbolic" ||
+          why == "it is not a regular file" then Rule.folderContents
+        else if file == comparatorConfigFile then .configSyntax else .leanFile
+      let fix := if why == "it is missing" then s!"; add {rel}/{file}" else ""
+      pure (none, #[({ file := s!"{rel}/{file}", rule, message := why ++ fix } : Violation)])
+  let (configText, v1) ← read comparatorConfigFile configLimit
+  let (challenge, v2) ← read challengeFileName leanFileLimit
+  let (solution, v3) ← read solutionFileName leanFileLimit
+  out := out ++ v1 ++ v2 ++ v3
+  let (config?, problems) := checkChallengeTexts name configText challenge solution
+  out := out ++ problems
   return (if out.isEmpty then config? else none, out)
 
 /-- Check the project at `root` against the layout (see the module docstring). -/

@@ -346,6 +346,64 @@ info: ("Comparator/Challenge.lean is not a file here: this project does not have
   IO.FS.removeDirAll root
   return ((match a with | .error e => e | .ok _ => "ok"), (match b with | .error e => e | .ok _ => "ok"))
 
+/-- The files of the project at `root`, each with its text, and the folder removed. -/
+private def filesOf (root : System.FilePath) (files : List String) : IO (List String) := do
+  let out ← files.mapM fun (f : String) => do
+    let text ← try IO.FS.readFile (root / System.FilePath.mk f) catch _ => pure "(missing)"
+    return s!"{f}: {text}"
+  IO.FS.removeDirAll root
+  return out
+
+-- A key of the root's comparator.json that the layout does not allow: refused before anything
+-- is moved, with the key, why, and what to do; the file keeps the key, and every file stays
+-- where it was.
+/--
+info: ["refused: comparator.json has the key \"enable_nanoda\", which the layout of challenge folders does not allow (rule J2: a challenge's comparator.json has only the keys challenge_module, solution_module, theorem_names, permitted_axioms, definition_names, external_kernels; lake comparator still accepts \"enable_nanoda\", but the layout names a checker to run besides Lean's kernel in \"external_kernels\" instead). Remove the key from comparator.json by hand (and name the checker in \"external_kernels\" to keep it), then run comparator-migrate again; nothing was changed",
+  "comparator.json: {\"challenge_module\": \"Comparator.Challenge\", \"solution_module\": \"Comparator.Solution\", \"theorem_names\": [\"A.t\"], \"permitted_axioms\": [], \"enable_nanoda\": true}",
+  "Comparator/Challenge.lean: namespace A\n\n/-- A statement. -/\ntheorem t : 1 + 1 = 2 := by\n  sorry\n\nend A\n",
+  "Comparator/Solution.lean: namespace A\n\n/-- A statement. -/\ntheorem t : 1 + 1 = 2 := rfl\n\nend A\n",
+  "Comparator/Main/comparator.json: (missing)"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let json := "{\"challenge_module\": \"Comparator.Challenge\", \
+    \"solution_module\": \"Comparator.Solution\", \"theorem_names\": [\"A.t\"], \
+    \"permitted_axioms\": [], \"enable_nanoda\": true}"
+  let root ← project [("Comparator/Challenge.lean", challenge), ("Comparator/Solution.lean", solution),
+    ("comparator.json", json)]
+  let result ← migrateHere root
+  return [result] ++ (← filesOf root ["comparator.json", "Comparator/Challenge.lean",
+    "Comparator/Solution.lean", "Comparator/Main/comparator.json"])
+
+-- Any other key the layout does not allow: the same refusal, without the word on a checker.
+/--
+info: "refused: comparator.json has the key \"notes\", which the layout of challenge folders does not allow (rule J2: a challenge's comparator.json has only the keys challenge_module, solution_module, theorem_names, permitted_axioms, definition_names, external_kernels). Remove the key from comparator.json by hand, then run comparator-migrate again; nothing was changed"
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← project [("Comparator/Challenge.lean", challenge), ("Comparator/Solution.lean", solution),
+    ("comparator.json", "{\"theorem_names\": [\"A.t\"], \"permitted_axioms\": [], \"notes\": 1}")]
+  let result ← migrateHere root
+  IO.FS.removeDirAll root
+  return result
+
+-- Every rule the moved files would break is checked before the move, not after it: a solution
+-- that imports the challenge (rule S1 once the names are replaced), and a stray file in
+-- `Comparator/` (rule L3). Nothing is moved.
+/--
+info: ["refused: after the move the project would not follow the layout (see the chapter \"Comparator challenges\" of the Verso Blueprint manual), so nothing was changed; 2 problems:\n  Comparator/Main/Solution.lean: rule S1 (the solution's imports): it imports Comparator.Main.Challenge; a challenge and its solution import no module under Comparator (they declare the same names, and each challenge stands alone): remove the import\n  Comparator/notes.txt: rule L3 (challenge folder names): Comparator/ holds only challenge folders; move or remove notes.txt",
+  "Comparator/Challenge.lean: namespace A\n\n/-- A statement. -/\ntheorem t : 1 + 1 = 2 := by\n  sorry\n\nend A\n",
+  "Comparator/Main/comparator.json: (missing)"]
+-/
+#guard_msgs (whitespace := lax) in
+#eval show IO _ from do
+  let root ← project [("Comparator/Challenge.lean", challenge),
+    ("Comparator/Solution.lean", "import Comparator.Challenge\n" ++ solution),
+    ("Comparator/notes.txt", "x\n")]
+  let result ← migrateHere root
+  return [result] ++ (← filesOf root ["Comparator/Challenge.lean",
+    "Comparator/Main/comparator.json"])
+
 -- What lies in comments and strings is not code.
 /-- info: ("a     \n                  f        i", #[`A.B, `C]) -/
 #guard_msgs (whitespace := lax) in

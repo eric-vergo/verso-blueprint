@@ -25,7 +25,7 @@ namespace Informal.Stats
 open Lean
 
 /-- The version of the JSON shape of `ProjectStats`. -/
-def projectStatsSchemaVersion : Nat := 9
+def projectStatsSchemaVersion : Nat := 10
 
 /-- Declarations of the project's own modules by kind. Generated declarations (recursors,
 constructors, structure projections, equation lemmas, matchers and other names Lean marks as
@@ -446,6 +446,63 @@ structure ProjectStats where
   declarations. -/
   sourceChanged : Array SourceChange := #[]
 deriving Inhabited, ToJson, FromJson
+
+/-- Whether a challenge was not compared because a module the comparison rests on is not known
+to match the build (`sourcesUnavailable?`): its source, or that of a project module it imports,
+changed since the build, or no build record says which source was compiled. -/
+def Unavailable.isSource : Unavailable → Bool
+  | .challengeOutOfDate | .challengeProvenanceUnknown | .solutionOutOfDate
+  | .solutionProvenanceUnknown => true
+  | _ => false
+
+/-- Whether such a reason is a source that changed since the build (not one only not known to
+match it). -/
+def Unavailable.isChangedSource : Unavailable → Bool
+  | .challengeOutOfDate | .solutionOutOfDate => true
+  | _ => false
+
+/-- What the sources a site shows are, measured against the build its kernel replay checked. A
+replay checks the compiled modules, so an acceptance is about that build; beside sources that are
+not known to be its text it does not stand for them. -/
+inductive BuildSources where
+  /-- Every project module the site's marks and verdicts rest on is the text that was compiled,
+  as far as the build records say. -/
+  | asBuilt
+  /-- The source of such a module changed since the build. -/
+  | changed
+  /-- No such source is known to have changed, but for one of them no build record says which
+  source was compiled. -/
+  | unknown
+deriving Repr, Inhabited, DecidableEq
+
+/-- The modules among `sourceChanged` whose own source is not known to match the build (not
+those that are only because of a module they import), those that changed first. All of
+`sourceChanged` when none is of its own. -/
+def ProjectStats.sourceCauses (s : ProjectStats) : Array SourceChange :=
+  let own := s.sourceChanged.filter (!·.isImported)
+  let own := if own.isEmpty then s.sourceChanged else own
+  own.filter (·.changed) ++ own.filter (!·.changed)
+
+/-- The challenges that were not compared because a module the comparison rests on is not known
+to match the build (`Unavailable.isSource`). -/
+def ProjectStats.sourceChallenges (s : ProjectStats) : Array Headline :=
+  s.challenges.filter fun h => h.unavailable.any (·.isSource)
+
+/-- What the site's sources are, measured against the build: `changed` when a module of
+`sourceChanged` or of a challenge's comparison changed since the build, `unknown` when such a
+module is only not known to match it, `asBuilt` otherwise. -/
+def ProjectStats.buildSources (s : ProjectStats) : BuildSources :=
+  let challenges := s.sourceChallenges
+  if s.sourceChanged.any (·.changed) || challenges.any (·.unavailable.any (·.isChangedSource))
+  then .changed
+  else if !s.sourceChanged.isEmpty || !challenges.isEmpty then .unknown
+  else .asBuilt
+
+/-- The token of `BuildSources` for markup: `as-built`, `changed` or `unknown`. -/
+def BuildSources.token : BuildSources → String
+  | .asBuilt => "as-built"
+  | .changed => "changed"
+  | .unknown => "unknown"
 
 /-- The first directory of a site address: `"/Sums/#x"` and `"Sums/index.html"` give
 `"Sums"`. A page at the site root (`"index.html#x"`, `"/#x"`) has no chapter. -/

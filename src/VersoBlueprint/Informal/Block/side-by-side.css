@@ -37,6 +37,109 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
   max-width: var(--bp-sbs-measure, 48rem);
 }
 
+/* Definition lists, block quotes, section headings and the text of the front
+   page keep to the same measure, so that a long heading wraps within the reading
+   column. A code block in the prose is at least as wide as the column and grows
+   with its longest line equally on both sides of the page's axis, up to the
+   content area; beyond that it scrolls inside. Like the rules below, these have
+   the specificity of a plain element selector. */
+:where(html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"]))) :is(:where(main section:not([class]):not(section[class] *)) > :is(dl, blockquote, h2, h3, h4, h5, h6), :where(main .titlepage) > :is(p, ul, ol, dl, blockquote)) {
+  max-width: var(--bp-sbs-measure, 48rem);
+}
+
+:where(html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"]))) :where(main section:not([class]):not(section[class] *), main .titlepage) > pre {
+  width: fit-content;
+  min-width: min(100%, var(--bp-sbs-measure, 48rem));
+  max-width: 100%;
+}
+
+/* One axis for every page. The title and the section headings up to the fourth
+   level are centred, and the reading column (paragraphs, lists, definition
+   lists, block quotes, figures and code) is centred in the content area, with
+   its text aligned to its start; fifth- and sixth-level headings, set at the
+   size of the text, start at the column's edge. Content wider than the column
+   (side-by-side nodes, tables, the dependency graph, the cards of generated
+   pages) spans the content area, so it shares the axis. Only the sections of
+   the document and the front page's title block are matched: the bands and
+   cards of generated pages, and blocks such as the licence notices, are
+   `section` elements with a class, and keep their own layout inside. `:where`
+   keeps these rules as easy to override as element rules. */
+:where(main section:not([class]):not(section[class] *)) > :is(h1, h2, h3, h4, h5, h6) {
+  box-sizing: border-box;
+  margin-inline: auto;
+  text-align: center;
+}
+
+:where(main section:not([class]):not(section[class] *)) > :is(h5, h6) {
+  text-align: start;
+}
+
+:where(main section.search-page) > h1 {
+  text-align: center;
+}
+
+:where(main section:not([class]):not(section[class] *), main .titlepage) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
+  box-sizing: border-box;
+  margin-inline: auto;
+}
+
+/* A list of the sections of a page is centred as a block, its entries aligned
+   to their start; so is the introduction of a Comparator page. */
+:where(main section:not([class]):not(section[class] *)) > ol.section-toc {
+  width: fit-content;
+  max-width: 100%;
+}
+
+:where(main section:not([class]) > :is(.bp_comparator_page, .bp_comparator_index)) > .bp_comparator_intro {
+  margin-inline: auto;
+}
+
+/* A block quote is indented from both edges of the column. */
+:where(main section:not([class]):not(section[class] *), main .titlepage) > blockquote {
+  padding-inline: 2.5rem;
+}
+
+/* A heading's permalink marker sits just after the last word without taking
+   room in the line, so that a centred heading is centred on its text. The
+   marker shows while the pointer is over the heading or the marker has the
+   keyboard focus. A heading clips it at its edge, so that it never widens the
+   page. */
+main :is(h1, h2, h3, h4, h5, h6):has(> .permalink-widget.inline) {
+  overflow-x: clip;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline {
+  margin-inline-start: 0;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline > a {
+  left: 0.5rem;
+}
+
+main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline:focus-within {
+  opacity: 1;
+}
+
+/* Where the content area is narrow, a heading's last line is often a full one:
+   the marker then sits over the heading's end, inside its box, and the heading
+   reserves no room for it. */
+@container main (width < 56rem) {
+  main :is(h1, h2, h3, h4, h5, h6):has(> .permalink-widget.inline) {
+    position: relative;
+  }
+
+  main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline {
+    position: absolute;
+    inset-inline-end: 0;
+    bottom: 0;
+    width: auto;
+  }
+
+  main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline > a {
+    position: static;
+  }
+}
+
 html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(main section > p, main section > ul, main section > ol, .bp_wrapper) p {
   font-size: inherit;
   line-height: 1.5;
@@ -566,42 +669,6 @@ html[data-bp-style]:not([data-bp-style="sbs"]) .bp_sbs_grid::before {
   .bp_status_legend {
     display: none;
   }
-}
-
-/* Token colours of the Lean column. Each colour is a variable so that themes
-   (for example a dark theme) can replace the palette. */
-.bp_sbs_formal .hl.lean .keyword.token,
-.bp_sbs_formal .hl.lean .built-in.delim.token {
-  color: var(--bp-code-keyword, #0b52b5);
-}
-
-.bp_sbs_formal .hl.lean .const.token {
-  color: var(--bp-code-const, #8a5a00);
-}
-
-.bp_sbs_formal .hl.lean .var.token,
-.bp_sbs_formal .hl.lean .wildcard.token {
-  color: var(--bp-code-var, #1a5fa8);
-  font-style: normal;
-}
-
-.bp_sbs_formal .hl.lean .sort.token {
-  color: var(--bp-code-sort, #0f7a6c);
-}
-
-.bp_sbs_formal .hl.lean .literal.token {
-  color: var(--bp-code-literal, #0f7a3d);
-}
-
-.bp_sbs_formal .hl.lean .doc-comment.token,
-.bp_sbs_formal .hl.lean .comment.token {
-  color: var(--bp-code-comment, #5f6b78);
-  font-style: italic;
-}
-
-.bp_sbs_formal .hl.lean .punctuation.token,
-.bp_sbs_formal .hl.lean .unknown.token {
-  color: var(--bp-code-punctuation, var(--bp-color-text));
 }
 
 /* Under an informal statement that has Lean code beside it and was not written in the

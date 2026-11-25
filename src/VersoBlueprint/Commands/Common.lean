@@ -340,10 +340,15 @@ def blueprintDarkTokensCss : String :=
   "@media (prefers-color-scheme: dark) {\n" ++
   renderDarkRules "html:not([data-theme=\"light\"])" ++ "}\n"
 
-/-- All token CSS shipped with every blueprint page: light tokens, the dark theme, and the
-rules that give the success colours their value by the kernel replay behind an element. -/
+/-- The colours of highlighted Lean code on every page, from the `--bp-code-*` tokens, and the
+frame of a Lean block of the running text. -/
+def leanCodeCss : String := include_str "lean-code.css"
+
+/-- All token CSS shipped with every blueprint page: light tokens, the dark theme, the rules that
+give the success colours their value by the kernel replay behind an element, and the colours of
+highlighted Lean code (`leanCodeCss`). -/
 def blueprintTokensCss : String :=
-  blueprintLightTokensCss ++ blueprintDarkTokensCss ++ StatusColors.replayScopeCss
+  blueprintLightTokensCss ++ blueprintDarkTokensCss ++ StatusColors.replayScopeCss ++ leanCodeCss
 
 def previewPanelCss : String := r##"
 .bp_preview_panel {
