@@ -685,6 +685,12 @@ private def patchHighlightedStartupJs (js : JS) : JS :=
       patched).getD patched
   { js with js := patched }
 
+/-- Whether the hover script among `assets`, if there is one, reads its table from a page opened
+from a file too (`patchHighlightedStartupJs`). -/
+private def fileHoversPatched (assets : HtmlAssets) : Bool :=
+  assets.extraJs.toArray.all fun js =>
+    !isHighlightedStartupJs js.js || js.js.contains Informal.LeanCodeLinks.loadDocsJs
+
 private def patchBlueprintHtmlAssets (assets : HtmlAssets) : HtmlAssets :=
   { assets with
     extraJs :=
@@ -2857,7 +2863,6 @@ private def PreparedRendererState.emit (prepared : PreparedRendererState) : Emit
   | .multi => emitHtmlMulti prepared.config prepared.text prepared.state
 
 private def emitBlueprintHtml
-    (sources : Informal.LeanCodeLinks.SourceIndex)
     (extraSteps : List BlueprintExtraStep)
     (reproducibility : ReproducibilityOptions)
     (sideBySide : Bool)
@@ -2882,7 +2887,13 @@ private def emitBlueprintHtml
     return
   let prepared := PreparedRendererState.prepare document
   -- names in Lean code link to the site's Lean rows and to the repository's sources too
+  let (sources, unread) ← Informal.LeanCodeLinks.SourceIndex.load prepared.state
+  for why in unread do
+    Verso.reportWarning s!"Blueprint Lean code: no source links for {why}"
   let prepared := { prepared with config := Informal.LeanCodeLinks.withLinks prepared.config sources }
+  unless fileHoversPatched prepared.state.toHtmlAssets do
+    Verso.reportWarning "Blueprint Lean code: Verso's hover script does not read its table the \
+      way this build expects, so hovers will not show on a page opened from a file"
   -- what this build writes into the folder; what an earlier build wrote and this one does not is
   -- removed at the end (`Informal.OutputPrune`)
   let outDir := outDirForMode prepared.config.toConfig prepared.mode
@@ -2997,11 +3008,10 @@ where
           emitTeX cfg.toConfig text
           Informal.TeX.Cleanup.patchFile cfg.toConfig text
 
-      let sources ← Informal.LeanCodeLinks.SourceIndex.load (← IO.currentDir)
-      emitBlueprintHtml sources extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle
-        .single cfg htmlText
-      emitBlueprintHtml sources extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti
-        .multi cfg htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlSingle .single cfg
+        htmlText
+      emitBlueprintHtml extraSteps reproducibility sideBySide previewConfig? cfg.emitHtmlMulti .multi cfg
+        htmlText
 
       if let some wcFile := cfg.wordCount then
         withTimedBuildProgress cfg.verbose s!"word count emission to {wcFile}" <|

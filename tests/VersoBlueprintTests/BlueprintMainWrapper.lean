@@ -179,7 +179,8 @@ private def freshPdfSmokeRoot : IO System.FilePath :=
 
 /-- The parts of the startup script of Verso's highlighted code that the Blueprint patches: the
 hover of a tactic reads its tactic state, which a tactic shown as a proof toggle does not have. -/
-private def highlightedStartupJs : JS := r#"const defaultTippyProps = {
+private def highlightedStartupJs : JS := r#"const versoDocData = await (fetch("-verso-docs.json").then((resp) => resp.json()));
+const defaultTippyProps = {
   onShow(inst) {
     const ref = inst.reference;
     if (ref.className == 'tactic') {
@@ -220,7 +221,10 @@ private def highlightedStartupJs : JS := r#"const defaultTippyProps = {
       code == 0 &&
         hasSubstr html "if (!ref.querySelector(\":scope > .tactic-state\")) {" &&
         hasSubstr html "const stateSource = tgt.querySelector(\":scope > .tactic-state\");" &&
-        !hasSubstr html "const state = tgt.querySelector(\":scope > .tactic-state\").cloneNode(true);"
+        !hasSubstr html "const state = tgt.querySelector(\":scope > .tactic-state\").cloneNode(true);" &&
+        -- the hover table is read from a page opened from a file too, from the script beside it
+        hasSubstr html Informal.LeanCodeLinks.loadDocsJs &&
+        (← (outDir / "html-multi" / "-verso-docs.js").pathExists)
 
 private partial def filesUnder (root : System.FilePath) : IO (Array System.FilePath) := do
   let mut out := #[]
