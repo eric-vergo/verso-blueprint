@@ -101,7 +101,8 @@ class TestFirstDrawing:
         assert first and 'data-variant="full"' in first.group(0)
         assert 'data-direction="TB"' in first.group(0) and 'data-pack="any"' in first.group(0)
         svg = html[first.end(): html.index("</div>", first.end())]
-        assert len(re.findall(r'<g id="[^"]+" class="node[ "]', svg)) == 4
+        # a node's group: its id, its name and hover marks when it has a Lean label, its classes
+        assert len(re.findall(r'<g id="[^"]+"(?: data-bp-node-[a-z]+="[^"]*")* class="node[ "]', svg)) == 4
         assert svg.count("<script") == 0 and " on" not in re.sub(r"[^ ]+=\"[^\"]*\"", "", svg)
         for label in ("Demo.b", "Demo.c", "Demo.d", ">a<"):
             assert label in svg
