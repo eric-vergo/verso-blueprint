@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "project-stats.schema.json",
   "title": "Blueprint project statistics",
-  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), schema version 3. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
+  "description": "The JSON form of Informal.Stats.ProjectStats (src/VersoBlueprint/Stats/Data.lean), at the schema version that schemaVersion names. Paths are relative to the project root with '/' separators; lists have a fixed order; there is no version-control data. Optional values are present as null.",
   "type": "object",
   "required": ["schemaVersion", "identity", "layout", "modules", "declarations", "sources",
     "progress", "leanProgress", "chapters", "graph", "trust", "challenges", "hasComparatorChallenge",
