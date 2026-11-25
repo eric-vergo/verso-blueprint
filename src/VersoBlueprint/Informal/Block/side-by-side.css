@@ -39,47 +39,75 @@ html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp
 
 /* Definition lists, block quotes, section headings and the text of the front
    page keep to the same measure, so that a long heading wraps within the reading
-   column. A short code block in the prose starts at the column's edge and grows
-   about the page's axis as its lines get longer, up to the content area. */
-html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :is(:where(main section:not([class])) > :is(dl, blockquote, h2, h3, h4, h5, h6), :where(main .titlepage) > :is(p, ul, ol, dl, blockquote)) {
+   column. A code block in the prose is at least as wide as the column and grows
+   with its longest line equally on both sides of the page's axis, up to the
+   content area; beyond that it scrolls inside. Like the rules below, these have
+   the specificity of a plain element selector. */
+:where(html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"]))) :is(:where(main section:not([class]):not(section[class] *)) > :is(dl, blockquote, h2, h3, h4, h5, h6), :where(main .titlepage) > :is(p, ul, ol, dl, blockquote)) {
   max-width: var(--bp-sbs-measure, 48rem);
 }
 
-html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"])) :where(main section:not([class]), main .titlepage) > pre {
+:where(html:has(meta[name="verso-blueprint-default-style"][content="sbs"]):not([data-bp-style]:not([data-bp-style="sbs"]))) :where(main section:not([class]):not(section[class] *), main .titlepage) > pre {
   width: fit-content;
   min-width: min(100%, var(--bp-sbs-measure, 48rem));
   max-width: 100%;
 }
 
-/* One axis for every page. The title and the section headings are centred, and
-   the reading column (paragraphs, lists, definition lists, block quotes and
-   figures) is centred in the content area, with its text aligned to its start.
-   Content wider than the column (side-by-side nodes, tables, wide code, the
-   dependency graph, the cards of generated pages) spans the content area, so it
-   shares the axis. Only the sections of the document and the front page's
-   title block are matched: the bands and cards of generated pages are `section`
-   elements with a class, and keep their own layout. `:where` keeps these rules
-   as easy to override as element rules. */
-:where(main section:not([class])) > :is(h1, h2, h3, h4, h5, h6) {
+/* One axis for every page. The title and the section headings up to the fourth
+   level are centred, and the reading column (paragraphs, lists, definition
+   lists, block quotes, figures and code) is centred in the content area, with
+   its text aligned to its start; fifth- and sixth-level headings, set at the
+   size of the text, start at the column's edge. Content wider than the column
+   (side-by-side nodes, tables, the dependency graph, the cards of generated
+   pages) spans the content area, so it shares the axis. Only the sections of
+   the document and the front page's title block are matched: the bands and
+   cards of generated pages, and blocks such as the licence notices, are
+   `section` elements with a class, and keep their own layout inside. `:where`
+   keeps these rules as easy to override as element rules. */
+:where(main section:not([class]):not(section[class] *)) > :is(h1, h2, h3, h4, h5, h6) {
   box-sizing: border-box;
   margin-inline: auto;
   text-align: center;
 }
 
-:where(main section:not([class]), main .titlepage) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
+:where(main section:not([class]):not(section[class] *)) > :is(h5, h6) {
+  text-align: start;
+}
+
+:where(main section.search-page) > h1 {
+  text-align: center;
+}
+
+:where(main section:not([class]):not(section[class] *), main .titlepage) > :is(p, ul, ol, dl, blockquote, figure, pre, .bp_comparator_page, .bp_comparator_index, .bp_work_queue) {
   box-sizing: border-box;
   margin-inline: auto;
 }
 
+/* A list of the sections of a page is centred as a block, its entries aligned
+   to their start; so is the introduction of a Comparator page. */
+:where(main section:not([class]):not(section[class] *)) > ol.section-toc {
+  width: fit-content;
+  max-width: 100%;
+}
+
+:where(main section:not([class]) > :is(.bp_comparator_page, .bp_comparator_index)) > .bp_comparator_intro {
+  margin-inline: auto;
+}
+
 /* A block quote is indented from both edges of the column. */
-:where(main section:not([class]), main .titlepage) > blockquote {
+:where(main section:not([class]):not(section[class] *), main .titlepage) > blockquote {
   padding-inline: 2.5rem;
 }
 
 /* A heading's permalink marker sits just after the last word without taking
    room in the line, so that a centred heading is centred on its text. The
    marker shows while the pointer is over the heading or the marker has the
-   keyboard focus. */
+   keyboard focus. A heading clips it at its edge, so that it never widens the
+   page. */
+main :is(h1, h2, h3, h4, h5, h6):has(> .permalink-widget.inline) {
+  overflow-x: clip;
+}
+
 main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline {
   margin-inline-start: 0;
 }
@@ -92,12 +120,23 @@ main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline:focus-within {
   opacity: 1;
 }
 
-/* On a narrow screen, where a heading's last line is often a full one, a
-   centred heading keeps room for the marker on both sides, so that the marker
-   stays on the screen and the text stays centred. */
-@media screen and (max-width: 700px) {
-  :where(main section:not([class]) > :is(h1, h2, h3, h4, h5, h6), main .titlepage > h1):where(:has(> .permalink-widget.inline)) {
-    padding-inline: calc(0.5rem + 0.65em);
+/* Where the content area is narrow, a heading's last line is often a full one:
+   the marker then sits over the heading's end, inside its box, and the heading
+   reserves no room for it. */
+@container main (width < 56rem) {
+  main :is(h1, h2, h3, h4, h5, h6):has(> .permalink-widget.inline) {
+    position: relative;
+  }
+
+  main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline {
+    position: absolute;
+    inset-inline-end: 0;
+    bottom: 0;
+    width: auto;
+  }
+
+  main :is(h1, h2, h3, h4, h5, h6) > .permalink-widget.inline > a {
+    position: static;
   }
 }
 
