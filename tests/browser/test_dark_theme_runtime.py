@@ -132,8 +132,8 @@ class TestDarkThemeRuntime:
 
 
 # Per rendered status node of the dependency graph: its fill, border and label colours, the
-# status tokens they should come from, and the label's contrast against the fill. Status classes
-# name their tokens: `bp_graph_status_ready` -> `--bp-color-status-ready`,
+# status tokens they should come from, and the contrast of every part of both labels against the
+# fill. Status classes name their tokens: `bp_graph_status_ready` -> `--bp-color-status-ready`,
 # `bp_graph_statement_ready` -> `--bp-color-status-ready-border`.
 GRAPH_NODE_REPORTS = """
 () => {
@@ -161,10 +161,22 @@ GRAPH_NODE_REPORTS = """
     const borderToken = borderClass
       ? '--bp-color-status-' + borderClass.slice('bp_graph_statement_'.length).replace(/_/g, '-') + '-border'
       : fillToken + '-border';
+    // every part of both labels (the number, the Lean name's lines, the count after it and the
+    // number under it), drawn with its own opacity onto the fill
+    let labelRatio = contrast(ink, fill);
+    let weakest = 'text';
+    for (const part of node.querySelectorAll(':scope > text, :scope > text > tspan')) {
+      const style = getComputedStyle(part);
+      const colour = parse(style.fill);
+      if (!colour) continue;
+      const alpha = parseFloat(style.fillOpacity || '1') * parseFloat(style.opacity || '1');
+      const ratio = contrast(blend({ ...colour, a: alpha }, fill), fill);
+      if (ratio < labelRatio) { labelRatio = ratio; weakest = part.getAttribute('class') || part.localName; }
+    }
     out.push({
       node: node.id, fillClass, borderClass, fill, stroke, ink, bg,
       fillToken: tokenColor(fillToken), borderToken: tokenColor(borderToken),
-      labelRatio: contrast(ink, fill), borderRatio: bg ? contrast(stroke, bg) : null,
+      labelRatio, weakest, borderRatio: bg ? contrast(stroke, bg) : null,
     });
   }
   probe.remove();

@@ -656,8 +656,8 @@ function attachPreviewHandlers(previewUtils, graphBlock, graphContainer, preview
     if (!canPreviewNode(node)) return;
     node.style.cursor = "pointer";
     node.setAttribute("tabindex", "0");
-    const titleNode = node.querySelector("title");
-    if (titleNode) titleNode.remove();
+    const titleNode = node.querySelector(":scope > title");
+    if (titleNode && !node.hasAttribute("data-bp-node-hover")) titleNode.remove();
     [node].concat(Array.from(node.querySelectorAll("*"))).forEach(function (el) {
       if (!(el instanceof Element)) return;
       if (el.hasAttribute("title")) el.removeAttribute("title");
@@ -1258,7 +1258,17 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
         if (shownSvg) fitDrawingLabels(shownSvg);
         return nodeText;
       };
-      setNodeText(storedNodeText() || defaultNodeText);
+      // the site's address: the folder its data folder is in
+      const siteAddress = (function () {
+        try {
+          const url = previewUtils && typeof previewUtils.dataUrl === "function"
+            ? String(previewUtils.dataUrl("index.json") || "") : "";
+          return url ? new URL(url, window.location.href).pathname.replace(/-verso-data\/index\.json$/, "") : "";
+        } catch (_err) {
+          return "";
+        }
+      })();
+      setNodeText(storedNodeText(siteAddress) || defaultNodeText);
       const legendPopover = bindLegendPopover(previewUtils, graphBlock);
       const optionsPopover = bindOptionsPopover(previewUtils, graphBlock);
 
@@ -1590,8 +1600,14 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
           svg.querySelectorAll("g.node").forEach(function (node) {
             const title = node.querySelector(":scope > title");
             const desc = node.querySelector(":scope > desc");
-            if (title) node.setAttribute("data-bp-node-name", title.textContent || "");
-            if (title && desc && (desc.textContent || "").trim()) title.textContent = desc.textContent;
+            if (title && !node.hasAttribute("data-bp-node-name")) {
+              node.setAttribute("data-bp-node-name", title.textContent || "");
+            }
+            // a node with a Lean label keeps the title it was drawn with (its number and the full
+            // names of its declarations); the others show their tooltip
+            if (title && desc && (desc.textContent || "").trim() && !node.hasAttribute("data-bp-node-hover")) {
+              title.textContent = desc.textContent;
+            }
           });
           graphRoot.insertBefore(svg, graphRoot.firstChild);
           fitDrawingLabels(svg);
@@ -1642,7 +1658,7 @@ export function initGraphBlock(previewUtils, graphBlock, options) {
       }
       if (nodeTextSelector) {
         nodeTextSelector.addEventListener("change", function () {
-          storeNodeText(setNodeText(nodeTextSelector.value));
+          storeNodeText(siteAddress, setNodeText(nodeTextSelector.value));
         });
       }
       if (previewModeSelector) {

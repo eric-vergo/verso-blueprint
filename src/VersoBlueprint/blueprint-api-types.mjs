@@ -406,7 +406,7 @@
  * @property {string} label Canonical Blueprint node label.
  * @property {string} title Resolved display title.
  * @property {string} displayLabel Short display label.
- * @property {string[]} leanNames Declarations of the node's Lean statement, in the order the author wrote them; empty for a node without one.
+ * @property {BlueprintGraphLeanName[]} leanNames Declarations of the node's Lean statement, in the order the author wrote them; empty for a node without one.
  * @property {string | null} kind Node kind, when available.
  * @property {string | null} parent Parent/group label, when available.
  * @property {string | null} href Link to the canonical generated node, when available.
@@ -430,7 +430,7 @@
  * from that topology at the graph finalization boundary.
  *
  * @typedef {Object} BlueprintGraphData
- * @property {4} schemaVersion Current finalized graph payload schema version.
+ * @property {5} schemaVersion Current finalized graph payload schema version.
  * @property {string} key Stable graph/block key.
  * @property {BlueprintGraphNode[]} nodes Graph node payloads.
  * @property {BlueprintGraphEdge[]} edges Derived, deduplicated graph edge payloads with dangling sources omitted.
@@ -461,6 +461,15 @@
  * @property {"docked" | "anchored" | string} [previewPlacement] Initial graph node preview placement for graph data rendered from manifest records.
  * @property {boolean} [replace] In `renderGraphData`, replace host children by default; set to `false` to append.
  * @property {boolean} [refresh] Re-render immediately after initialization.
+ */
+
+/**
+ * A declaration of a graph node's Lean statement.
+ *
+ * @typedef {Object} BlueprintGraphLeanName
+ * @property {string} name Full declaration name.
+ * @property {boolean} isTheorem Whether it is theorem-like rather than a definition.
+ * @property {boolean} present Whether it was found in the environment the site was built from.
  */
 
 /**

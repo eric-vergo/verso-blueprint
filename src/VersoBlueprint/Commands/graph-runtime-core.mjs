@@ -229,16 +229,21 @@
 
   // The label of the node of `graphData` that `query` names: its label, the full name of a
   // declaration of its Lean statement (`leanNames`) or a trailing part of one in whole components
-  // (the short name a drawing shows), its number or title (`Theorem 7.2`), compared without regard
-  // to case or repeated spaces. A node's own label wins, then a node whose first declaration
-  // matches, then the first match in the graph's order; "" when no node matches.
+  // (the short name a drawing shows), its number or title (`Theorem 7.2`, or the number alone,
+  // `7.2`), compared without regard to case or repeated spaces. A node's own label wins, then a
+  // node whose first declaration matches, then the first match in the order of the graph data;
+  // "" when no node matches.
   export function graphNodeLabelFor(graphData, query) {
     const nodes = graphData && Array.isArray(graphData.nodes) ? graphData.nodes : [];
     const wanted = String(query || "").trim();
     if (!wanted) return "";
     const byLabel = nodes.find(function (node) { return node && node.label === wanted; });
     if (byLabel) return byLabel.label;
-    const names = function (node) { return Array.isArray(node.leanNames) ? node.leanNames : []; };
+    const names = function (node) {
+      return (Array.isArray(node.leanNames) ? node.leanNames : [])
+        .map(function (decl) { return decl && typeof decl === "object" ? decl.name : decl; })
+        .filter(function (name) { return typeof name === "string"; });
+    };
     const first = nodes.find(function (node) {
       return node && names(node).length > 0 && leanNameEndsWith(names(node)[0], wanted);
     });
@@ -248,31 +253,40 @@
       if (!node) return false;
       if (names(node).some(function (name) { return leanNameEndsWith(name, wanted); })) return true;
       return [node.title, node.displayLabel].some(function (text) {
-        return typeof text === "string" && normalizedNodeQuery(text) === lowered;
+        if (typeof text !== "string") return false;
+        const normalized = normalizedNodeQuery(text);
+        // the number alone: the last word of a numbered title
+        return normalized === lowered || (/^[0-9a-z.]*[0-9][0-9a-z.]*$/.test(lowered) &&
+          normalized.endsWith(" " + lowered));
       });
     });
     return other ? other.label : "";
   }
 
-  // What the nodes of a drawing show (`name` or `number`): the reader's choice, kept for the
-  // reader under `nodeTextStorageKey`, else the site's.
+  // What the nodes of a drawing show (`name` or `number`): the reader's choice on this site,
+  // kept in local storage under `nodeTextStorageKey` followed by the site's address, else the
+  // default the site's author chose. Sites on one origin keep their readers' choices apart.
   export const nodeTextStorageKey = "bp-graph-node-text";
 
   export function normalizeNodeText(value) {
     return value === "number" ? "number" : (value === "name" ? "name" : "");
   }
 
-  export function storedNodeText() {
+  export function nodeTextKey(site) {
+    return nodeTextStorageKey + ":" + String(site || "");
+  }
+
+  export function storedNodeText(site) {
     try {
-      return normalizeNodeText(window.localStorage.getItem(nodeTextStorageKey));
+      return normalizeNodeText(window.localStorage.getItem(nodeTextKey(site)));
     } catch (_err) {
       return "";
     }
   }
 
-  export function storeNodeText(value) {
+  export function storeNodeText(site, value) {
     try {
-      window.localStorage.setItem(nodeTextStorageKey, normalizeNodeText(value) || "name");
+      window.localStorage.setItem(nodeTextKey(site), normalizeNodeText(value) || "name");
     } catch (_err) {
       // the choice lasts for this page only
     }
@@ -908,6 +922,7 @@
     graphNodeLabel,
     graphNodeLabelFor,
     nodeTextStorageKey,
+    nodeTextKey,
     normalizeNodeText,
     storedNodeText,
     storeNodeText,

@@ -19,7 +19,8 @@ NAMED_ID = "bp-node-aids-005Fsectioned"
 UNNAMED = "aids_proof_only"
 UNNAMED_ID = "bp-node-aids-005Fproof-005Fonly"
 
-STORAGE_KEY = "bp-graph-node-text"
+# the reader's choice, kept for the site (served from the root here)
+STORAGE_KEY = "bp-graph-node-text:/"
 
 
 def graph_node_data(page: Page, label: str) -> dict:
@@ -162,12 +163,13 @@ class TestGraphNodeNames:
     def test_a_node_is_found_by_its_number_or_its_lean_name(self, server: str, page: Page):
         open_graph(page, server)
         data = graph_node_data(page, NAMED)
-        full = data["leanNames"][0]
-        # the node view by number
-        open_graph(page, server, "#node=" + data["title"].replace(" ", "%20"))
-        page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
-        assert page.evaluate(
-            "() => document.querySelector('.bp_graph_fullwidth').__bpGraphState.nodeViewLabel") == NAMED
+        full = data["leanNames"][0]["name"]
+        # the node view by number, with its kind or alone
+        for query in (data["title"].replace(" ", "%20"), data["title"].split(" ")[-1]):
+            open_graph(page, server, "#node=" + query)
+            page.wait_for_selector(".bp_graph_preview .bp_node_view", timeout=60000)
+            assert page.evaluate(
+                "() => document.querySelector('.bp_graph_fullwidth').__bpGraphState.nodeViewLabel") == NAMED
         # the neighbourhood view by the short name and by the full name
         for query in ("aidSectioned", full):
             open_graph(page, server, "#ego=" + query + "&k=1")
@@ -181,10 +183,63 @@ class TestGraphNodeNames:
         node = page.locator(f".bp_graph_canvas > svg g.node[id='{NAMED_ID}']")
         label = node.get_attribute("aria-label") or ""
         status = data["visual"]["tooltip"]
-        assert label.startswith(f"{data['title']} ({NAMED}), Lean name {data['leanNames'][0]}: "), label
+        assert label.startswith(f"{data['title']} ({NAMED}), Lean name {data['leanNames'][0]['name']}: "), label
         assert label.endswith(status), (label, status)
         unnamed = page.locator(f".bp_graph_canvas > svg g.node[id='{UNNAMED_ID}']")
         unnamed_label = unnamed.get_attribute("aria-label") or ""
         assert unnamed_label.startswith(graph_node_data(page, UNNAMED)["title"]), unnamed_label
         assert "Lean name" not in unnamed_label
         assert unnamed_label.endswith("No Lean declaration")
+
+    def test_another_sites_choice_does_not_apply_here(self, server: str, page: Page):
+        """The reader's choice is kept per site: a choice made on another site of the same origin
+        leaves this one on its author's default."""
+        page.add_init_script(
+            "try { localStorage.setItem('bp-graph-node-text:/another-site/', 'number'); } catch (e) {}")
+        open_graph(page, server)
+        assert page.get_attribute(".bp_graph_fullwidth", "data-bp-graph-node-text") == "name"
+        assert visible_label(page, NAMED_ID) == "aidSectioned"
+
+    def test_a_named_node_shows_its_number_and_full_names_on_hover(self, server: str, page: Page):
+        open_graph(page, server)
+        data = graph_node_data(page, NAMED)
+        node = page.locator(f".bp_graph_canvas > svg g.node[id='{NAMED_ID}']")
+        title = node.locator(":scope > title")
+        expect(title).to_have_count(1)
+        lines = (title.text_content() or "").split("\n")
+        assert lines[0] == f"{data['title']} ({NAMED})", lines
+        assert lines[1:] == [d["name"] + ("" if d["present"] else " (not found)")
+                             for d in data["leanNames"]], lines
+        assert node.get_attribute("data-bp-node-name") == NAMED
+        # a declaration named but not found is marked so in the hover, and still named
+        missing = page.evaluate(
+            """() => document.querySelector('.bp_graph_fullwidth').__bpGraphData.nodes
+                .find((n) => (n.leanNames || []).some((d) => !d.present))""")
+        assert missing, "the showcase has a node whose declaration is missing"
+        node_id = page.evaluate(
+            """(label) => Array.from(document.querySelectorAll('.bp_graph_canvas > svg g.node'))
+                .find((n) => n.getAttribute('data-bp-node-name') === label).id""", missing["label"])
+        hover = page.locator(f".bp_graph_canvas > svg g.node[id='{node_id}'] > title").text_content()
+        gone = [d["name"] for d in missing["leanNames"] if not d["present"]]
+        assert all(f"{name} (not found)" in hover for name in gone), hover
+
+    def test_no_two_nodes_read_the_same(self, server: str, page: Page):
+        """After shortening, no two labels on the graph are the same text, nor the same text around
+        their ellipses; nodes showing one declaration carry their numbers under it."""
+        open_graph(page, server)
+        labels = page.evaluate(
+            """() => Array.from(document.querySelectorAll('.bp_graph_canvas > svg g.node'))
+                .map((n) => Array.from(n.querySelectorAll(':scope > text'))
+                  .filter((t) => getComputedStyle(t).display !== 'none')
+                  .map((t) => t.textContent).join('|'))""")
+        assert len(labels) == len(set(labels)), sorted(l for l in labels if labels.count(l) > 1)
+
+        def around(label: str) -> str:
+            head, _, rest = label.partition("…")
+            return head[:4] + "…" + rest[-4:]
+        cut = [l for l in labels if "…" in l and "|" not in l.split("…")[-1]]
+        keys = [around(l) for l in cut]
+        assert len(keys) == len(set(keys)), [l for l in cut if keys.count(around(l)) > 1]
+        # the showcase attaches `Nat.add` to several nodes: each shows its number under it
+        adds = [l for l in labels if l.split("|")[0] == "add"]
+        assert len(adds) >= 2 and all(len(l.split("|")) == 2 for l in adds), adds
