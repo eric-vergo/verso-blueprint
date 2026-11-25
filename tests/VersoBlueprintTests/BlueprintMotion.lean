@@ -5,6 +5,7 @@ Author: Eric Vergo
 -/
 
 import VersoBlueprint.Motion
+import VersoBlueprint.LinkCheck
 import VersoBlueprintTests.Blueprint.Support
 
 namespace Verso.VersoBlueprintTests.BlueprintMotion
@@ -30,10 +31,14 @@ private def headString (cfg : RenderConfig) : String :=
     hasSubstr head "catch(e){}" &&
     css.any (hasSubstr · "html[data-motion=\"reduce\"] .bp_motion_live") &&
     css.any (hasSubstr · "@media (prefers-reduced-motion: reduce)") &&
-    css.any (hasSubstr · ".bp_motion_stills") &&
+    -- the stills are shown by lifting their hiding, keeping the display their producer gives
+    css.any (hasSubstr · "html:not([data-motion=\"reduce\"]) .bp_motion_stills") &&
+    !css.any (hasSubstr · "display: block") &&
+    css.any (hasSubstr · "@media print") &&
     -- hidden without stopping the animation's clock
     css.any (hasSubstr · "visibility: hidden") &&
-    js.any (hasSubstr · "[data-bp-motion], .pilean-motion")
+    js.any (hasSubstr · "\"[data-bp-motion]\"") &&
+    !js.any (hasSubstr · "pilean")
 
 -- Applying it twice does not duplicate the early script.
 /-- info: true -/
@@ -41,5 +46,16 @@ private def headString (cfg : RenderConfig) : String :=
 #eval
   let twice := Informal.Motion.withMotion (Informal.Motion.withMotion {})
   countSubstr (headString twice) "verso-blueprint-motion" == 1
+
+-- A link to the switch on its own page is not a dead link, although the switch is created by the
+-- page's script; the same place on another page, or another bare place, is still checked.
+/-- info: true -/
+#guard_msgs in
+#eval
+  let check := Informal.LinkCheck.resolve ["Chapter"] (some "../")
+  Informal.LinkCheck.scriptPlaces.contains Informal.Motion.controlId &&
+    (check ("#" ++ Informal.Motion.controlId)).isNone &&
+    (check "#elsewhere").isSome &&
+    (check ("Other/#" ++ Informal.Motion.controlId)).isSome
 
 end Verso.VersoBlueprintTests.BlueprintMotion

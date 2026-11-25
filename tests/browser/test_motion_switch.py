@@ -1,8 +1,11 @@
 """Browser checks for the animations switch and the motion hook classes (`Informal.Motion`).
 
 The showcase's "Animated Figures" chapter holds one script-free animated SVG (a dot turning about a
-centre, once every four seconds) wrapped in the hook classes, with a still picture beside it.
+centre, once every four seconds) wrapped in the hook classes, with a still picture beside it and a
+caption link to the switch.
 """
+
+import re
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -101,6 +104,30 @@ def stills(page: Page):
 
 def computed(locator, prop: str) -> str:
     return locator.evaluate(f"e => getComputedStyle(e).{prop}")
+
+
+def group_description(page: Page) -> str:
+    """The accessible description of the switch's radio group, from the browser's accessibility
+    tree."""
+    cdp = page.context.new_cdp_session(page)
+    try:
+        for node in cdp.send("Accessibility.getFullAXTree")["nodes"]:
+            if node.get("role", {}).get("value") == "radiogroup" and node.get("name", {}).get("value") == "Animations":
+                return node.get("description", {}).get("value", "")
+    finally:
+        cdp.detach()
+    raise AssertionError("no Animations radio group in the accessibility tree")
+
+
+def rewritten_page(page: Page, server: str, pattern: str):
+    """Serve the motion page with the parts of its markup that match `pattern` removed."""
+
+    def handle(route):
+        response = route.fetch()
+        body = re.sub(pattern, "", response.text(), flags=re.S)
+        route.fulfill(response=response, body=body)
+
+    page.route(server + MOTION_PAGE, handle)
 
 
 @pytest.fixture
@@ -236,7 +263,7 @@ class TestMotionSwitch:
         note = page.locator(".bp_motion_note")
         expect(note).to_be_visible()
         expect(note).to_contain_text("reduced motion")
-        expect(control(page)).to_have_accessible_description(note.text_content())
+        assert group_description(page) == note.text_content()
         on.click(force=True)
         assert computed(live(page), "visibility") == "hidden"
         expect(on).to_have_attribute("aria-checked", "false")
@@ -246,8 +273,26 @@ class TestMotionSwitch:
         expect(on).to_have_attribute("aria-checked", "true")
         expect(on).not_to_have_attribute("aria-disabled", "true")
         expect(note).to_be_hidden()
+        # the note no longer describes the switch once it does not apply
+        assert group_description(page) == ""
         assert computed(live(page), "visibility") == "visible"
         assert_no_runtime_errors(errors)
+
+    def test_no_description_without_system_reduced_motion(self, motion_page: Page):
+        assert group_description(motion_page) == ""
+        expect(motion_page.locator(".bp_motion_note")).to_be_hidden()
+
+    def test_choosing_the_shown_choice_stores_nothing(self, server: str, page: Page):
+        page.emulate_media(reduced_motion="reduce")
+        page.goto(server + MOTION_PAGE)
+        off = choice(page, "off")
+        off.focus()
+        page.keyboard.press("Space")
+        off.click()
+        assert page.evaluate(f"localStorage.getItem('{STORAGE_KEY}')") is None
+        page.emulate_media(reduced_motion="no-preference")
+        expect(choice(page, "on")).to_have_attribute("aria-checked", "true")
+        assert computed(live(page), "visibility") == "visible"
 
     def test_keyboard(self, motion_page: Page):
         page = motion_page
@@ -334,3 +379,136 @@ class TestMotionSwitch:
             expect(other.locator("html")).not_to_have_attribute("data-motion", "reduce")
         finally:
             context.close()
+
+    def test_print_shows_the_still_picture(self, motion_page: Page):
+        page = motion_page
+        page.emulate_media(media="print")
+        assert computed(live(page), "display") == "none"
+        assert computed(stills(page), "display") == "block"
+        expect(control(page)).to_be_hidden()
+        page.emulate_media(media="screen")
+        assert computed(live(page), "visibility") == "visible"
+        assert computed(stills(page), "display") == "none"
+
+    def test_stills_keep_their_own_display(self, motion_page: Page):
+        page = motion_page
+        page.add_style_tag(content=".bp_probe_stills { display: grid; }")
+        page.evaluate(
+            """() => {
+              const el = document.createElement('div');
+              el.className = 'bp_motion_stills bp_probe_stills';
+              el.id = 'bp-probe-stills';
+              el.textContent = 'still';
+              document.querySelector('#bp-motion-demo').appendChild(el);
+            }"""
+        )
+        probe = page.locator("#bp-probe-stills")
+        assert computed(probe, "display") == "none"
+        choice(page, "off").click()
+        assert computed(probe, "display") == "grid"
+        choice(page, "on").click()
+        page.emulate_media(reduced_motion="reduce")
+        assert computed(probe, "display") == "grid"
+        page.emulate_media(media="print", reduced_motion="no-preference")
+        assert computed(probe, "display") == "grid"
+
+    def test_switch_appears_for_motion_added_after_load(self, server: str, page: Page):
+        errors = record_runtime_errors(page)
+        page.emulate_media(reduced_motion="no-preference")
+        page.goto(server + STILL_PAGE)
+        page.wait_for_load_state("load")
+        # the class of one particular figure library is not a sign of motion; the attribute is
+        page.evaluate(
+            """() => { const el = document.createElement('div'); el.className = 'pilean-motion';
+                       document.querySelector('main').appendChild(el); }"""
+        )
+        page.wait_for_timeout(100)
+        expect(page.locator(".bp_motion")).to_have_count(0)
+        page.evaluate(
+            """() => {
+              const preview = document.createElement('div');
+              preview.innerHTML = '<figure data-bp-motion=""><div class="bp_motion_live">moving</div>' +
+                '<div class="bp_motion_stills">still</div></figure>';
+              document.querySelector('main').appendChild(preview);
+            }"""
+        )
+        expect(control(page)).to_be_visible()
+        assert page.evaluate(
+            "() => document.querySelector('[data-verso-theme-toggle]').nextElementSibling.id === 'bp-motion'"
+        )
+        # a second preview adds no second switch
+        page.evaluate(
+            """() => { const el = document.createElement('div'); el.setAttribute('data-bp-motion', '');
+                       document.querySelector('main').appendChild(el); }"""
+        )
+        page.wait_for_timeout(100)
+        expect(page.locator(".bp_motion")).to_have_count(1)
+        assert_no_runtime_errors(errors)
+
+    def test_switch_is_there_when_the_page_has_loaded(self, server: str, page: Page):
+        page.add_init_script(
+            """window.addEventListener('load', () => {
+                 window.__bpMotionAtLoad = document.getElementById('bp-motion') !== null;
+               }, { once: true });"""
+        )
+        page.goto(server + MOTION_PAGE)
+        assert page.evaluate("window.__bpMotionAtLoad") is True
+
+    @pytest.mark.parametrize("width", [390, 1440])
+    def test_caption_link_leads_to_the_switch(self, server: str, page: Page, width: int):
+        errors = record_runtime_errors(page)
+        page.set_viewport_size({"width": width, "height": 844})
+        page.emulate_media(reduced_motion="no-preference")
+        page.goto(server + MOTION_PAGE)
+        link = page.locator("#bp-motion-demo a.bp_motion_link")
+        expect(link).to_be_visible()
+        if width < 700:
+            expect(control(page)).not_to_be_in_viewport()
+        link.click()
+        expect(page).to_have_url(re.compile(re.escape(MOTION_PAGE) + "$"))
+        expect(choice(page, "on")).to_be_focused()
+        expect(control(page)).to_be_in_viewport(ratio=1)
+        page.keyboard.press("ArrowRight")
+        expect(page.locator("html")).to_have_attribute("data-motion", "reduce")
+        assert_no_runtime_errors(errors)
+
+    def test_address_naming_the_switch_focuses_it(self, server: str, page: Page):
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.emulate_media(reduced_motion="no-preference")
+        page.goto(server + MOTION_PAGE + "#bp-motion")
+        expect(choice(page, "on")).to_be_focused()
+        expect(control(page)).to_be_in_viewport(ratio=1)
+
+    def test_without_scripts(self, server: str, browser):
+        for reduced in ("no-preference", "reduce"):
+            context = browser.new_context(java_script_enabled=False, reduced_motion=reduced)
+            try:
+                page = context.new_page()
+                page.goto(server + MOTION_PAGE)
+                expect(page.locator(".bp_motion")).to_have_count(0)
+                expect(page.locator("#bp-motion-demo a.bp_motion_link")).to_be_hidden()
+                hidden = reduced == "reduce"
+                assert computed(live(page), "visibility") == ("hidden" if hidden else "visible")
+                assert computed(stills(page), "display") == ("block" if hidden else "none")
+            finally:
+                context.close()
+
+    def test_placed_at_the_foot_of_the_contents_without_a_theme_control(self, server: str, page: Page):
+        rewritten_page(page, server, r'<div class="theme-toggle".*?</div>')
+        page.emulate_media(reduced_motion="no-preference")
+        page.goto(server + MOTION_PAGE)
+        expect(page.locator("[data-verso-theme-toggle]")).to_have_count(0)
+        expect(control(page)).to_be_attached()
+        assert page.evaluate("() => document.getElementById('bp-motion').parentElement.matches('#toc > .last')")
+        choice(page, "off").click(force=True)
+        expect(page.locator("html")).to_have_attribute("data-motion", "reduce")
+
+    def test_placed_in_the_main_content_without_contents(self, server: str, page: Page):
+        rewritten_page(page, server, r'<nav id="toc">.*?</nav>')
+        page.emulate_media(reduced_motion="no-preference")
+        page.goto(server + MOTION_PAGE)
+        expect(page.locator("#toc")).to_have_count(0)
+        expect(control(page)).to_be_visible()
+        assert page.evaluate("() => document.querySelector('main').firstElementChild.id === 'bp-motion'")
+        choice(page, "off").click()
+        expect(page.locator("html")).to_have_attribute("data-motion", "reduce")

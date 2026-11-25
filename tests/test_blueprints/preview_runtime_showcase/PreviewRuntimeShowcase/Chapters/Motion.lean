@@ -8,8 +8,8 @@ open Verso.Genre.Manual
 namespace PreviewRuntimeShowcase.Chapters.Motion
 
 /-- A script-free animated figure: a dot turning about a centre, once every four seconds, with a
-still picture of its first frame. The figure announces its motion with `data-bp-motion` and uses
-the hook classes of `Informal.Motion`. -/
+still picture of its first frame and a caption link to the switch. The figure announces its motion
+with `data-bp-motion` and uses the hook classes of `Informal.Motion`. -/
 def figureHtml : String := r##"<figure class="bp_motion_demo" data-bp-motion="" id="bp-motion-demo">
 <div class="bp_motion_live">
 <svg id="bp-motion-demo-svg" width="120" height="120" viewBox="-60 -60 120 120" role="img" aria-label="A dot turning about a centre">
@@ -28,7 +28,7 @@ def figureHtml : String := r##"<figure class="bp_motion_demo" data-bp-motion="" 
 <circle cx="40" cy="0" r="9" fill="currentColor"/>
 </svg>
 </div>
-<figcaption>A dot turning about a centre.</figcaption>
+<figcaption>A dot turning about a centre. <a class="bp_motion_link" href="#bp-motion">Animations can be turned off in the page menu.</a></figcaption>
 </figure>"##
 
 open Verso Doc Elab Genre Manual in
