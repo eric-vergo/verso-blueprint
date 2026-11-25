@@ -907,9 +907,23 @@ def test_parts_number_chapters_across_parts(side_by_side_site_dir: Path):
 # The page of the fixture with Lean code in its running text: a block and inline code.
 PROSE_LEAN_PAGE = "/Reading-Aids/Lean-in-the-Text/"
 
-# Lean code of the running text, as opposed to that of the Blueprint's own components.
+# The places of the running text where a Lean block is a block of the text.
+_PROSE_PLACES = (
+    "main section:not([class]), main section:not([class]) > :is(ul, ol) > li, "
+    "main section:not([class]) > blockquote, main section:not([class]) > dl > dd, div.paragraph, "
+    ".bp_content"
+)
+
+# Lean blocks of the running text, as opposed to those of the Blueprint's own components.
 _PROSE_BLOCK_JS = """() => [...document.querySelectorAll('code.hl.lean.block')].filter((b) =>
-    !b.closest('.bp_code_block, .bp_sbs_formal, .bp_decl_source, .bp_code_panel, .tippy-box'))"""
+    b.parentElement.matches('""" + _PROSE_PLACES + """'))"""
+
+# Lean blocks of the Blueprint's own components: the Lean column, code panels, the code of the
+# Comparator and statistics pages.
+_COMPONENT_BLOCKS = (
+    ".bp_sbs_formal code.hl.lean.block, details.bp_code_block code.hl.lean.block, "
+    ".bp_comparator_code code.hl.lean.block, .bp_stats_statement_code code.hl.lean.block"
+)
 
 # Each visible token of the Lean code that `selector` finds (in `root`, a function giving the
 # elements), with its contrast against the colour behind it.
@@ -1006,23 +1020,80 @@ class TestLeanInTheText:
         for kind, (actual, expected) in colours.items():
             assert actual == expected, (scheme, kind, actual, expected)
 
-    def test_prose_block_is_framed_and_scrolls_inside_the_column(self, side_by_side_server: str, page: Page):
+    def test_prose_block_is_framed_on_the_reading_column(self, side_by_side_server: str, page: Page):
         for width in (1440, 360):
             page.set_viewport_size({"width": width, "height": 900})
             page.goto(side_by_side_server + PROSE_LEAN_PAGE)
             facts = page.evaluate(
                 """() => {
                   const b = (""" + _PROSE_BLOCK_JS + """)()[0];
+                  const p = b.parentElement.querySelector(':scope > p');
                   const cs = getComputedStyle(b);
+                  const box = b.getBoundingClientRect(), text = p.getBoundingClientRect();
+                  const section = b.parentElement.getBoundingClientRect();
                   return { border: cs.borderTopWidth, overflow: cs.overflowX, padding: cs.paddingLeft,
-                           right: b.getBoundingClientRect().right,
+                           left: box.left, width: box.width, right: box.right,
+                           textLeft: text.left, textWidth: text.width, sectionRight: section.right,
+                           scrolls: b.scrollWidth > b.clientWidth,
                            page: [document.documentElement.scrollWidth, document.documentElement.clientWidth] };
                 }"""
             )
             assert facts["border"] == "1px" and facts["overflow"] == "auto", facts
             assert float(facts["padding"][:-2]) > 4, facts
+            # it starts where the paragraphs start, is at least as wide as they are, and stays in the
+            # content area: a line longer than that scrolls inside the block, not the page
+            assert abs(facts["left"] - facts["textLeft"]) <= 1, (width, facts)
+            assert facts["width"] >= facts["textWidth"] - 1, (width, facts)
+            assert facts["right"] <= facts["sectionRight"] + 1, (width, facts)
             assert facts["page"][0] <= facts["page"][1], (width, facts)
-            assert facts["right"] <= width, (width, facts)
+            if width == 360:
+                assert facts["scrolls"], facts
+
+    def test_blueprint_components_keep_their_own_code_layout(
+        self, side_by_side_server: str, side_by_side_site_dir: Path, page: Page
+    ):
+        seen = 0
+        for path in (side_by_side_page_path(side_by_side_site_dir), "/Code-Panels/", "/Project-Stats/"):
+            page.goto(side_by_side_server + path)
+            page.evaluate("() => document.querySelectorAll('details').forEach(d => d.open = true)")
+            framed = page.evaluate(
+                """(sel) => [...document.querySelectorAll(sel)].map((b) => {
+                  const cs = getComputedStyle(b);
+                  return [b.parentElement.className, cs.borderTopStyle, cs.borderTopWidth, cs.minWidth];
+                })""",
+                _COMPONENT_BLOCKS,
+            )
+            seen += len(framed)
+            # none of them gets the frame of a Lean block of the text
+            assert all(f[1] == "none" or f[2] == "0px" for f in framed), (path, framed)
+            assert not page.evaluate(
+                "(sel) => [...document.querySelectorAll(sel)].some((b) => b.parentElement.matches(" +
+                repr(_PROSE_PLACES) + "))",
+                _COMPONENT_BLOCKS,
+            ), path
+        assert seen, "no component code on these pages"
+
+    @pytest.mark.parametrize("scheme", ("light", "dark"))
+    def test_lean_messages_keep_their_colours(self, side_by_side_server: str, page: Page, scheme: str):
+        page.emulate_media(color_scheme=scheme)
+        page.goto(side_by_side_server + PROSE_LEAN_PAGE)
+        page.wait_for_function(
+            "document.getAnimations().every((a) => a.playState !== 'running')", timeout=5000
+        )
+        result = page.evaluate(
+            """() => {
+              const probe = document.createElement('span');
+              document.body.appendChild(probe);
+              probe.style.color = 'var(--verso-message-error-color, #cc0000)';
+              const error = getComputedStyle(probe).color;
+              const tokens = [...document.querySelectorAll('.error .verso-message .token')]
+                .filter((t) => t.textContent.trim());
+              return { error, tokens: tokens.map((t) => [t.textContent, getComputedStyle(t).color]) };
+            }"""
+        )
+        assert result["tokens"], result
+        wrong = [t for t in result["tokens"] if t[1] != result["error"]]
+        assert not wrong, (scheme, result["error"], wrong)
 
     def test_hovering_a_prose_token_shows_its_tooltip(self, side_by_side_server: str, page: Page):
         errors = record_runtime_errors(page)
@@ -1061,6 +1132,12 @@ class TestLeanInTheText:
         rel = source.relative_to(PACKAGE_ROOT).as_posix()
         page.goto(side_by_side_server + PROSE_LEAN_PAGE)
         link = page.locator("code.hl.lean.block a:has(.const.token[data-binding$='.aidSlack'])").first
+        origin = subprocess.run(["git", "remote", "get-url", "origin"], cwd=PACKAGE_ROOT,
+                                capture_output=True, text=True).stdout.strip()
+        if "github.com" not in origin:
+            pytest.skip("the checkout has no GitHub origin, so its files have no address")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=PACKAGE_ROOT,
+                              capture_output=True, text=True, check=True).stdout.strip()
         clean = subprocess.run(["git", "diff", "--quiet", "HEAD", "--", str(source)], cwd=PACKAGE_ROOT).returncode == 0
         if not clean:
             # a file that differs from the commit has no address at it
@@ -1069,6 +1146,8 @@ class TestLeanInTheText:
         href = link.get_attribute("href") or ""
         m = re.fullmatch(r"https://github\.com/[^/]+/[^/]+/blob/([0-9a-f]{40})/(.+)#L(\d+)(?:-L(\d+))?", href)
         assert m, href
+        # the commit the site was built from, and the file there
+        assert m.group(1) == head, (href, head)
         assert m.group(2) == rel, href
         lines = source.read_text(encoding="utf-8").splitlines()
         start, stop = int(m.group(3)), int(m.group(4) or m.group(3))

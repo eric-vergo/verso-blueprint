@@ -65,3 +65,10 @@ example : aidSlack = 2 ∧ (Nat : Type) = Nat :=
 
 end PreviewRuntimeShowcase.ReadingAidDecls
 ```
+
+An error that Lean reports is shown in Lean's message colours:
+
+```Verso.Genre.Manual.InlineLean.lean (error := true)
+open PreviewRuntimeShowcase.ReadingAidDecls in
+example : aidSlack = 3 := by decide
+```

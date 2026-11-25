@@ -173,6 +173,17 @@ def test_challenge_page_shows_files_verdict_and_links(page: Page, comparator_url
     assert seen == {"errors": [], "outside": []}
 
 
+def test_challenge_code_is_not_framed_as_text(page: Page, comparator_urls):
+    """The files of a challenge keep the Comparator page's layout: no frame of a Lean block of the
+    running text."""
+    page.goto(comparator_urls["accepted"] + "/Comparator/Double/", wait_until="load")
+    styles = page.eval_on_selector_all(
+        ".bp_comparator_code code.hl.lean.block",
+        "els => els.map(e => [getComputedStyle(e).borderTopStyle, getComputedStyle(e).minWidth])",
+    )
+    assert styles and all(style == "none" for style, _ in styles), styles
+
+
 def test_hovers_on_the_solution(page: Page, comparator_urls):
     url = comparator_urls["accepted"]
     page.goto(url + "/Comparator/Double/", wait_until="load")
