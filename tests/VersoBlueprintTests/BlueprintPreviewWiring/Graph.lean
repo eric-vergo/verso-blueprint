@@ -239,7 +239,7 @@ Base statement for graph preview mode option coverage.
       hasSubstr out "data-bp-graph-default-node-text=\"number\"" &&
       hasSubstr out "<option value=\"number\" selected>Number</option>" &&
       hasSubstr out "<option value=\"name\">Lean name</option>" &&
-      hasSubstr out "\"leanNames\":[\"Nat.add_comm\"]" &&
+      hasSubstr out "\"leanNames\":[{\"isTheorem\":true,\"name\":\"Nat.add_comm\",\"present\":true}]" &&
       hasSubstr out "display=\"none\">add_comm</text>" &&
       hasSubstr out "<text class=\"bp_graph_label_number\" x="
     )
