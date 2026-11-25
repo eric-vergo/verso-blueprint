@@ -2505,7 +2505,8 @@ that are not formalized yet.
 Every render model carries project statistics (`Informal.Stats.ProjectStats`),
 the numbers a first-time reader of a project looks for. They are captured with
 the rest of the model and saved as the traversal's `stats` overview; their JSON
-form is described in `doc/schemas/project-stats.schema.json`.
+form is described in `doc/schemas/project-stats.schema.json`. Its `schemaVersion`
+changes when the shape of the data or the meaning of a field changes.
 
 - **Identity**: the root package name from `lake-manifest.json`, the first
   heading and first prose paragraph of the README, the license file with a
