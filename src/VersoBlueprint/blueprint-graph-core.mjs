@@ -145,7 +145,7 @@ export function readGraphJsonScript(root, selector) {
   }
 }
 
-const graphDataSchemaVersion = 4;
+const graphDataSchemaVersion = 5;
 
 /**
  * @param {unknown} value

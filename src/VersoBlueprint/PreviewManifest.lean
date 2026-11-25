@@ -712,7 +712,7 @@ This is a VBP stale-artifact diagnostic marker, not a public interchange
 version. It may change whenever the generated-data reader needs a clean
 validation boundary.
 -/
-def manifestInternalSchemaVersion : Nat := 11
+def manifestInternalSchemaVersion : Nat := 12
 
 def manifestInternalSchemaVersionField : String := "vbpInternalSchemaVersion"
 

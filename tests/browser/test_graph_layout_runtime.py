@@ -348,29 +348,29 @@ class TestGraphLayoutRuntime:
                     {
                         fetchJson: () => ({
                             graphs: [
-                                completeRecord(4, "graph:current", [fullVariant]),
-                                completeRecord(3, "graph:obsolete-schema", [fullVariant]),
-                                completeRecord(4, "graph:no-variants", []),
-                                completeRecord(4, "graph:blank-label", [
+                                completeRecord(5, "graph:current", [fullVariant]),
+                                completeRecord(4, "graph:obsolete-schema", [fullVariant]),
+                                completeRecord(5, "graph:no-variants", []),
+                                completeRecord(5, "graph:blank-label", [
                                     { ...fullVariant, label: " " }
                                 ]),
-                                completeRecord(4, "graph:invalid-options", [
+                                completeRecord(5, "graph:invalid-options", [
                                     { ...fullVariant, options: { direction: "sideways", pack: false } }
                                 ]),
-                                completeRecord(4, "graph:invalid-pair", [
+                                completeRecord(5, "graph:invalid-pair", [
                                     { ...fullVariant, previewKeyByNodeId: [["node-only"]] }
                                 ]),
-                                completeRecord(4, "graph:duplicate-variant", [
+                                completeRecord(5, "graph:duplicate-variant", [
                                     fullVariant,
                                     { ...fullVariant, label: "Duplicate Full Graph" }
                                 ]),
-                                completeRecord(4, "graph:missing-full", [
+                                completeRecord(5, "graph:missing-full", [
                                     { ...fullVariant, key: "group", label: "Group View" }
                                 ]),
-                                completeRecord(4, "graph:unknown-variant-target", [
+                                completeRecord(5, "graph:unknown-variant-target", [
                                     { ...fullVariant, selectOnNodeId: [["node-id", "missing"]] }
                                 ]),
-                                completeRecord(4, "graph:duplicate-node-mapping", [
+                                completeRecord(5, "graph:duplicate-node-mapping", [
                                     {
                                         ...fullVariant,
                                         previewKeyByNodeId: [
@@ -380,7 +380,7 @@ class TestGraphLayoutRuntime:
                                     }
                                 ]),
                                 {
-                                    schemaVersion: 4,
+                                    schemaVersion: 5,
                                     key: "graph:incomplete-record",
                                     nodes: [],
                                     edges: [],

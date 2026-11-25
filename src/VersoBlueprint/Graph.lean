@@ -406,7 +406,7 @@ structure GraphModel where
   groupMetadata : Array GroupMetadata := #[]
 deriving Inhabited, Repr, ToJson, FromJson, Quote
 
-private def graphDataSchemaVersion : Nat := 4
+private def graphDataSchemaVersion : Nat := 5
 
 /--
 Finished graph data shared by Lean, generated manifests, and browser clients.
