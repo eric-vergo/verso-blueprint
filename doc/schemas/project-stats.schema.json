@@ -9,7 +9,7 @@
     "claims", "replay", "builtSources", "sourceChanged"],
   "additionalProperties": false,
   "properties": {
-    "schemaVersion": { "const": 9 },
+    "schemaVersion": { "const": 10 },
     "identity": { "$ref": "#/$defs/identity" },
     "layout": {
       "description": "Where the statistics looked: source directories that hold the project's modules, and library directories of the workspace's packages inside the project.",
@@ -738,7 +738,7 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "source", "rev", "inputRev", "url", "dir", "inherited"],
+            "required": ["name", "source", "rev", "inputRev", "url", "dir", "subDir", "inherited"],
             "additionalProperties": false,
             "properties": {
               "name": { "type": "string" },
@@ -747,6 +747,10 @@
               "inputRev": { "$ref": "#/$defs/nullableString" },
               "url": { "description": "Without any user name or password.", "$ref": "#/$defs/nullableString" },
               "dir": { "$ref": "#/$defs/nullableString" },
+              "subDir": {
+                "description": "The folder of the repository that holds the package, when it is not the repository's root.",
+                "$ref": "#/$defs/nullableString"
+              },
               "inherited": { "type": "boolean" }
             }
           }
